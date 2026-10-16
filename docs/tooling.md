@@ -58,7 +58,7 @@
 | Инструмент | Причина |
 |---|---|
 | Serena | проект небольшой (≈ десятки файлов), обычного поиска достаточно |
-| GitHub MCP | не нужен: в GitHub будет только код (`origin` = `https://github.com/Alexshum1412/home-server-shum`, публичный, пока пустой; отправка — после подтверждения владельца) |
+| GitHub MCP | не нужен: в GitHub только код, отправка — обычным `git push` (`origin` = `https://github.com/Alexshum1412/home-server-shum`; в локальном `.git/config` проекта `credential.helper = manager` — Git Credential Manager из PortableGit, вход выполнен владельцем) |
 | Chrome DevTools MCP | хватает Playwright CLI/Test |
 | Repomix, Snyk Agent Scan | нет потребности на этом этапе |
 | Python | нужен только для поиска UI/UX Pro Max; можно поставить позже (per-user установщик python.org) |

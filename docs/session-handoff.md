@@ -11,7 +11,7 @@ _Обновлено: 16.10.2026 (поздний вечер). Коротко: с�
 - Проверки 16.10.2026: `npm.cmd test` — 322 теста (27 файлов) проходят; `npm.cmd run lint` (145 файлов) и `npm.cmd run typecheck` — без ошибок; `openspec validate --all --strict` — без ошибок. Полный `npm.cmd run check` с e2e в этой сессии документации не запускался (по сообщению коммита `f7f10cb` — 30 e2e проходят).
 - Рабочий экземпляр: `http://127.0.0.1:8070`; пользователей ещё нет (`users.json` отсутствует) — владелец создаёт сам.
 - Tailscale Serve включён: `https://server-home.tail89d77e.ts.net` (tailnet only, без Funnel).
-- GitHub: `origin` = `https://github.com/Alexshum1412/home-server-shum` (публичный, пустой). Отправка кода — только после подтверждения владельца; данные семьи — никогда.
+- GitHub: `origin` = https://github.com/Alexshum1412/home-server-shum (публичный) — код опубликован 17.10.2026 и обновляется при каждом копировании (`BACKUP_GIT_PUSH=origin/main`); e-mail в коммитах — noreply; данные семьи — никогда.
 
 ## Как продолжить
 
@@ -28,7 +28,7 @@ scripts\backup.cmd list
 1. Владелец: `scripts\user.cmd add <логин> --name "<Имя>" --role admin`, затем вход в портал.
 2. Владелец: решить про автозапуск (`scripts\autostart.cmd`) и обновления Windows/ESU.
 3. Владелец: проверить вход с телефона по адресу tailnet и добавить на домашний экран.
-4. Владелец: подтвердить отправку кода в GitHub (`git push -u origin main`) — только код.
+4. Готово: код на GitHub (три места копий: диск C:, флешка «reserve», GitHub).
 5. Владелец: решить про зашифрованную копию вне дома (место, ключ) — `docs/runbooks/backup-restore.md`, последний раздел.
 6. Разработка: этап P2 — Jellyfin (см. `docs/roadmap.md`); при установке сервисов расширить резервное копирование на их данные.
 
