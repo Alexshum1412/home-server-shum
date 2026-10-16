@@ -32,8 +32,11 @@ export async function readJsonFile(file: string): Promise<unknown> {
 
 const RETRYABLE_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
 
-/** On Windows a rename over a file that another process has open briefly fails; retry a few times. */
-async function renameWithRetry(from: string, to: string): Promise<void> {
+/**
+ * On Windows a rename over a file (or of a folder) that another process — an antivirus scan,
+ * the indexer — has open briefly fails; retry a few times.
+ */
+export async function renameWithRetry(from: string, to: string): Promise<void> {
   let delay = 10;
   for (let attempt = 0; ; attempt += 1) {
     try {

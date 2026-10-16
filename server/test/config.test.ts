@@ -1,13 +1,18 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PUBLIC_URL, DEFAULT_TAILSCALE_EXE, loadConfig } from '../src/config.ts';
+import { REPO_ROOT } from './helpers.ts';
 
 describe('loadConfig', () => {
   it('uses safe defaults (loopback, port 8070, no demo)', () => {
-    const config = loadConfig({ LOCALAPPDATA: 'C:\\Users\\Test\\AppData\\Local' }, 'win32');
+    const config = loadConfig(
+      { LOCALAPPDATA: 'C:\\Users\\Test\\AppData\\Local', SystemDrive: 'C:' },
+      'win32',
+    );
     expect(config.host).toBe('127.0.0.1');
     expect(config.port).toBe(8070);
-    expect(config.dataDir).toBe(path.resolve('C:\\Users\\Test\\AppData\\Local\\FamilyDashboard'));
+    // The family server root: C:\FamilyServer\data\dashboard (not the user profile).
+    expect(config.dataDir).toBe(path.resolve('C:\\FamilyServer\\data\\dashboard'));
     expect(config.demo).toBe(false);
     expect(config.logLevel).toBe('info');
     expect(config.serviceCheckIntervalSec).toBe(60);
@@ -19,13 +24,58 @@ describe('loadConfig', () => {
     expect(config.publicUrl).toBe(DEFAULT_PUBLIC_URL);
     expect(config.lanUrl).toBeNull();
     expect(config.cookieSecure).toBe('auto');
+    expect(config.backupTargets).toEqual(['C:\\FamilyServer\\backups', 'label:reserve\\FamilyServerBackups']);
+    expect(config.backupKeep).toBe(14);
+    expect(config.backupRepoDir).toBe(path.resolve(REPO_ROOT));
+    expect(config.backupExtraFiles).toBeNull();
+    expect(config.gitExe).toBe('git');
     expect(Object.isFrozen(config)).toBe(true);
+    expect(Object.isFrozen(config.backupTargets)).toBe(true);
+  });
+
+  it('puts the data dir and the main-disk backups on the system drive', () => {
+    const config = loadConfig({ SystemDrive: 'E:' }, 'win32');
+    expect(config.dataDir).toBe(path.resolve('E:\\FamilyServer\\data\\dashboard'));
+    expect(config.backupTargets[0]).toBe('E:\\FamilyServer\\backups');
+    // No SystemDrive in the environment → C:
+    expect(loadConfig({}, 'win32').dataDir).toBe(path.resolve('C:\\FamilyServer\\data\\dashboard'));
   });
 
   it('falls back to the home directory and "/" outside Windows', () => {
     const config = loadConfig({}, 'linux');
     expect(config.dataDir).toContain('.family-dashboard');
     expect(config.volumes).toEqual(['/']);
+    expect(config.backupTargets).toHaveLength(1);
+    expect(config.backupTargets[0]).toContain('family-dashboard-backups');
+  });
+
+  it('parses backup settings', () => {
+    const config = loadConfig(
+      {
+        BACKUP_TARGETS: ' D:\\Backups ; label:reserve\\Family\\Copies ;',
+        BACKUP_KEEP: '30',
+        BACKUP_REPO_DIR: 'D:\\code\\dashboard',
+        BACKUP_EXTRA_FILES: 'D:\\code\\dashboard\\.env; D:\\secrets\\extra.json',
+        GIT_EXE: 'C:\\Program Files\\Git\\cmd\\git.exe',
+      },
+      'win32',
+    );
+    expect(config.backupTargets).toEqual(['D:\\Backups', 'label:reserve\\Family\\Copies']);
+    expect(config.backupKeep).toBe(30);
+    expect(config.backupRepoDir).toBe(path.resolve('D:\\code\\dashboard'));
+    expect(config.backupExtraFiles).toEqual(['D:\\code\\dashboard\\.env', 'D:\\secrets\\extra.json']);
+    expect(config.gitExe).toBe('C:\\Program Files\\Git\\cmd\\git.exe');
+    expect(loadConfig({ BACKUP_EXTRA_FILES: 'none' }, 'win32').backupExtraFiles).toEqual([]);
+  });
+
+  it('rejects invalid backup settings', () => {
+    expect(() => loadConfig({ BACKUP_KEEP: '0' }, 'win32')).toThrow(/BACKUP_KEEP/);
+    expect(() => loadConfig({ BACKUP_KEEP: 'many' }, 'win32')).toThrow(/BACKUP_KEEP/);
+    expect(() => loadConfig({ BACKUP_TARGETS: 'backups' }, 'win32')).toThrow(/BACKUP_TARGETS/);
+    expect(() => loadConfig({ BACKUP_TARGETS: 'label:reserve' }, 'win32')).toThrow(/BACKUP_TARGETS/);
+    expect(() => loadConfig({ BACKUP_TARGETS: 'label:reserve\\..\\x' }, 'win32')).toThrow(/BACKUP_TARGETS/);
+    expect(() => loadConfig({ BACKUP_TARGETS: ' ; ' }, 'win32')).toThrow(/BACKUP_TARGETS/);
+    expect(() => loadConfig({ BACKUP_EXTRA_FILES: 'relative\\.env' }, 'win32')).toThrow(/BACKUP_EXTRA_FILES/);
   });
 
   it('parses explicit values', () => {

@@ -47,6 +47,19 @@ ConvertTo-Json -Compress -Depth 3 -InputObject @($items)
 })
 ConvertTo-Json -Compress -Depth 3 -InputObject @($items)
 `,
+  /** Mounted volumes with a drive letter: backup targets are found by label (label:reserve\...). */
+  volumes: `${HEADER}$items = @(Get-Volume | Where-Object DriveLetter | ForEach-Object {
+  [pscustomobject]@{
+    driveLetter = [string]$_.DriveLetter
+    label = [string]$_.FileSystemLabel
+    driveType = [string]$_.DriveType
+    fileSystem = [string]$_.FileSystem
+    sizeBytes = [int64]$_.Size
+    freeBytes = [int64]$_.SizeRemaining
+  }
+})
+ConvertTo-Json -Compress -Depth 3 -InputObject @($items)
+`,
   osVersion: `${HEADER}$p = Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'
 ConvertTo-Json -Compress -InputObject ([pscustomobject]@{
   product = [string]$p.ProductName

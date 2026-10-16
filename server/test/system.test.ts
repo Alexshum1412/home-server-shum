@@ -291,6 +291,90 @@ describe('backup status (backup-status.json)', () => {
     expect((await statusFor({ lastResult: 'maybe' })).state).toBe('unknown');
     expect((await statusFor({ lastSuccessAt: 'yesterday' })).state).toBe('unknown');
   });
+
+  /** "16.10 18:30" in the server's local time, as the message shows it. */
+  const shortLocal = (value: string) => {
+    const d = new Date(value);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const mainOk = { name: 'основной диск', root: 'C:\\FamilyServer\\backups', ok: true, error: null };
+  const flashOk = { name: 'флешка «reserve»', root: 'D:\\FamilyServerBackups', ok: true, error: null };
+  const flashMissing = {
+    name: 'флешка «reserve»',
+    root: null,
+    ok: false,
+    snapshot: null,
+    sizeBytes: null,
+    error: 'Флешка «reserve» не подключена',
+  };
+
+  it('summarises every target of the last successful run', async () => {
+    const lastSuccessAt = iso(now - DAY);
+    const info = await statusFor({
+      lastRunAt: lastSuccessAt,
+      lastResult: 'ok',
+      lastSuccessAt,
+      restoreTestedAt: lastSuccessAt,
+      targets: [
+        { ...mainOk, snapshot: 'family-backup-20261015-100000', sizeBytes: 1234 },
+        { ...flashOk, snapshot: 'family-backup-20261015-100000', sizeBytes: 1234 },
+      ],
+      warnings: [],
+    });
+    expect(info).toMatchObject({ state: 'ok', lastSuccessAt, restoreTested: true });
+    expect(info.message).toBe(
+      `Последняя копия ${shortLocal(lastSuccessAt)}: основной диск — да, флешка «reserve» — да.`,
+    );
+  });
+
+  it('is failed and names the failed target', async () => {
+    const lastRunAt = iso(now - 1000);
+    const lastSuccessAt = iso(now - 2 * DAY);
+    const info = await statusFor({
+      lastRunAt,
+      lastResult: 'failed',
+      lastSuccessAt,
+      restoreTestedAt: iso(now - 3 * DAY),
+      targets: [{ ...mainOk, snapshot: 'family-backup-20261016-095959', sizeBytes: 10 }, flashMissing],
+    });
+    expect(info).toMatchObject({ state: 'failed', lastSuccessAt, restoreTested: true });
+    expect(info.message).toContain(
+      `Копирование ${shortLocal(lastRunAt)}: основной диск — да, флешка «reserve» — нет.`,
+    );
+    expect(info.message).toContain('Флешка «reserve» не подключена');
+    expect(info.message).toContain(`Последняя полная копия: ${shortLocal(lastSuccessAt)}`);
+  });
+
+  it('treats a failed target as failed even if lastResult says ok', async () => {
+    const at = iso(now - 1000);
+    const info = await statusFor({
+      lastRunAt: at,
+      lastResult: 'ok',
+      lastSuccessAt: at,
+      targets: [mainOk, flashMissing],
+    });
+    expect(info.state).toBe('failed');
+  });
+
+  it('ignores a malformed targets list instead of hiding the status', async () => {
+    const lastSuccessAt = iso(now - DAY);
+    const info = await statusFor({ lastResult: 'ok', lastSuccessAt, targets: 'garbage', warnings: 42 });
+    expect(info).toMatchObject({ state: 'ok', lastSuccessAt });
+    expect(info.message).toContain(shortLocal(lastSuccessAt));
+  });
+
+  it('mentions remarks (e.g. the code copy failed) without failing', async () => {
+    const lastSuccessAt = iso(now - DAY);
+    const info = await statusFor({
+      lastResult: 'ok',
+      lastSuccessAt,
+      targets: [mainOk],
+      warnings: ['Копия кода не создана: Git не найден'],
+    });
+    expect(info.state).toBe('ok');
+    expect(info.message).toContain('замечани');
+  });
 });
 
 describe('alerts', () => {

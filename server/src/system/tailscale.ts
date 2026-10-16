@@ -120,10 +120,31 @@ export function interpretTailscaleResult(
 
 /** Runs the Tailscale CLI with fixed arguments (see `interpretTailscaleResult`). */
 export function runTailscaleStatus(exe: string, timeoutMs = TAILSCALE_TIMEOUT_MS): Promise<unknown> {
+  return runTailscaleJson(exe, ['status', '--json'], timeoutMs);
+}
+
+export const TAILSCALE_SERVE_TIMEOUT_MS = 10_000;
+
+/**
+ * Read-only `tailscale serve status --json` (the Serve configuration, saved with every backup so
+ * remote access can be set up the same way after a restore). An empty answer is reported as a failure.
+ */
+export async function runTailscaleServeStatus(
+  exe: string,
+  timeoutMs = TAILSCALE_SERVE_TIMEOUT_MS,
+): Promise<unknown> {
+  const result = await runTailscaleJson(exe, ['serve', 'status', '--json'], timeoutMs);
+  if (Array.isArray(result) && result.length === 0) {
+    throw new ProbeError('bad_output', 'Tailscale не вернул настройки Serve');
+  }
+  return result;
+}
+
+function runTailscaleJson(exe: string, args: readonly string[], timeoutMs: number): Promise<unknown> {
   return new Promise((resolve, reject) => {
     execFile(
       exe,
-      ['status', '--json'],
+      [...args],
       { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' },
       (error, stdout, stderr) => {
         try {

@@ -38,8 +38,13 @@ function Get-Setting([string]$Name, [string]$Default) {
   return $Default
 }
 
+# Everything the server needs lives under one non-AppData root. AppData is avoided on purpose:
+# packaged apps (e.g. the Claude desktop app) virtualize AppData writes, which would hide the
+# tools and data from Explorer and Task Scheduler.
+$script:FamilyRoot = Join-Path $(if ($env:SystemDrive) { $env:SystemDrive } else { 'C:' }) 'FamilyServer'
+
 function Get-DashboardConfig {
-  $defaultData = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'FamilyDashboard' } else { Join-Path $HOME '.family-dashboard' }
+  $defaultData = Join-Path $script:FamilyRoot 'data\dashboard'
   $dataDir = Get-Setting 'DASHBOARD_DATA_DIR' $defaultData
   [pscustomobject]@{
     RepoRoot = $script:RepoRoot
@@ -54,6 +59,8 @@ function Get-DashboardConfig {
 }
 
 function Get-NodeExe {
+  $own = Join-Path $script:FamilyRoot 'tools\nodejs\node.exe'
+  if (Test-Path -LiteralPath $own) { return $own }
   $local = Join-Path $env:LOCALAPPDATA 'Programs\nodejs\node.exe'
   if (Test-Path -LiteralPath $local) { return $local }
   $cmd = Get-Command node.exe -ErrorAction SilentlyContinue | Select-Object -First 1

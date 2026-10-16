@@ -1,6 +1,8 @@
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
+import { isAbsoluteTargetPath, parseTargetSpec, splitList } from './backup/spec.ts';
+import { REPO_ROOT } from './lib/version.ts';
 
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 export type CookieSecureMode = 'auto' | 'always' | 'never';
@@ -21,6 +23,15 @@ export interface Config {
   readonly publicUrl: string | null;
   readonly lanUrl: string | null;
   readonly cookieSecure: CookieSecureMode;
+  /** Backup target specs (absolute paths or `label:<Label>\<subdir>`), see backup/spec.ts. */
+  readonly backupTargets: readonly string[];
+  /** Complete snapshots kept per target. */
+  readonly backupKeep: number;
+  /** Git repository bundled into every snapshot (the dashboard code). */
+  readonly backupRepoDir: string;
+  /** Extra files stored under config/; null → the project .env when it exists. */
+  readonly backupExtraFiles: readonly string[] | null;
+  readonly gitExe: string;
 }
 
 export type Env = Readonly<Record<string, string | undefined>>;
@@ -58,13 +69,58 @@ const schema = z.object({
   PUBLIC_URL: httpUrlOrEmpty('PUBLIC_URL'),
   LAN_URL: httpUrlOrEmpty('LAN_URL'),
   COOKIE_SECURE: z.enum(['auto', 'always', 'never']),
+  BACKUP_TARGETS: z.string(),
+  BACKUP_KEEP: z.coerce.number().int().min(1).max(365),
+  BACKUP_REPO_DIR: z.string().min(1),
+  BACKUP_EXTRA_FILES: z.string(),
+  GIT_EXE: z.string().min(1),
 });
 
-function defaultDataDir(env: Env): string {
+/** "C:" — the drive Windows is installed on (the family server root lives there). */
+function systemDrive(env: Env): string {
+  const drive = env.SystemDrive?.trim() ?? env.SYSTEMDRIVE?.trim() ?? '';
+  return /^[a-zA-Z]:$/.test(drive) ? drive.toUpperCase() : 'C:';
+}
+
+function defaultDataDir(env: Env, platform: NodeJS.Platform): string {
+  if (platform === 'win32') return `${systemDrive(env)}\\FamilyServer\\data\\dashboard`;
   const localAppData = env.LOCALAPPDATA?.trim();
   return localAppData
     ? path.join(localAppData, 'FamilyDashboard')
     : path.join(os.homedir(), '.family-dashboard');
+}
+
+function defaultBackupTargets(env: Env, platform: NodeJS.Platform): string {
+  if (platform === 'win32') {
+    return `${systemDrive(env)}\\FamilyServer\\backups;label:reserve\\FamilyServerBackups`;
+  }
+  return path.join(os.homedir(), '.family-dashboard-backups');
+}
+
+const CONFIG_ERROR = 'Некорректная конфигурация (переменные окружения)';
+
+function parseBackupTargets(value: string): string[] {
+  const specs = splitList(value);
+  if (specs.length === 0)
+    throw new Error(`${CONFIG_ERROR}: BACKUP_TARGETS: укажите хотя бы одно место для копий`);
+  for (const item of specs) {
+    const parsed = parseTargetSpec(item);
+    if ('error' in parsed) throw new Error(`${CONFIG_ERROR}: BACKUP_TARGETS: ${parsed.error}`);
+  }
+  return specs;
+}
+
+/** Blank → null (the default: project .env when it exists); "none" → no extra files. */
+function parseExtraFiles(value: string): string[] | null {
+  if (value === '') return null;
+  if (value.toLowerCase() === 'none') return [];
+  const files = splitList(value);
+  for (const file of files) {
+    if (!isAbsoluteTargetPath(file)) {
+      throw new Error(`${CONFIG_ERROR}: BACKUP_EXTRA_FILES: «${file}» — нужен полный путь к файлу`);
+    }
+  }
+  return files.map((file) => path.resolve(file));
 }
 
 function trimUrl(value: string): string | null {
@@ -84,7 +140,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
   const raw = {
     HOST: pick('HOST', '127.0.0.1'),
     PORT: pick('PORT', '8070'),
-    DASHBOARD_DATA_DIR: pick('DASHBOARD_DATA_DIR', defaultDataDir(env)),
+    DASHBOARD_DATA_DIR: pick('DASHBOARD_DATA_DIR', defaultDataDir(env, platform)),
     DASHBOARD_DEMO: pick('DASHBOARD_DEMO', '0').toLowerCase(),
     LOG_LEVEL: pick('LOG_LEVEL', 'info').toLowerCase(),
     SERVICE_CHECK_INTERVAL_SEC: pick('SERVICE_CHECK_INTERVAL_SEC', '60'),
@@ -96,6 +152,11 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     PUBLIC_URL: env.PUBLIC_URL === undefined ? DEFAULT_PUBLIC_URL : env.PUBLIC_URL.trim(),
     LAN_URL: env.LAN_URL?.trim() ?? '',
     COOKIE_SECURE: pick('COOKIE_SECURE', 'auto').toLowerCase(),
+    BACKUP_TARGETS: pick('BACKUP_TARGETS', defaultBackupTargets(env, platform)),
+    BACKUP_KEEP: pick('BACKUP_KEEP', '14'),
+    BACKUP_REPO_DIR: pick('BACKUP_REPO_DIR', REPO_ROOT),
+    BACKUP_EXTRA_FILES: env.BACKUP_EXTRA_FILES?.trim() ?? '',
+    GIT_EXE: pick('GIT_EXE', 'git'),
   };
 
   const parsed = schema.safeParse(raw);
@@ -106,15 +167,15 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
         return issue.message.startsWith(`${key}:`) ? issue.message : `${key}: ${issue.message}`;
       })
       .join('; ');
-    throw new Error(`Некорректная конфигурация (переменные окружения): ${details}`);
+    throw new Error(`${CONFIG_ERROR}: ${details}`);
   }
   const v = parsed.data;
-  const volumes = v.VOLUMES.split(';')
-    .map((item) => item.trim())
-    .filter((item) => item !== '');
+  const volumes = splitList(v.VOLUMES);
   if (volumes.length === 0) {
-    throw new Error('Некорректная конфигурация (переменные окружения): VOLUMES: укажите хотя бы один том');
+    throw new Error(`${CONFIG_ERROR}: VOLUMES: укажите хотя бы один том`);
   }
+  const backupTargets = parseBackupTargets(v.BACKUP_TARGETS);
+  const backupExtraFiles = parseExtraFiles(v.BACKUP_EXTRA_FILES);
 
   return Object.freeze({
     host: v.HOST,
@@ -131,5 +192,10 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     publicUrl: trimUrl(v.PUBLIC_URL),
     lanUrl: trimUrl(v.LAN_URL),
     cookieSecure: v.COOKIE_SECURE,
+    backupTargets: Object.freeze(backupTargets),
+    backupKeep: v.BACKUP_KEEP,
+    backupRepoDir: path.resolve(v.BACKUP_REPO_DIR),
+    backupExtraFiles: backupExtraFiles === null ? null : Object.freeze(backupExtraFiles),
+    gitExe: v.GIT_EXE,
   });
 }

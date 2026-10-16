@@ -207,6 +207,14 @@ describe('GET /api/admin/diagnostics', () => {
       demo: false,
     });
     expect(body.config).toMatchObject({ host: '127.0.0.1', port: 8070, userCount: 2, demo: false });
+    // Backup settings are paths and numbers only (no file contents).
+    expect(body.config).toMatchObject({
+      backupTargets: 'C:\\FamilyServer\\backups;label:reserve\\FamilyServerBackups',
+      backupKeep: 14,
+      backupExtraFiles: null,
+      gitExe: 'git',
+    });
+    expect(typeof body.config.backupRepoDir).toBe('string');
     expect(body.system.server.hostname).toBe('TEST-SERVER');
     expect(Array.isArray(body.services)).toBe(true);
 
