@@ -8,7 +8,7 @@
 |---|---|---|
 | Аудит ПК и папки проекта, резервная копия исходных файлов | Implemented | `docs/environment-audit.md`; `C:\Users\PC\family-server-backups\the-dashboard-original-2026-10-15.zip`; первый git-коммит |
 | Стек выбран и описан | Implemented | `docs/decisions/0001-stack.md` |
-| Node.js, Git, skills, MCP установлены и проверены | Implemented | `docs/tooling.md` |
+| Node.js, Git, skills, MCP установлены и проверены | Implemented | `docs/tooling.md`; с 16.10.2026 Node.js и Git — в `C:\FamilyServer\tools` |
 | Локальный запуск по инструкции | Implemented | `scripts/start.cmd` → `/api/health` 200; `scripts/stop.cmd` освобождает порт (проверено) |
 | Адаптивная главная страница и навигация | Implemented | e2e: 6 ширин без горизонтальной прокрутки |
 | Честные состояния «не настроено / нет данных / не отвечает» | Implemented | e2e `honest-status.spec.ts`; unit-тесты сервисов и системы |
@@ -44,9 +44,12 @@
 | Задача | Статус |
 |---|---|
 | Диагностика второго диска `ST_M13FQBL` | Blocked — действие владельца (`docs/runbooks/second-disk.md`) |
-| Резервное копирование с версиями и шифрованием | Blocked — нет второго носителя |
-| Тест восстановления | Blocked |
-| Статус бэкапа на дашборде | Implemented (показывает «не настроено»; начнёт показывать реальный статус, как только задача бэкапа будет писать `backup-status.json`) |
+| Перенос инструментов и данных из `%LOCALAPPDATA%` в `C:\FamilyServer` (AppData виртуализируется для процессов Claude Desktop) | Implemented — портал перезапущен из Проводника и работает с `C:\FamilyServer\tools\nodejs\node.exe` (ADR-0002) |
+| Резервное копирование с версиями | Implemented / Partial — ежедневно 03:30 на `C:\FamilyServer\backups` и флешку «reserve», 14 копий, SHA-256 (ADR-0004). Осталось: зашифрованная копия вне дома; исправный второй диск |
+| Шифрование копий | Not configured — копии пока не зашифрованы (решение владельца, вместе с копией вне дома) |
+| Тест восстановления | Implemented — `scripts\backup.cmd test-restore` и ручное восстановление с флешки 16.10.2026 прошли |
+| Статус бэкапа на дашборде | Implemented — реальный статус по каждому месту из `backup-status.json`; ошибка места → «ошибка» и предупреждение |
+| Код на GitHub (только код, без данных) | Not configured — репозиторий `Alexshum1412/home-server-shum` создан пустым, отправка — после подтверждения владельца |
 
 ## P4 — дополнительные интеграции
 

@@ -18,9 +18,16 @@
  │                       └─ системные пробы (read-only, allowlist):         │
  │                            os.*, fs.statfs, powershell Get-PhysicalDisk,  │
  │                            Win32_Printer, tailscale status --json        │
- │  Данные: %LOCALAPPDATA%\FamilyDashboard (users, sessions, services, audit)│
+ │  Данные: C:\FamilyServer\data\dashboard (users, sessions, services, audit)│
+ │                                                                           │
+ │  Планировщик «FamilyServerBackup» 03:30 ─► scripts\backup.cmd run         │
+ │     node server/src/cli/backup.ts ─► C:\FamilyServer\backups              │
+ │                                   └► флешка «reserve»:\FamilyServerBackups│
+ │     итог ─► data\dashboard\backup-status.json ─► дашборд                  │
  └───────────────────────────────────────────────────────────────────────────┘
 ```
+
+Корень сервера — `C:\FamilyServer`: `tools\nodejs` (Node.js 24, npm, openspec), `tools\git` (Git), `data\dashboard` (данные портала), `backups\` (копии на основном диске). Не `%LOCALAPPDATA%`: процессы, запущенные из приложения Claude Desktop (пакет MSIX), пишут в AppData виртуализированно, и такие файлы не видны Проводнику и Планировщику — см. [ADR-0002](decisions/0002-data-storage.md).
 
 ## Компоненты
 
@@ -35,6 +42,8 @@
 | Системные показатели, диски, принтер, Tailscale, бэкап, предупреждения | `server/src/system/` | Implemented |
 | Администрирование (аудит, пользователи, диагностика) | `server/src/admin/routes.ts` | Implemented |
 | CLI пользователей | `server/src/cli/users.ts`, `scripts/user.cmd` | Implemented |
+| Резервное копирование: места хранения (путь или метка тома), снимок с `manifest.json` и SHA-256, `git bundle`, хранение 14 копий, восстановление в пустую папку, пробное восстановление, `backup-status.json` | `server/src/backup/`, `server/src/cli/backup.ts`, `scripts/backup.cmd` | Implemented |
+| Ежедневная задача копирования | `scripts/backup-schedule.ps1` + `.cmd` (задача «FamilyServerBackup», 03:30) | Implemented (включена 16.10.2026) |
 | Интерфейс (Preact): оболочка, роутер, страницы, состояния | `web/src/` | Implemented |
 | Дизайн-токены (тёмная/светлая тема) | `web/src/styles/tokens.css` | Implemented |
 | PWA: manifest, иконки, service worker (только оболочка) | `web/public/` | Implemented |
@@ -42,7 +51,7 @@
 | Tailscale Serve (HTTPS в tailnet) | `scripts/serve-tailnet.ps1` | Implemented (скрипт); включение — см. `roadmap.md` |
 | LAN-резерв | `docs/runbooks/network.md` | Not configured (нужно решение владельца) |
 | Jellyfin, файловый сервис, Immich, загрузчик | — | Planned |
-| Резервное копирование | `docs/runbooks/backup-restore.md` | Blocked (нет второго носителя) |
+| Копия вне дома (зашифрованная) | `docs/runbooks/backup-restore.md` | Planned (решение владельца) |
 | «Оливия» | — | Planned (P5) |
 
 ## API
@@ -72,6 +81,8 @@
 | Tailscale | `tailscale.exe status --json` (фиксированные аргументы) | 60 с | 5 с |
 | Физические диски, принтер | `powershell.exe -EncodedCommand <фиксированный скрипт>` | 5 мин | 15 с |
 | Сервисы | `fetch(healthUrl)` без перехода на чужие хосты | 60 с | 3 с |
+| Статус резервного копирования | чтение `backup-status.json` из каталога данных | 60 с | — |
+| Задача копирования (только во время запуска `scripts\backup.cmd`) | `Get-Volume` (фиксированный скрипт `volumes` — поиск флешки по метке), `tailscale serve status --json`, `git bundle create/verify` (без shell) | раз в сутки | 15 с / 10 с / 5 мин |
 | Интерфейс | `/api/system` 30 с, `/api/services` 60 с, только видимая вкладка | — | 10 с |
 
 Запросы клиентов читают кэш и не запускают пробы — опрос из браузера не увеличивает нагрузку на систему.
@@ -84,6 +95,6 @@
 
 ## Тесты
 
-- `server/test/*.test.ts` — Vitest: unit и интеграционные через `app.inject()` (без сети, на временных каталогах данных, с подменой проб и часов).
+- `server/test/*.test.ts` — Vitest: unit и интеграционные через `app.inject()` (без сети, на временных каталогах данных, с подменой проб и часов); `backup.test.ts` и `backup-cli.test.ts` — копирование, проверка, хранение, восстановление и CLI на временных папках.
 - `web/src/**/*.test.ts` — Vitest: форматирование, подписи, приветствие, маршруты.
 - `tests/e2e/*.spec.ts` — Playwright в установленном Chrome: вход, роли, честные состояния, демо-режим, 6 ширин экрана без горизонтальной прокрутки, axe (WCAG 2.1 AA), заголовки безопасности, PWA, отсутствие внешних запросов. Два изолированных сервера (8071 — обычный режим, 8072 — демо) с временными данными.

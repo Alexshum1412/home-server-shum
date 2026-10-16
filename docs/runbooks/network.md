@@ -46,7 +46,7 @@ Tailscale на Windows по умолчанию подключается толь
 ```powershell
 New-NetFirewallRule -DisplayName 'Family Dashboard (LAN, 8070)' -Direction Inbound -Action Allow `
   -Protocol TCP -LocalPort 8070 -Profile Private -RemoteAddress LocalSubnet `
-  -Program "$env:LOCALAPPDATA\Programs\nodejs\node.exe"
+  -Program 'C:\FamilyServer\tools\nodejs\node.exe'
 ```
 
 Затем в `.env` проекта: `HOST=0.0.0.0` и `LAN_URL=http://192.168.1.252:8070` (лучше закрепить этот IP за ПК в настройках роутера), перезапуск `scripts\stop.cmd` → `scripts\start.cmd`. Ограничения: обычный HTTP (без установки PWA), портал виден всем устройствам домашней сети (вход по паролю всё равно обязателен). Откат:

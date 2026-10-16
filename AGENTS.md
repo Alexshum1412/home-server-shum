@@ -14,8 +14,11 @@ npm.cmd test               # Vitest
 npm.cmd run test:e2e       # Playwright в установленном Chrome (сначала build)
 npm.cmd run check          # всё вместе
 scripts\start.cmd | stop.cmd | status.cmd | serve-tailnet.cmd | user.cmd
+scripts\backup.cmd [list | verify [копия] | test-restore | restore <копия> --to <пустая папка> | prune]
+scripts\backup-schedule.cmd [-Off]   # задача «FamilyServerBackup», ежедневно 03:30
 ```
-Если `node`/`git` не находятся в новой оболочке: `$env:Path = "$env:LOCALAPPDATA\Programs\nodejs;$env:LOCALAPPDATA\Programs\Git\cmd;$env:Path"`.
+Если `node`/`git` не находятся в новой оболочке: `$env:Path = "C:\FamilyServer\tools\nodejs;C:\FamilyServer\tools\git\cmd;$env:Path"`.
+OpenSpec CLI — `openspec.cmd` (лежит в `C:\FamilyServer\tools\nodejs`).
 
 ## Правила кода
 - Сервер исполняется Node напрямую (type stripping): только стираемый TypeScript (без `enum`, `namespace`, parameter properties), относительные импорты с `.ts`, типы — через `import type`.
@@ -30,6 +33,9 @@ scripts\start.cmd | stop.cmd | status.cmd | serve-tailnet.cmd | user.cmd
 Форматировать/размечать диски (особенно устройство `ST_M13FQBL`); менять Firewall, Defender, UAC, политики выполнения, обновления Windows; включать Tailscale Funnel, менять ACL/DNS/маршруты Tailscale, пробрасывать порты; удалять/перемещать пользовательские данные; публиковать данные, логи или код во внешние сервисы; хранить секреты в Git; давать UI/LLM выполнение команд.
 
 ## Где что лежит
-- Данные приложения: `%LOCALAPPDATA%\FamilyDashboard` (вне репозитория).
-- Логи фонового запуска: `%LOCALAPPDATA%\FamilyDashboard\logs`.
-- Резервная копия исходного состояния: `C:\Users\PC\family-server-backups\`.
+- Корень сервера: `C:\FamilyServer` — **не** `%LOCALAPPDATA%`: у процессов, запущенных из приложения Claude Desktop (пакет MSIX), записи в AppData виртуализируются, и такие файлы не видны остальной Windows (см. `docs/environment-audit.md`, раздел 12).
+- Инструменты: Node.js 24 + npm + openspec — `C:\FamilyServer\tools\nodejs`; Git — `C:\FamilyServer\tools\git` (в PATH — `cmd\`).
+- Данные приложения: `C:\FamilyServer\data\dashboard` (вне репозитория; задано в `.env` как `DASHBOARD_DATA_DIR`, это же значение по умолчанию). Права: только PC, SYSTEM, администраторы.
+- Логи фонового запуска и копирования: `C:\FamilyServer\data\dashboard\logs` (`backup.log`).
+- Резервные копии: `C:\FamilyServer\backups` и флешка с меткой `reserve` (`<буква>:\FamilyServerBackups`); ранбук — `docs/runbooks/backup-restore.md`. Семейные данные — никогда в Git/GitHub.
+- Резервная копия исходного состояния и прежних PATH: `C:\Users\PC\family-server-backups\`.

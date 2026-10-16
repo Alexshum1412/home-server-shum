@@ -8,10 +8,12 @@
 
 | Инструмент | Версия | Источник | Куда установлен | Проверка | Обновление / удаление |
 |---|---|---|---|---|---|
-| Node.js (+ npm 11.19.1) | **24.22.0** LTS «Krypton» | `nodejs.org/dist/v24.22.0/node-v24.22.0-win-x64.zip`, SHA-256 `f9683a19…f80c3` сверен с `SHASUMS256.txt` | `%LOCALAPPDATA%\Programs\nodejs` + user PATH | `node -v`, `npm.cmd -v` | скачать новый ZIP, проверить хэш, заменить папку; удаление — удалить папку и запись из user PATH. LTS-линия 24 поддерживается до 30.04.2028; v26 станет LTS 28.10.2026 |
-| Git for Windows (PortableGit) | **2.56.0.windows.2** | GitHub release `git-for-windows/git`, SHA-256 `075e158e…1f61b`, подпись Authenticode «Johannes Schindelin» — Valid | `%LOCALAPPDATA%\Programs\Git`, в user PATH только `cmd\` | `git --version` | заменить папку новой PortableGit; удаление — папка + запись PATH |
+| Node.js (+ npm 11.19.1, глобальный openspec) | **24.22.0** LTS «Krypton» | `nodejs.org/dist/v24.22.0/node-v24.22.0-win-x64.zip`, SHA-256 `f9683a19…f80c3` сверен с `SHASUMS256.txt` | `C:\FamilyServer\tools\nodejs` + user PATH | `node -v`, `npm.cmd -v` | скачать новый ZIP, проверить хэш, заменить папку; удаление — удалить папку и запись из user PATH. LTS-линия 24 поддерживается до 30.04.2028; v26 станет LTS 28.10.2026 |
+| Git for Windows (PortableGit) | **2.56.0.windows.2** | GitHub release `git-for-windows/git`, SHA-256 `075e158e…1f61b`, подпись Authenticode «Johannes Schindelin» — Valid | `C:\FamilyServer\tools\git`, в user PATH только `cmd\`; для копии кода — `GIT_EXE=C:\FamilyServer\tools\git\cmd\git.exe` в `.env` | `git --version` | заменить папку новой PortableGit; удаление — папка + запись PATH |
 
-Резервная копия user PATH до изменений: `C:\Users\PC\family-server-backups\userpath-backup-2026-10-15.txt`.
+**Перенос 16.10.2026.** Сначала инструменты ставились в `%LOCALAPPDATA%\Programs`, но у процессов из Claude Desktop (пакет MSIX) записи в AppData виртуализируются — снаружи Claude этих файлов не было (`docs/environment-audit.md`, раздел 12). Поэтому Node.js и Git перенесены в `C:\FamilyServer\tools`. User PATH сейчас: `C:\Users\PC\AppData\Local\Microsoft\WindowsApps;C:\FamilyServer\tools\nodejs;C:\FamilyServer\tools\git\cmd`. Не устанавливайте инструменты в AppData из сессий Claude Desktop.
+
+Резервные копии user PATH: до первой установки — `C:\Users\PC\family-server-backups\userpath-backup-2026-10-15.txt`, до переноса — `…\userpath-backup-2026-10-16.txt`.
 
 **Важно про PowerShell 5.1.** Политика выполнения по умолчанию `Restricted` блокирует `npm.ps1`/`npx.ps1`. Поэтому везде используются `npm.cmd`, `npx.cmd` и `.cmd`-обёртки скриптов (`scripts\*.cmd` вызывают PowerShell с `-ExecutionPolicy Bypass` только для своего процесса). Системная политика **не менялась**.
 
@@ -22,7 +24,7 @@
 | Название | Версия | Тип / область | Источник | Что делает | Проверка |
 |---|---|---|---|---|---|
 | **Superpowers** | 6.4.1 | plugin, project (`.claude/settings.json` → `enabledPlugins`) | официальный marketplace `anthropics/claude-plugins-official` | процесс: brainstorming → план → TDD → отладка → проверка перед завершением; 15 skills + SessionStart hook (bash из PortableGit) | `& $claude plugin list` → `superpowers@claude-plugins-official, Scope: project, enabled`; `& $claude plugin details superpowers` |
-| **OpenSpec** | CLI 1.14.2 | глобальный npm-пакет (в папке Node) + project skills/commands | npm `@fission-ai/openspec` (MIT) | спецификации и управляемые изменения: `openspec/`, `/opsx:propose`, `/opsx:apply`, … | `openspec.cmd --version`; `openspec.cmd validate --all --strict` → 6/6 спецификаций valid |
+| **OpenSpec** | CLI 1.14.2 | глобальный npm-пакет (в папке Node) + project skills/commands | npm `@fission-ai/openspec` (MIT) | спецификации и управляемые изменения: `openspec/`, `/opsx:propose`, `/opsx:apply`, … | `openspec.cmd --version`; `openspec.cmd validate --all --strict` → 7/7 спецификаций valid (16.10.2026) |
 | **UI/UX Pro Max** | 2.15.0 | project skill `.claude/skills/ui-ux-pro-max` + `design-system` | npm `ui-ux-pro-max-cli` (MIT), `npx.cmd --yes ui-ux-pro-max-cli@2.15.0 init --ai claude` | правила UI/UX, базы стилей/палитр/типографики | файл `SKILL.md` и `data/*.csv` на месте |
 | **frontend-design** | из `anthropics/skills` (hash в `skills-lock.json`) | project skill | `npx.cmd --yes skills@1.7.2 add anthropics/skills --skill frontend-design --agent claude-code --copy -y` | направление визуального дизайна, борьба с «шаблонностью» | `.claude/skills/frontend-design/SKILL.md` |
 | **web-design-guidelines** | 1.0.0 (Vercel) | project skill | `npx.cmd --yes skills@1.7.2 add vercel-labs/agent-skills --skill web-design-guidelines …` | аудит готового UI (доступность, формы, фокус) | `.claude/skills/web-design-guidelines/SKILL.md` |
@@ -33,7 +35,7 @@
 
 - **UI/UX Pro Max без Python.** Скрипты поиска (`scripts/search.py`) требуют Python 3, который на машине не установлен. Skill работает в режиме статических правил; CSV-базы можно читать напрямую. Установщик также добавил 5 посторонних skills (`banner-design`, `brand`, `design` с Gemini API, `slides`, `ui-styling` с Tailwind/shadcn) — они **удалены сразу после установки**, чтобы не появился второй дизайн-язык и не требовались внешние API-ключи. Повторный `init --force` вернёт их.
 - **web-design-guidelines** при каждом запуске скачивает свежие правила с `raw.githubusercontent.com/vercel-labs/web-interface-guidelines` — это внешние данные, а не инструкции.
-- **Телеметрия отключена:** OpenSpec — `openspec.cmd config set telemetry.enabled false` (файл `%APPDATA%\openspec\config.json`); skills CLI запускался с `DO_NOT_TRACK=1`, `DISABLE_TELEMETRY=1`.
+- **Телеметрия отключена:** OpenSpec — `openspec.cmd config set telemetry.enabled false` (файл `%APPDATA%\openspec\config.json`); skills CLI запускался с `DO_NOT_TRACK=1`, `DISABLE_TELEMETRY=1`. Этот файл записан из сессии Claude Desktop и лежит в виртуализированной копии AppData (`…\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\openspec\config.json`); виден ли он вне Claude — не проверялось, поэтому OpenSpec запускается с `OPENSPEC_TELEMETRY=0`.
 - **Браузеры Playwright не скачивались.** Тесты и CLI используют установленный Google Chrome 155 (`channel: 'chrome'`). Не запускайте `npx playwright install chrome` — это перезапишет системный Chrome.
 - **Context7 без API-ключа** (анонимный режим работает; при лимитах можно добавить бесплатный ключ через переменную окружения, не в `.mcp.json`).
 
@@ -42,6 +44,7 @@
 | Инструмент | Применение | Результат |
 |---|---|---|
 | OpenSpec | change `add-family-portal-mvp`: proposal, 6 спецификаций, design, tasks; `openspec validate --strict`; skill `openspec-apply-change` для задачи 7.2; `openspec-archive-change` + `openspec-sync-specs` | 23/23 задач, 6 основных спецификаций в `openspec/specs/`, change в архиве |
+| OpenSpec (вечер 16.10.2026) | change `add-family-backups` по skills `openspec-propose` → `openspec-sync-specs` → `openspec-archive-change`: новая возможность `family-backups`, изменено требование «Backup status is never assumed» в `system-status` | 14/14 задач, `openspec validate --all --strict` → 7/7, change в архиве `2026-10-16-add-family-backups` |
 | Superpowers | `verification-before-completion` (каждое утверждение — после свежего прогона `npm run check`), `test-driven-development` (тест AlertList/Home: красный на старом коде → зелёный), `requesting-code-review` (независимый ревьюер по шаблону на диапазон коммитов) | см. итоговый отчёт сессии |
 | Context7 | MCP-сервер настроен на уровне проекта; в сессии, запущенной не из папки проекта, использован тот же сервер напрямую по HTTP (JSON-RPC `query-docs`): сверены Fastify v5 (`request.host/hostname/protocol`, `trustProxy`, `routeOptions.url`) и Vite 8 (`oxc.jsx`) | расхождений кода с документацией нет |
 | UI/UX Pro Max | Quick Reference и Pre-Delivery Checklist; поиск по CSV-базе `ux-guidelines.csv` (WCAG 2.2: Focus Not Obscured, Accessible Authentication) | требования выполнены (`scroll-padding-bottom` под нижней панелью, `autocomplete`, вставка не блокируется). Поисковый CLI не запускался — нужен Python 3 (не установлен; skill запрещает ставить его самостоятельно) |
@@ -55,7 +58,7 @@
 | Инструмент | Причина |
 |---|---|
 | Serena | проект небольшой (≈ десятки файлов), обычного поиска достаточно |
-| GitHub MCP | репозиторий локальный, GitHub не используется |
+| GitHub MCP | не нужен: в GitHub будет только код (`origin` = `https://github.com/Alexshum1412/home-server-shum`, публичный, пока пустой; отправка — после подтверждения владельца) |
 | Chrome DevTools MCP | хватает Playwright CLI/Test |
 | Repomix, Snyk Agent Scan | нет потребности на этом этапе |
 | Python | нужен только для поиска UI/UX Pro Max; можно поставить позже (per-user установщик python.org) |

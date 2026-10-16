@@ -15,10 +15,10 @@
 
 Вариант **A**.
 
-- **Runtime:** Node.js 24 LTS, установлен **для текущего пользователя без прав администратора** (официальный ZIP с проверкой SHA-256).
+- **Runtime:** Node.js 24 LTS из официального ZIP с проверкой SHA-256, без установщика (с 16.10.2026 — в `C:\FamilyServer\tools\nodejs`, см. ADR-0002).
 - **Backend:** Fastify 5 (+ `@fastify/static`, `@fastify/cookie`), TypeScript запускается напрямую через type stripping Node 24, `tsc --noEmit` — только проверка типов.
 - **Frontend:** Preact + Vite, без UI-фреймворков; иконки — `lucide-preact` (собираются в бандл, без CDN); шрифты — системные.
-- **Хранение:** без СУБД. Пользователи, сессии, конфигурация сервисов и журнал аудита — небольшие JSON/JSONL-файлы в каталоге данных **вне репозитория** (`%LOCALAPPDATA%\FamilyDashboard` по умолчанию). Атомарная запись (temp + rename).
+- **Хранение:** без СУБД. Пользователи, сессии, конфигурация сервисов и журнал аудита — небольшие JSON/JSONL-файлы в каталоге данных **вне репозитория** (с 16.10.2026 — `C:\FamilyServer\data\dashboard` по умолчанию; почему не AppData — ADR-0002). Атомарная запись (temp + rename).
 - **Пароли:** `crypto.scrypt` из стандартной библиотеки Node (без нативных модулей).
 - **Тесты:** Vitest (unit + интеграционные через `fastify.inject`), Playwright Test в установленном Google Chrome (`channel: 'chrome'`, без скачивания браузеров) + `@axe-core/playwright` для доступности.
 - **Lint/format:** Biome (один инструмент вместо ESLint + Prettier).
