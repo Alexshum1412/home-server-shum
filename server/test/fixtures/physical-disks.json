@@ -1,0 +1,26 @@
+[
+  {
+    "model": "ST_M13FQBL",
+    "mediaType": "Unspecified",
+    "busType": "SATA",
+    "health": "Healthy",
+    "operational": "OK",
+    "sizeBytes": 4142054400
+  },
+  {
+    "model": "ST2000NC001-1DY164",
+    "mediaType": "HDD",
+    "busType": "SATA",
+    "health": "Healthy",
+    "operational": "OK",
+    "sizeBytes": 2000398934016
+  },
+  {
+    "model": "ADATA USB Flash Drive",
+    "mediaType": "Unspecified",
+    "busType": "USB",
+    "health": "Healthy",
+    "operational": "OK",
+    "sizeBytes": 15955132416
+  }
+]

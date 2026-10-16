@@ -1,0 +1,43 @@
+{
+  "name": "family-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Семейный сервер — единый семейный портал (дашборд) для домашнего ПК",
+  "type": "module",
+  "engines": {
+    "node": ">=24.11.0 <27"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "node --watch --env-file-if-exists=.env server/src/index.ts",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "node --env-file-if-exists=.env server/src/index.ts",
+    "user": "node --env-file-if-exists=.env server/src/cli/users.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.e2e.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build && npm run test:e2e"
+  },
+  "dependencies": {
+    "@fastify/cookie": "11.1.3",
+    "@fastify/static": "10.1.6",
+    "fastify": "5.12.7",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@biomejs/biome": "2.5.15",
+    "@fontsource-variable/onest": "5.3.1",
+    "@playwright/test": "1.64.1",
+    "@types/node": "24.19.2",
+    "lucide-preact": "1.57.0",
+    "preact": "10.29.8",
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  }
+}

@@ -1,0 +1,42 @@
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local configuration and secrets (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.pfx
+secrets/
+
+# Runtime data (users, sessions, audit log) lives outside the repo by default;
+# these patterns guard against an accidental DASHBOARD_DATA_DIR inside the project.
+data/
+*.db
+*.sqlite
+*.jsonl
+*.log
+logs/
+
+# Test and tool output
+test-results/
+playwright-report/
+blob-report/
+coverage/
+.playwright-cli/
+artifacts/tmp/
+
+# OS / editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Claude Code per-machine settings
+.claude/settings.local.json

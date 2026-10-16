@@ -1,0 +1,26 @@
+{
+  // Type-check config for the server, shared contract, CLI, unit tests and e2e tests.
+  // The server is executed directly by Node 24 (type stripping), so only erasable
+  // TypeScript syntax is allowed and relative imports use explicit .ts extensions.
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["server/**/*.ts", "shared/**/*.ts", "vite.config.ts"],
+  "exclude": ["node_modules", "dist", "web"]
+}

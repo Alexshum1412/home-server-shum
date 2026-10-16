@@ -1,0 +1,166 @@
+import { RefreshCw, WifiOff } from 'lucide-preact';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import type { SessionResponse } from '../../shared/api.ts';
+import { type ApiFailure, apiGet, apiPost, NO_CONNECTION, onUnauthorized, toFailure } from './api.ts';
+import { AppShell } from './components/AppShell.tsx';
+import { documentTitle, type RouteId } from './lib/routes.ts';
+import { AdminPage } from './pages/Admin.tsx';
+import { HelpPage } from './pages/Help.tsx';
+import { HomePage } from './pages/Home.tsx';
+import { LoginPage } from './pages/Login.tsx';
+import { NotFoundPage } from './pages/NotFound.tsx';
+import { PrintPage } from './pages/Print.tsx';
+import { ServicePage } from './pages/Service.tsx';
+import { SystemPage } from './pages/System.tsx';
+import { navigate, startRouter, useLocation } from './router.ts';
+import { DataProvider, SessionProvider } from './state.tsx';
+
+type Boot =
+  | { status: 'loading' }
+  | { status: 'anon' }
+  | { status: 'authed'; session: SessionResponse }
+  | { status: 'error'; failure: ApiFailure };
+
+function Page(props: { route: RouteId }) {
+  switch (props.route) {
+    case 'home':
+      return <HomePage />;
+    case 'cinema':
+      return <ServicePage key="media" kind="media" />;
+    case 'photos':
+      return <ServicePage key="photos" kind="photos" />;
+    case 'files':
+      return <ServicePage key="files" kind="files" />;
+    case 'downloads':
+      return <ServicePage key="downloads" kind="downloads" />;
+    case 'print':
+      return <PrintPage />;
+    case 'system':
+      return <SystemPage />;
+    case 'help':
+      return <HelpPage />;
+    case 'admin':
+      return <AdminPage />;
+    case 'login':
+      return null;
+    default:
+      return <NotFoundPage />;
+  }
+}
+
+function BootScreen() {
+  return (
+    <main id="main" class="boot" aria-busy="true">
+      <img class="boot__mark" src="/icons/icon.svg" alt="" width={56} height={56} />
+      <h1 class="boot__title">Семейный сервер</h1>
+      <p class="boot__text">Подключаемся к домашнему серверу…</p>
+    </main>
+  );
+}
+
+function BootError(props: { failure: ApiFailure; onRetry: () => void }) {
+  const { failure } = props;
+  return (
+    <main id="main" class="boot">
+      <WifiOff class="boot__icon" size={40} aria-hidden="true" />
+      <h1 class="boot__title" tabIndex={-1}>
+        {failure.unreachable ? NO_CONNECTION : 'Портал не смог загрузиться'}
+      </h1>
+      <p class="boot__text">
+        {failure.unreachable
+          ? 'Проверьте, что на этом устройстве включён Tailscale, а домашний компьютер включён и подключён к интернету.'
+          : failure.message}
+      </p>
+      <button type="button" class="button button--primary button--large" onClick={props.onRetry}>
+        <RefreshCw size={20} aria-hidden="true" />
+        Повторить
+      </button>
+    </main>
+  );
+}
+
+export function App() {
+  const { path, route } = useLocation();
+  const [boot, setBoot] = useState<Boot>({ status: 'loading' });
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const loadSession = useCallback(async () => {
+    setBoot({ status: 'loading' });
+    try {
+      const session = await apiGet<SessionResponse>('/api/session', { quiet401: true });
+      setBoot({ status: 'authed', session });
+    } catch (error) {
+      const failure = toFailure(error);
+      setBoot(failure.status === 401 ? { status: 'anon' } : { status: 'error', failure });
+    }
+  }, []);
+
+  useEffect(() => startRouter(), []);
+  useEffect(() => {
+    void loadSession();
+  }, [loadSession]);
+  useEffect(() => onUnauthorized(() => setBoot({ status: 'anon' })), []);
+
+  const logout = useCallback(async () => {
+    try {
+      await apiPost('/api/logout', {}, { quiet401: true });
+    } catch (error) {
+      const failure = toFailure(error);
+      // A 401 means the session is already gone; anything else keeps the user signed in.
+      if (failure.status !== 401) {
+        setNotice(
+          `Выйти не получилось: ${failure.unreachable ? NO_CONNECTION.toLowerCase() : failure.message}`,
+        );
+        return;
+      }
+    }
+    setNotice(null);
+    setBoot({ status: 'anon' });
+    navigate('/', { replace: true });
+  }, []);
+
+  const signedIn = boot.status === 'authed';
+  const effectiveRoute: RouteId = boot.status === 'anon' ? 'login' : route;
+
+  // Signed-in users have nothing to do on /login.
+  useEffect(() => {
+    if (signedIn && route === 'login') navigate('/', { replace: true });
+  }, [signedIn, route]);
+
+  useEffect(() => {
+    document.title = documentTitle(effectiveRoute);
+  }, [effectiveRoute]);
+
+  // Move focus to the page heading after every navigation (not on the first load),
+  // so screen readers announce the new page.
+  const focusArmed = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs on every page change by design
+  useEffect(() => {
+    if (boot.status === 'loading') return;
+    if (!focusArmed.current) {
+      focusArmed.current = true;
+      return;
+    }
+    document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true });
+  }, [path, boot.status]);
+
+  const sessionValue = useMemo(
+    () => (boot.status === 'authed' ? { session: boot.session, logout } : null),
+    [boot, logout],
+  );
+
+  if (boot.status === 'loading') return <BootScreen />;
+  if (boot.status === 'error') return <BootError failure={boot.failure} onRetry={loadSession} />;
+  if (boot.status === 'anon' || !sessionValue) {
+    return <LoginPage onSignedIn={(session) => setBoot({ status: 'authed', session })} />;
+  }
+  return (
+    <SessionProvider value={sessionValue}>
+      <DataProvider>
+        <AppShell path={path} notice={notice}>
+          <Page route={route} />
+        </AppShell>
+      </DataProvider>
+    </SessionProvider>
+  );
+}

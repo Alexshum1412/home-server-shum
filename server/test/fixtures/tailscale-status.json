@@ -1,0 +1,17 @@
+{
+  "Version": "1.104.1-t7f4efe814-g8da26756c",
+  "BackendState": "Running",
+  "MagicDNSSuffix": "example-tailnet.ts.net",
+  "Self": {
+    "HostName": "TEST-SERVER",
+    "DNSName": "test-server.example-tailnet.ts.net.",
+    "TailscaleIPs": ["100.64.0.1"],
+    "Online": true
+  },
+  "Peer": {
+    "nodekey:aaa": { "HostName": "phone-a", "OS": "iOS", "Online": true },
+    "nodekey:bbb": { "HostName": "laptop-b", "OS": "windows", "Online": false },
+    "nodekey:ccc": { "HostName": "mac-c", "OS": "macOS", "Online": true }
+  },
+  "CertDomains": ["test-server.example-tailnet.ts.net"]
+}

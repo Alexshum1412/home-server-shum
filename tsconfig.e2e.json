@@ -1,0 +1,10 @@
+{
+  // Type-check config for Playwright e2e tests and browser-driving scripts:
+  // they run in Node but their page.evaluate() callbacks use DOM globals.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2024", "dom", "dom.iterable"]
+  },
+  "include": ["tests/e2e/**/*.ts", "scripts/**/*.ts", "playwright.config.ts"],
+  "exclude": ["node_modules", "dist", "web"]
+}

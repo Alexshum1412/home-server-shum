@@ -1,0 +1,307 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { checkPasswordPolicy, hashPassword, verifyPassword } from '../src/auth/passwords.ts';
+import { createSlidingWindowLimiter } from '../src/auth/rate-limit.ts';
+import { INVALID_CREDENTIALS_MESSAGE } from '../src/auth/routes.ts';
+import { createSessionStore, MAX_SESSIONS_PER_USER } from '../src/auth/sessions.ts';
+import { createUserStore } from '../src/auth/users.ts';
+import {
+  ADMIN,
+  addUser,
+  cookieFor,
+  createFakeClock,
+  createTestApp,
+  FAMILY,
+  login,
+  makeTempDir,
+  removeDir,
+  type TestApp,
+} from './helpers.ts';
+
+const DAY = 24 * 60 * 60 * 1000;
+let t: TestApp;
+
+beforeEach(async () => {
+  t = await createTestApp();
+  await addUser(t.dataDir, t.clock, ADMIN);
+  await addUser(t.dataDir, t.clock, FAMILY);
+});
+
+afterEach(async () => {
+  await t.app.close();
+  await removeDir(t.dataDir);
+});
+
+describe('passwords', () => {
+  it('stores salted scrypt hashes in the agreed format and verifies them', async () => {
+    const a = await hashPassword('correct horse battery');
+    const b = await hashPassword('correct horse battery');
+    expect(a).toMatch(/^scrypt\$32768\$8\$1\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/);
+    expect(a).not.toBe(b);
+    expect(await verifyPassword('correct horse battery', a)).toBe(true);
+    expect(await verifyPassword('correct horse batterY', a)).toBe(false);
+    expect(await verifyPassword('x', 'garbage')).toBe(false);
+    expect(await verifyPassword('x', 'scrypt$999999999$8$1$AAAA$AAAA')).toBe(false);
+  });
+
+  it('enforces the password policy', () => {
+    expect(checkPasswordPolicy('short', 'mama')).toMatch(/короткий/);
+    expect(checkPasswordPolicy('mamamamama', 'mamamamama')).toMatch(/логином/);
+    expect(checkPasswordPolicy('a'.repeat(257), 'mama')).toMatch(/длинный/);
+    expect(checkPasswordPolicy('длинный-пароль', 'mama')).toBeNull();
+  });
+});
+
+describe('setup state', () => {
+  it('reports when no users exist and shows the CLI command', async () => {
+    const empty = await createTestApp();
+    try {
+      const res = await empty.app.inject({ url: '/api/setup-state' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        hasUsers: false,
+        createAdminCommand: 'npm.cmd run user -- add <логин> --name "<Имя>" --role admin',
+      });
+    } finally {
+      await empty.app.close();
+      await removeDir(empty.dataDir);
+    }
+    const res = await t.app.inject({ url: '/api/setup-state' });
+    expect(res.json().hasUsers).toBe(true);
+  });
+});
+
+describe('login', () => {
+  it('signs in with correct credentials and returns the session user', async () => {
+    const { res, cookie } = await login(t.app, 'Mama ', FAMILY.password);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toEqual({
+      user: { id: expect.any(String), username: 'mama', displayName: 'Мама', role: 'family' },
+      demo: false,
+    });
+    expect(res.body).not.toContain('scrypt');
+    expect(cookie).toBeDefined();
+    const session = await t.app.inject({ url: '/api/session', headers: { cookie } });
+    expect(session.statusCode).toBe(200);
+    expect(session.json().user.username).toBe('mama');
+    const stored = (await t.app.dashboard.users.findByUsername('mama'))?.lastLoginAt;
+    expect(stored).toBe('2026-10-16T10:00:00.000Z');
+  });
+
+  it('answers wrong password and unknown user with the same generic 401', async () => {
+    const wrong = await login(t.app, FAMILY.username, 'not-the-password');
+    const unknown = await login(t.app, 'stranger', 'not-the-password');
+    for (const { res, cookie } of [wrong, unknown]) {
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: 'invalid_credentials', message: INVALID_CREDENTIALS_MESSAGE });
+      expect(cookie).toBeUndefined();
+    }
+    const entries = await t.app.dashboard.audit.readLatest(10);
+    expect(entries.map((e) => e.action)).toEqual(['login.failure', 'login.failure']);
+    expect(JSON.stringify(entries)).not.toContain('not-the-password');
+  });
+
+  it('validates the body', async () => {
+    for (const payload of [
+      {},
+      { username: 'mama' },
+      { username: '', password: 'x' },
+      { username: 1, password: 2 },
+    ]) {
+      const res = await t.app.inject({ method: 'POST', url: '/api/login', payload });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('bad_request');
+    }
+    const longName = await login(t.app, 'a'.repeat(65), 'whatever-password');
+    expect(longName.res.statusCode).toBe(400);
+  });
+
+  it('blocks a username after 10 failures with 429 even for the correct password', async () => {
+    for (let i = 0; i < 10; i += 1) {
+      const { res } = await login(t.app, FAMILY.username, `wrong-password-${i}`);
+      expect(res.statusCode).toBe(401);
+    }
+    const blocked = await login(t.app, FAMILY.username, FAMILY.password);
+    expect(blocked.res.statusCode).toBe(429);
+    expect(blocked.cookie).toBeUndefined();
+    expect(Number(blocked.res.headers['retry-after'])).toBeGreaterThan(0);
+    expect(blocked.res.json().message).toMatch(/через \d+ мин/);
+    const latest = await t.app.dashboard.audit.readLatest(1);
+    expect(latest[0]?.action).toBe('login.blocked');
+    // Another user is not affected.
+    expect((await login(t.app, ADMIN.username, ADMIN.password)).res.statusCode).toBe(200);
+    // After the window passes the correct password works again.
+    t.clock.advance(15 * 60 * 1000 + 1000);
+    expect((await login(t.app, FAMILY.username, FAMILY.password)).res.statusCode).toBe(200);
+  });
+
+  it('clears the username counter after a successful sign-in', async () => {
+    for (let i = 0; i < 9; i += 1) await login(t.app, FAMILY.username, `wrong-${i}-password`);
+    expect((await login(t.app, FAMILY.username, FAMILY.password)).res.statusCode).toBe(200);
+    for (let i = 0; i < 9; i += 1) await login(t.app, FAMILY.username, `wrong-${i}-password`);
+    expect((await login(t.app, FAMILY.username, FAMILY.password)).res.statusCode).toBe(200);
+  });
+});
+
+describe('sliding-window limiter', () => {
+  it('limits per key and recovers after the window', () => {
+    const clock = createFakeClock();
+    const limiter = createSlidingWindowLimiter({ limit: 30, windowMs: 15 * 60 * 1000, clock });
+    for (let i = 0; i < 30; i += 1) {
+      expect(limiter.check('10.0.0.1').allowed).toBe(true);
+      limiter.hit('10.0.0.1');
+    }
+    const check = limiter.check('10.0.0.1');
+    expect(check.allowed).toBe(false);
+    expect(check.retryAfterSec).toBe(15 * 60);
+    expect(limiter.check('10.0.0.2').allowed).toBe(true);
+    clock.advance(15 * 60 * 1000);
+    expect(limiter.check('10.0.0.1').allowed).toBe(true);
+  });
+
+  it('bounds memory', () => {
+    const limiter = createSlidingWindowLimiter({
+      limit: 1,
+      windowMs: 1000,
+      clock: createFakeClock(),
+      maxKeys: 5,
+    });
+    for (let i = 0; i < 100; i += 1) limiter.hit(`user-${i}`);
+    expect(limiter.check('user-0').allowed).toBe(true);
+    expect(limiter.check('user-99').allowed).toBe(false);
+  });
+});
+
+describe('access control', () => {
+  it('returns 401 JSON for protected APIs without a session', async () => {
+    for (const url of [
+      '/api/session',
+      '/api/services',
+      '/api/system',
+      '/api/connection',
+      '/api/admin/audit',
+      '/api/admin/users',
+      '/api/admin/diagnostics',
+    ]) {
+      const res = await t.app.inject({ url, headers: { cookie: 'fd_session=forged-token-value' } });
+      expect(res.statusCode, url).toBe(401);
+      expect(res.json(), url).toMatchObject({ error: 'unauthorized', message: expect.any(String) });
+    }
+  });
+
+  it('returns 403 to family users on admin APIs', async () => {
+    const cookie = await cookieFor(t.app, FAMILY);
+    for (const url of ['/api/admin/audit', '/api/admin/users', '/api/admin/diagnostics']) {
+      const res = await t.app.inject({ url, headers: { cookie } });
+      expect(res.statusCode, url).toBe(403);
+      expect(res.json().error).toBe('forbidden');
+      expect(res.body).not.toContain('login.success');
+    }
+    const refresh = await t.app.inject({
+      method: 'POST',
+      url: '/api/services/refresh',
+      headers: { cookie },
+      payload: {},
+    });
+    expect(refresh.statusCode).toBe(403);
+  });
+
+  it('serves the connection addresses to signed-in users', async () => {
+    const cookie = await cookieFor(t.app, FAMILY);
+    const res = await t.app.inject({ url: '/api/connection', headers: { cookie } });
+    expect(res.json()).toEqual({
+      tailnetUrl: 'https://server-home.tail89d77e.ts.net',
+      lanUrl: null,
+      localUrl: 'http://127.0.0.1:8070',
+    });
+  });
+});
+
+describe('sessions', () => {
+  it('logout deletes the session, clears the cookie and later requests get 401', async () => {
+    const cookie = await cookieFor(t.app, FAMILY);
+    const res = await t.app.inject({ method: 'POST', url: '/api/logout', headers: { cookie }, payload: {} });
+    expect(res.statusCode).toBe(204);
+    const cleared = res.cookies.find((c) => c.name === 'fd_session');
+    expect(cleared?.value).toBe('');
+    expect(cleared?.expires?.getTime() ?? 0).toBeLessThan(Date.now());
+    expect((await t.app.inject({ url: '/api/session', headers: { cookie } })).statusCode).toBe(401);
+    expect(t.app.dashboard.sessions.count()).toBe(0);
+    expect((await t.app.dashboard.audit.readLatest(1))[0]?.action).toBe('logout');
+  });
+
+  it('stores only token hashes and survives a server restart', async () => {
+    const cookie = await cookieFor(t.app, FAMILY);
+    const token = cookie.split('=')[1] ?? '';
+    await t.app.close();
+    const file = await readFile(path.join(t.dataDir, 'sessions.json'), 'utf8');
+    expect(file).not.toContain(token);
+    expect(file).toMatch(/"tokenHash": "[0-9a-f]{64}"/);
+
+    const restarted = await createTestApp({ dataDir: t.dataDir, clock: t.clock });
+    t = restarted;
+    const res = await t.app.inject({ url: '/api/session', headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.username).toBe('mama');
+  });
+
+  it('expires after 30 days of inactivity but slides with use', async () => {
+    const cookie = await cookieFor(t.app, FAMILY);
+    t.clock.advance(29 * DAY);
+    const used = await t.app.inject({ url: '/api/session', headers: { cookie } });
+    expect(used.statusCode).toBe(200);
+    expect(used.cookies.find((c) => c.name === 'fd_session')?.maxAge).toBe(30 * 24 * 60 * 60);
+    t.clock.advance(29 * DAY);
+    expect((await t.app.inject({ url: '/api/session', headers: { cookie } })).statusCode).toBe(200);
+    t.clock.advance(30 * DAY + 1000);
+    expect((await t.app.inject({ url: '/api/session', headers: { cookie } })).statusCode).toBe(401);
+  });
+
+  it('invalidates sessions after a password change or user removal', async () => {
+    const familyCookie = await cookieFor(t.app, FAMILY);
+    const adminCookie = await cookieFor(t.app, ADMIN);
+    t.clock.advance(1000);
+    const store = createUserStore(t.dataDir, { clock: t.clock, reloadIntervalMs: 0 });
+    const mama = await store.findByUsername('mama');
+    const papa = await store.findByUsername('papa');
+    if (!mama || !papa) throw new Error('fixture users missing');
+    await store.update(mama.id, {
+      passwordHash: await hashPassword('another-password-2'),
+      passwordChangedAt: t.clock().toISOString(),
+    });
+    await store.remove(papa.id);
+    expect((await t.app.inject({ url: '/api/session', headers: { cookie: familyCookie } })).statusCode).toBe(
+      401,
+    );
+    expect((await t.app.inject({ url: '/api/session', headers: { cookie: adminCookie } })).statusCode).toBe(
+      401,
+    );
+    expect((await login(t.app, 'mama', 'another-password-2')).res.statusCode).toBe(200);
+  });
+
+  it('keeps at most 20 sessions per user, dropping the oldest', async () => {
+    const dir = await makeTempDir();
+    try {
+      const clock = createFakeClock();
+      const store = createSessionStore(dir, { clock });
+      await store.load();
+      const tokens: string[] = [];
+      for (let i = 0; i < MAX_SESSIONS_PER_USER + 1; i += 1) {
+        clock.advance(1000);
+        tokens.push((await store.create('user-1')).token);
+      }
+      expect(store.count()).toBe(MAX_SESSIONS_PER_USER);
+      expect(store.lookup(tokens[0] ?? '')).toBeUndefined();
+      expect(store.lookup(tokens[MAX_SESSIONS_PER_USER] ?? '')).toBeDefined();
+    } finally {
+      await removeDir(dir);
+    }
+  });
+
+  it('sees users added while the server runs (users.json reload)', async () => {
+    await addUser(t.dataDir, t.clock, { username: 'babushka', password: 'grandma-password-1' });
+    expect((await login(t.app, 'babushka', 'grandma-password-1')).res.statusCode).toBe(200);
+  });
+});

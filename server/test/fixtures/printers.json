@@ -1,0 +1,34 @@
+[
+  {
+    "name": "Microsoft XPS Document Writer",
+    "isDefault": false,
+    "printerStatus": 3,
+    "detectedErrorState": 0,
+    "workOffline": false,
+    "portName": "PORTPROMPT:"
+  },
+  {
+    "name": "Microsoft Print to PDF",
+    "isDefault": false,
+    "printerStatus": 3,
+    "detectedErrorState": 0,
+    "workOffline": false,
+    "portName": "PORTPROMPT:"
+  },
+  {
+    "name": "HP Color LaserJet MFP M283fdw (D6ECE2)",
+    "isDefault": true,
+    "printerStatus": 3,
+    "detectedErrorState": 0,
+    "workOffline": false,
+    "portName": "WSD-f84a2f64-a45e-450b-a45a-d4264bb99cc8"
+  },
+  {
+    "name": "Fax",
+    "isDefault": false,
+    "printerStatus": 3,
+    "detectedErrorState": 0,
+    "workOffline": false,
+    "portName": "SHRFAX:"
+  }
+]

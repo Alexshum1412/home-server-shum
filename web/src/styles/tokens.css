@@ -1,0 +1,159 @@
+/*
+ * Design tokens — «Семейный сервер».
+ *
+ * Concept: a calm house in the evening. Quiet slate surfaces, one warm
+ * "screen glow" (used for the cinema and primary actions only), honest
+ * status labels where text and icon come before colour.
+ *
+ * Contrast (WCAG 2.x, measured): every text/status colour below is ≥ 4.5:1
+ * on --c-bg, --c-surface and --c-surface-2 in both themes; --c-on-accent on
+ * --c-accent ≥ 5.4:1. Re-check with scripts if you change a value.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Base palette (dark, default) */
+  --c-bg: #10151b;
+  --c-surface: #171e27;
+  --c-surface-2: #1f2833;
+  --c-border: #2c3744;
+  --c-border-strong: #3d4a5a;
+  --c-text: #e9eef4;
+  --c-text-muted: #a3b0c0;
+  --c-text-subtle: #8a97a8;
+
+  /* The one warm accent: cinema "screen glow" and primary actions */
+  --c-accent: #f3bc63;
+  --c-accent-hover: #f7cd86;
+  --c-on-accent: #1b1305;
+  --c-accent-glow: rgb(243 188 99 / 0.18);
+
+  /* Status colours — always paired with an icon and a word */
+  --c-ok: #57cf94;
+  --c-warn: #f59a4a;
+  --c-bad: #f27474;
+  --c-info: #86b3f0;
+  --c-neutral: #97a3b3;
+  --c-ok-bg: rgb(87 207 148 / 0.12);
+  --c-warn-bg: rgb(245 154 74 / 0.12);
+  --c-bad-bg: rgb(242 116 116 / 0.12);
+  --c-info-bg: rgb(134 179 240 / 0.12);
+  --c-neutral-bg: rgb(151 163 179 / 0.12);
+
+  --c-focus: #9cc4ff;
+  --c-overlay: rgb(5 8 12 / 0.6);
+
+  /* Typography: Onest (bundled locally, OFL) with system fallbacks */
+  --font-sans:
+    "Onest Variable", "Segoe UI", system-ui, -apple-system, "Roboto", "Helvetica Neue", Arial, sans-serif;
+  --font-tabular: "Onest Variable", "Segoe UI", system-ui, sans-serif;
+
+  /* Type scale (1.2 minor third, 16 px base) */
+  --fs-xs: 0.8125rem; /* 13 */
+  --fs-sm: 0.875rem; /* 14 */
+  --fs-md: 1rem; /* 16 */
+  --fs-lg: 1.1875rem; /* 19 */
+  --fs-xl: 1.4375rem; /* 23 */
+  --fs-2xl: 1.75rem; /* 28 */
+  --fs-3xl: clamp(1.9rem, 1.4rem + 2.2vw, 2.6rem); /* greeting */
+
+  --fw-regular: 420;
+  --fw-medium: 520;
+  --fw-semibold: 620;
+  --fw-bold: 720;
+
+  --lh-tight: 1.2;
+  --lh-normal: 1.5;
+
+  /* Spacing (4 px grid) */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.25rem;
+  --sp-6: 1.5rem;
+  --sp-8: 2rem;
+  --sp-10: 2.5rem;
+  --sp-12: 3rem;
+
+  /* Radii: hierarchy, not one radius on everything */
+  --r-sm: 6px; /* badges, inputs */
+  --r-md: 10px; /* buttons, list rows */
+  --r-lg: 16px; /* cards */
+  --r-xl: 24px; /* the cinema "screen" */
+  --r-pill: 999px;
+
+  /* Elevation: flat by default; only overlays get a shadow */
+  --shadow-overlay: 0 12px 32px rgb(0 0 0 / 0.45);
+
+  /* Layout */
+  --content-max: 76rem;
+  --sidebar-w: 15rem;
+  --tabbar-h: 4.25rem;
+  --tap-min: 44px;
+
+  /* Motion */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --c-bg: #f5f7fa;
+    --c-surface: #ffffff;
+    --c-surface-2: #eef2f6;
+    --c-border: #d9e0e8;
+    --c-border-strong: #b9c4d0;
+    --c-text: #141a21;
+    --c-text-muted: #4a5767;
+    --c-text-subtle: #5f6c7c;
+
+    --c-accent: #9a5b00;
+    --c-accent-hover: #7d4a00;
+    --c-on-accent: #ffffff;
+    --c-accent-glow: rgb(214 140 30 / 0.16);
+
+    --c-ok: #16774a;
+    --c-warn: #a84b00;
+    --c-bad: #b42828;
+    --c-info: #1d5fb3;
+    --c-neutral: #556273;
+    --c-ok-bg: rgb(22 119 74 / 0.1);
+    --c-warn-bg: rgb(168 75 0 / 0.1);
+    --c-bad-bg: rgb(180 40 40 / 0.09);
+    --c-info-bg: rgb(29 95 179 / 0.09);
+    --c-neutral-bg: rgb(85 98 115 / 0.09);
+
+    --c-focus: #1d5fb3;
+    --c-overlay: rgb(20 26 33 / 0.4);
+    --shadow-overlay: 0 12px 32px rgb(20 26 33 / 0.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+  }
+}
+
+/* Appended for the app shell (palette above unchanged). */
+:root {
+  /* Selected navigation item: a quiet tint, the label weight carries the rest. */
+  --c-selected: rgb(233 238 244 / 0.08);
+  /* Only for commands and code the user copies. */
+  --font-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
+
+  --z-header: 20;
+  --z-tabbar: 30;
+  --z-skip: 100;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --c-selected: rgb(20 26 33 / 0.06);
+  }
+}
