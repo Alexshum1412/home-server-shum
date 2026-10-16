@@ -4,8 +4,8 @@ _Обновлено: 16.10.2026 (вечер). Коротко: статус, чт
 
 ## Где остановились
 
-- MVP портала реализован и проверен: сервер (`server/`), интерфейс (`web/`), скрипты (`scripts/`), документация (`docs/`), OpenSpec `openspec/changes/add-family-portal-mvp` — 23/23 задач.
-- Последний полный прогон `npm run check`: Biome чисто, типы OK, 256 unit-тестов, сборка, 30 e2e — всё проходит (см. git log).
+- MVP портала реализован и проверен: сервер (`server/`), интерфейс (`web/`), скрипты (`scripts/`), документация (`docs/`), OpenSpec: 23/23 задач, change заархивирован (`openspec/changes/archive/2026-10-16-add-family-portal-mvp`), основные спецификации — `openspec/specs/` (6 возможностей).
+- Последний полный прогон `npm run check`: Biome чисто (132 файла), типы OK, 275 unit-тестов, сборка, 30 e2e, `openspec validate --all --strict` 6/6, `npm audit` 0 уязвимостей — всё проходит (16.10.2026).
 - Рабочий экземпляр: `http://127.0.0.1:8070` (данные в `%LOCALAPPDATA%\FamilyDashboard`, пользователей ещё нет — владелец создаёт сам).
 - Tailscale Serve включён: `https://server-home.tail89d77e.ts.net` (tailnet only, без Funnel).
 - ПК перезагружался 16.10 дважды (обновление Windows; неожиданное отключение в 12:37) — автозапуск дашборда ещё не включён.

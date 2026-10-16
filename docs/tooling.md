@@ -22,7 +22,7 @@
 | Название | Версия | Тип / область | Источник | Что делает | Проверка |
 |---|---|---|---|---|---|
 | **Superpowers** | 6.4.1 | plugin, project (`.claude/settings.json` → `enabledPlugins`) | официальный marketplace `anthropics/claude-plugins-official` | процесс: brainstorming → план → TDD → отладка → проверка перед завершением; 15 skills + SessionStart hook (bash из PortableGit) | `& $claude plugin list` → `superpowers@claude-plugins-official, Scope: project, enabled`; `& $claude plugin details superpowers` |
-| **OpenSpec** | CLI 1.14.2 | глобальный npm-пакет (в папке Node) + project skills/commands | npm `@fission-ai/openspec` (MIT) | спецификации и управляемые изменения: `openspec/`, `/opsx:propose`, `/opsx:apply`, … | `openspec.cmd --version`; `openspec.cmd validate add-family-portal-mvp --strict` → valid |
+| **OpenSpec** | CLI 1.14.2 | глобальный npm-пакет (в папке Node) + project skills/commands | npm `@fission-ai/openspec` (MIT) | спецификации и управляемые изменения: `openspec/`, `/opsx:propose`, `/opsx:apply`, … | `openspec.cmd --version`; `openspec.cmd validate --all --strict` → 6/6 спецификаций valid |
 | **UI/UX Pro Max** | 2.15.0 | project skill `.claude/skills/ui-ux-pro-max` + `design-system` | npm `ui-ux-pro-max-cli` (MIT), `npx.cmd --yes ui-ux-pro-max-cli@2.15.0 init --ai claude` | правила UI/UX, базы стилей/палитр/типографики | файл `SKILL.md` и `data/*.csv` на месте |
 | **frontend-design** | из `anthropics/skills` (hash в `skills-lock.json`) | project skill | `npx.cmd --yes skills@1.7.2 add anthropics/skills --skill frontend-design --agent claude-code --copy -y` | направление визуального дизайна, борьба с «шаблонностью» | `.claude/skills/frontend-design/SKILL.md` |
 | **web-design-guidelines** | 1.0.0 (Vercel) | project skill | `npx.cmd --yes skills@1.7.2 add vercel-labs/agent-skills --skill web-design-guidelines …` | аудит готового UI (доступность, формы, фокус) | `.claude/skills/web-design-guidelines/SKILL.md` |
@@ -41,7 +41,7 @@
 
 | Инструмент | Применение | Результат |
 |---|---|---|
-| OpenSpec | change `add-family-portal-mvp`: proposal, 6 спецификаций, design, tasks; `openspec validate --strict`; skill `openspec-apply-change` для оставшейся задачи 7.2 | 23/23 задач выполнены, спецификация валидна |
+| OpenSpec | change `add-family-portal-mvp`: proposal, 6 спецификаций, design, tasks; `openspec validate --strict`; skill `openspec-apply-change` для задачи 7.2; `openspec-archive-change` + `openspec-sync-specs` | 23/23 задач, 6 основных спецификаций в `openspec/specs/`, change в архиве |
 | Superpowers | `verification-before-completion` (каждое утверждение — после свежего прогона `npm run check`), `test-driven-development` (тест AlertList/Home: красный на старом коде → зелёный), `requesting-code-review` (независимый ревьюер по шаблону на диапазон коммитов) | см. итоговый отчёт сессии |
 | Context7 | MCP-сервер настроен на уровне проекта; в сессии, запущенной не из папки проекта, использован тот же сервер напрямую по HTTP (JSON-RPC `query-docs`): сверены Fastify v5 (`request.host/hostname/protocol`, `trustProxy`, `routeOptions.url`) и Vite 8 (`oxc.jsx`) | расхождений кода с документацией нет |
 | UI/UX Pro Max | Quick Reference и Pre-Delivery Checklist; поиск по CSV-базе `ux-guidelines.csv` (WCAG 2.2: Focus Not Obscured, Accessible Authentication) | требования выполнены (`scroll-padding-bottom` под нижней панелью, `autocomplete`, вставка не блокируется). Поисковый CLI не запускался — нужен Python 3 (не установлен; skill запрещает ставить его самостоятельно) |
