@@ -400,6 +400,10 @@
   user-select: all;
 }
 
+.first-run__command .nowrap {
+  white-space: nowrap;
+}
+
 .boot {
   display: flex;
   flex-direction: column;

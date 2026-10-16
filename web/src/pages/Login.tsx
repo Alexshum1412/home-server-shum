@@ -15,7 +15,15 @@ function FirstRun(props: { command: string }) {
         Создайте администратора на домашнем компьютере: откройте командную строку в папке портала и выполните
         команду. Пароль вводится там же, в браузер он не передаётся.
       </p>
-      <code class="first-run__command">{props.command}</code>
+      <code class="first-run__command">
+        {/* Each argument stays on one line (browsers may otherwise break after the hyphen in --role). */}
+        {props.command.split(' ').map((part, index) => (
+          <>
+            {index > 0 ? ' ' : null}
+            <span class="nowrap">{part}</span>
+          </>
+        ))}
+      </code>
       <p>После этого войдите здесь под созданным именем.</p>
     </section>
   );
