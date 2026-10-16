@@ -18,6 +18,22 @@ export class GitError extends Error {
 
 function explain(stderr: string): string {
   const text = stderr.trim();
+  // Push failures first: they are the ones a family admin is most likely to see.
+  if (/\[rejected\]|non-fast-forward|fetch first|failed to push some refs/i.test(text)) {
+    return 'на GitHub есть коммиты, которых нет здесь; принудительная перезапись не выполняется — разберитесь вручную (git pull в папке проекта)';
+  }
+  if (
+    /authentication failed|could not read username|terminal prompts disabled|invalid username|permission .* denied|\b403\b/i.test(
+      text,
+    )
+  ) {
+    return 'нет доступа к GitHub — войдите заново: выполните git push в папке проекта';
+  }
+  if (
+    /could not resolve host|failed to connect|unable to access|timed out|connection was reset/i.test(text)
+  ) {
+    return 'нет связи с GitHub';
+  }
   if (/not a git repository/i.test(text)) return 'папка не является Git-репозиторием';
   if (/dubious ownership/i.test(text)) {
     return 'Git не доверяет папке с другим владельцем (запускайте копирование от имени владельца репозитория)';
@@ -28,7 +44,12 @@ function explain(stderr: string): string {
 }
 
 /** Runs git with a fixed argument array (no shell); rejects with a Russian GitError. */
-export function runGit(gitExe: string, args: readonly string[], timeoutMs = GIT_TIMEOUT_MS): Promise<string> {
+export function runGit(
+  gitExe: string,
+  args: readonly string[],
+  timeoutMs = GIT_TIMEOUT_MS,
+  extraEnv: Readonly<Record<string, string>> = {},
+): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       gitExe,
@@ -38,7 +59,7 @@ export function runGit(gitExe: string, args: readonly string[], timeoutMs = GIT_
         windowsHide: true,
         maxBuffer: MAX_BUFFER,
         encoding: 'utf8',
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...extraEnv },
       },
       (error, stdout, stderr) => {
         if (!error) {
@@ -93,6 +114,55 @@ export async function verifyBundle(gitExe: string, bundle: string, tempDir: stri
   } finally {
     await removeTree(scratch, tempDir).catch(() => undefined);
   }
+}
+
+/** The only remotes the scheduled mirror may push to: a repository on https://github.com/. */
+export const GITHUB_REMOTE = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?(?:\.git)?\/?$/i;
+export const PUSH_TIMEOUT_MS = 2 * 60_000;
+
+/** Never show credentials that may be embedded in a remote URL. */
+function withoutCredentials(url: string): string {
+  return url.replace(/\/\/[^@/]+@/, '//');
+}
+
+export interface PushResult {
+  /** Remote URL without credentials. */
+  url: string;
+  /** The commit the branch points to (what is now on the remote). */
+  head: string;
+}
+
+/**
+ * Pushes one branch of the repository to its remote: fast-forward only (never --force), never
+ * prompts (a missing GitHub login fails instead of opening a window in a scheduled run), and only
+ * to a remote whose URL matches `allowedUrl` (https://github.com/ by default).
+ */
+export async function pushBranch(
+  gitExe: string,
+  repoDir: string,
+  remote: string,
+  branch: string,
+  allowedUrl: RegExp = GITHUB_REMOTE,
+  timeoutMs = PUSH_TIMEOUT_MS,
+): Promise<PushResult> {
+  const rawUrl = (await runGit(gitExe, ['-C', repoDir, 'remote', 'get-url', remote])).trim();
+  const url = withoutCredentials(rawUrl);
+  if (!allowedUrl.test(rawUrl)) {
+    throw new GitError(
+      'failed',
+      `отправка разрешена только в репозиторий на https://github.com/ (у «${remote}» сейчас: ${url})`,
+    );
+  }
+  const head = (
+    await runGit(gitExe, ['-C', repoDir, 'rev-parse', '--verify', `refs/heads/${branch}`])
+  ).trim();
+  await runGit(
+    gitExe,
+    ['-C', repoDir, 'push', '--porcelain', remote, `refs/heads/${branch}:refs/heads/${branch}`],
+    timeoutMs,
+    { GCM_INTERACTIVE: 'never' },
+  );
+  return { url, head };
 }
 
 /** Clones a bundle into `dest` (which must not exist) and returns the checked-out HEAD. */

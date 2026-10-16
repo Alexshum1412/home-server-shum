@@ -69,7 +69,8 @@ export async function readBackupStatus(dataDir: string, clock: Clock): Promise<B
   const lastSuccessAt = status.lastSuccessAt ?? null;
   const restoreTested = Boolean(status.restoreTestedAt);
   const restoreNote = restoreTested ? '' : ' Восстановление из копии ещё не проверялось.';
-  const failed = status.lastResult === 'failed' || targets.some((target) => !target.ok);
+  // A failed optional mirror (the GitHub copy of the code) is a remark, never a failed backup.
+  const failed = status.lastResult === 'failed' || targets.some((target) => !target.ok && !target.optional);
 
   if (failed) {
     const when = status.lastRunAt ? ` ${formatWhen(status.lastRunAt, now)}` : '';

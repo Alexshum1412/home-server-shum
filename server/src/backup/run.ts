@@ -8,6 +8,7 @@ import { readAppVersion } from '../lib/version.ts';
 import { runTailscaleServeStatus } from '../system/tailscale.ts';
 import { statVolume } from '../system/volumes.ts';
 import { describeError } from './files.ts';
+import { pushBranch } from './git.ts';
 import { applyRetention, assertSafeTargetRoot } from './retention.ts';
 import { createSnapshot } from './snapshot.ts';
 import { type CollectedSources, collectSources, type SourceDeps, type SourceSettings } from './sources.ts';
@@ -21,11 +22,23 @@ import {
   type VolumeLister,
 } from './targets.ts';
 
+/** Mirror of the committed code to a remote branch (the GitHub copy). */
+export interface GitPushSettings {
+  readonly remote: string;
+  readonly branch: string;
+  /** Allowed remote URLs; default: a repository on https://github.com/ (tests use a local remote). */
+  readonly allowedUrl?: RegExp | undefined;
+}
+
 export interface BackupSettings extends SourceSettings {
   /** Target specs, see backup/spec.ts. */
   readonly targets: readonly string[];
   readonly keep: number;
+  /** null/undefined — no mirror. */
+  readonly gitPush?: GitPushSettings | null;
 }
+
+export const MIRROR_NAME = 'GitHub (код)';
 
 export interface BackupDeps extends SourceDeps, ResolveDeps {
   readonly clock: Clock;
@@ -50,6 +63,7 @@ export function backupSettingsFromConfig(config: Config): BackupSettings {
     repoDir: config.backupRepoDir,
     extraFiles: config.backupExtraFiles ?? (existsSync(defaultEnv) ? [defaultEnv] : []),
     gitExe: config.gitExe,
+    gitPush: config.backupGitPush,
   };
 }
 
@@ -145,7 +159,43 @@ export async function runBackup(settings: BackupSettings, deps: BackupDeps): Pro
     await sources?.cleanup();
   }
 
-  const ok = targets.length > 0 && targets.every((target) => target.ok);
+  // The mirror holds only committed code (never family data). Its failure (no internet, login
+  // expired, diverged history) is a remark: the family data is protected by the local copies.
+  if (settings.gitPush && settings.repoDir) {
+    try {
+      const pushed = await pushBranch(
+        settings.gitExe,
+        settings.repoDir,
+        settings.gitPush.remote,
+        settings.gitPush.branch,
+        settings.gitPush.allowedUrl,
+      );
+      targets.push({
+        name: MIRROR_NAME,
+        root: pushed.url,
+        ok: true,
+        snapshot: pushed.head.slice(0, 12),
+        sizeBytes: null,
+        error: null,
+        optional: true,
+      });
+    } catch (error) {
+      const reason = describeError(error);
+      targets.push({
+        name: MIRROR_NAME,
+        root: null,
+        ok: false,
+        snapshot: null,
+        sizeBytes: null,
+        error: reason,
+        optional: true,
+      });
+      warnings.push(`${MIRROR_NAME}: ${reason}`);
+    }
+  }
+
+  const required = targets.filter((target) => !target.optional);
+  const ok = required.length > 0 && required.every((target) => target.ok);
   await recordBackupRun(settings.dataDir, { at, ok, targets, warnings });
   return { ok, at, targets, warnings };
 }

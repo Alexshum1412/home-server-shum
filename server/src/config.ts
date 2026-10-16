@@ -32,6 +32,8 @@ export interface Config {
   /** Extra files stored under config/; null → the project .env when it exists. */
   readonly backupExtraFiles: readonly string[] | null;
   readonly gitExe: string;
+  /** BACKUP_GIT_PUSH "<remote>/<branch>": mirror the committed code there on every backup; null — off. */
+  readonly backupGitPush: { readonly remote: string; readonly branch: string } | null;
 }
 
 export type Env = Readonly<Record<string, string | undefined>>;
@@ -74,6 +76,7 @@ const schema = z.object({
   BACKUP_REPO_DIR: z.string().min(1),
   BACKUP_EXTRA_FILES: z.string(),
   GIT_EXE: z.string().min(1),
+  BACKUP_GIT_PUSH: z.string(),
 });
 
 /** "C:" — the drive Windows is installed on (the family server root lives there). */
@@ -157,6 +160,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     BACKUP_REPO_DIR: pick('BACKUP_REPO_DIR', REPO_ROOT),
     BACKUP_EXTRA_FILES: env.BACKUP_EXTRA_FILES?.trim() ?? '',
     GIT_EXE: pick('GIT_EXE', 'git'),
+    BACKUP_GIT_PUSH: env.BACKUP_GIT_PUSH?.trim() ?? '',
   };
 
   const parsed = schema.safeParse(raw);
@@ -176,6 +180,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
   }
   const backupTargets = parseBackupTargets(v.BACKUP_TARGETS);
   const backupExtraFiles = parseExtraFiles(v.BACKUP_EXTRA_FILES);
+  const backupGitPush = parseGitPush(v.BACKUP_GIT_PUSH);
 
   return Object.freeze({
     host: v.HOST,
@@ -197,5 +202,18 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     backupRepoDir: path.resolve(v.BACKUP_REPO_DIR),
     backupExtraFiles: backupExtraFiles === null ? null : Object.freeze(backupExtraFiles),
     gitExe: v.GIT_EXE,
+    backupGitPush: backupGitPush === null ? null : Object.freeze(backupGitPush),
   });
+}
+
+/** "origin/main" → {remote, branch}; "" or "none" → null. Plain git names only (no options, no spaces). */
+function parseGitPush(value: string): { remote: string; branch: string } | null {
+  if (value === '' || value.toLowerCase() === 'none') return null;
+  const match = /^([A-Za-z0-9][A-Za-z0-9._-]*)\/([A-Za-z0-9][A-Za-z0-9._/-]*)$/.exec(value);
+  if (!match || value.includes('..') || value.endsWith('/') || value.endsWith('.lock')) {
+    throw new Error(
+      `${CONFIG_ERROR}: BACKUP_GIT_PUSH: ожидается «удалённый-репозиторий/ветка», например origin/main, или none`,
+    );
+  }
+  return { remote: match[1] as string, branch: match[2] as string };
 }

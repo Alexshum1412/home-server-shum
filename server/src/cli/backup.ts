@@ -117,10 +117,20 @@ function printWarnings(warnings: readonly string[]): void {
 }
 
 async function commandRun(settings: BackupSettings, deps: BackupDeps): Promise<number> {
-  console.log(`Резервное копирование: мест хранения — ${settings.targets.length}.`);
+  const mirror = settings.gitPush
+    ? ` + копия кода на GitHub (${settings.gitPush.remote}/${settings.gitPush.branch})`
+    : '';
+  console.log(`Резервное копирование: мест хранения — ${settings.targets.length}${mirror}.`);
   const result = await runBackup(settings, deps);
   for (const target of result.targets) {
-    if (target.ok) {
+    if (target.optional) {
+      // The GitHub mirror: only committed code; a failure is a remark, not a failed backup.
+      console.log(
+        target.ok
+          ? `${OK}${target.name}: ${target.root ?? ''} (коммит ${target.snapshot ?? '?'})`
+          : `ЗАМЕЧ. ${target.name}: ${target.error ?? 'неизвестная ошибка'}`,
+      );
+    } else if (target.ok) {
       const where = path.join(target.root ?? '', target.snapshot ?? '');
       console.log(`${OK}${target.name}: ${where} (${formatBytes(target.sizeBytes ?? 0)}), проверено`);
     } else {

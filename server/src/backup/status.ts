@@ -14,6 +14,8 @@ export interface BackupTargetStatus {
   sizeBytes: number | null;
   /** Russian, without file contents or secrets. */
   error: string | null;
+  /** A mirror (the GitHub copy of the code): its failure is a remark, not a failed backup. */
+  optional?: boolean;
 }
 
 export interface BackupStatusFile {
@@ -40,6 +42,7 @@ const targetStatusSchema = z.object({
   snapshot: z.string().nullable().optional(),
   sizeBytes: z.number().nullable().optional(),
   error: z.string().nullable().optional(),
+  optional: z.boolean().optional(),
 });
 
 /**
@@ -76,6 +79,7 @@ function normaliseTargets(targets: ParsedBackupStatus['targets']): BackupTargetS
     snapshot: target.snapshot ?? null,
     sizeBytes: target.sizeBytes ?? null,
     error: target.error ?? null,
+    ...(target.optional ? { optional: true } : {}),
   }));
 }
 

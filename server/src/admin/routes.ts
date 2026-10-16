@@ -78,6 +78,9 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         backupRepoDir: config.backupRepoDir,
         backupExtraFiles: config.backupExtraFiles === null ? null : config.backupExtraFiles.join(';'),
         gitExe: config.gitExe,
+        backupGitPush: config.backupGitPush
+          ? `${config.backupGitPush.remote}/${config.backupGitPush.branch}`
+          : null,
         userCount,
       },
       system: deps.collector.snapshot('admin'),
