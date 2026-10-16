@@ -6,6 +6,7 @@ import type { Config } from '../config.ts';
 import { sendError } from '../lib/http.ts';
 import { type Clock, ceilMinutes, isoNow } from '../lib/time.ts';
 import { clearSessionCookie, currentUser, type Guards, setSessionCookie } from './guards.ts';
+import type { LoginTimes } from './logins.ts';
 import { dummyVerify, PASSWORD_MAX_LENGTH, verifyPassword } from './passwords.ts';
 import { LOGIN_WINDOW_MS, type LoginLimiter } from './rate-limit.ts';
 import { SESSION_COOKIE, type SessionStore } from './sessions.ts';
@@ -13,11 +14,14 @@ import { normaliseUsername, toSessionUser, USERNAME_RE, type UserStore } from '.
 
 export const CREATE_ADMIN_COMMAND = 'scripts\\user.cmd add <логин> --name "<Имя>" --role admin';
 export const INVALID_CREDENTIALS_MESSAGE = 'Неверное имя пользователя или пароль';
+export const USERS_UNAVAILABLE_MESSAGE =
+  'Не удаётся прочитать список пользователей на сервере. Сообщите администратору.';
 
 export interface AuthRouteDeps {
   config: Config;
   clock: Clock;
   users: UserStore;
+  logins: LoginTimes;
   sessions: SessionStore;
   audit: AuditLog;
   limiter: LoginLimiter;
@@ -34,7 +38,7 @@ const MAX_AUDITED_BLOCKS = 10_000;
 const BLOCK_AUDIT_MINUTES = ceilMinutes(LOGIN_WINDOW_MS / 1000);
 
 export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): void {
-  const { config, users, sessions, audit, limiter, guards } = deps;
+  const { config, users, logins, sessions, audit, limiter, guards } = deps;
 
   // A blocked login is audited at most once per key (login name or address) per limiter window,
   // so a peer hammering a blocked login cannot flood audit.jsonl and push real entries out of
@@ -98,6 +102,12 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     limiter.byIp.hit(ip);
 
     const user = await users.findByUsername(username);
+    if (users.loadError() !== null) {
+      // users.json is broken: nobody can be checked, and it is not the visitor's fault.
+      limiter.byUser.release(username);
+      limiter.byIp.release(ip);
+      return sendError(reply, 503, 'users_unavailable', USERS_UNAVAILABLE_MESSAGE);
+    }
     let valid = false;
     if (user) valid = await verifyPassword(password, user.passwordHash);
     else await dummyVerify(password);
@@ -115,15 +125,13 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     limiter.byUser.reset(username);
     limiter.byIp.release(ip);
     const { token } = await sessions.create(user.id);
-    const updated = await users
-      .update(user.id, { lastLoginAt: isoNow(deps.clock) })
-      .catch((error: unknown) => {
-        request.log.warn({ err: error }, 'Не удалось сохранить время входа');
-        return undefined;
-      });
+    // logins.json, not users.json: the server never rewrites the file the CLI edits.
+    await logins.record(user.id, isoNow(deps.clock)).catch((error: unknown) => {
+      request.log.warn({ err: error }, 'Не удалось сохранить время входа');
+    });
     setSessionCookie(reply, request, config, token);
     await audit.write({ action: 'login.success', actor: user.username, ip, detail: null });
-    const body: SessionResponse = { user: toSessionUser(updated ?? user), demo: config.demo };
+    const body: SessionResponse = { user: toSessionUser(user), demo: config.demo };
     return body;
   });
 
@@ -147,8 +155,10 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
   });
 
   app.get('/api/setup-state', async () => {
+    const list = await users.list();
     const body: SetupStateResponse = {
-      hasUsers: (await users.list()).length > 0,
+      // A users.json that exists but cannot be read is not a fresh install: no first-run screen.
+      hasUsers: list.length > 0 || users.loadError() !== null,
       createAdminCommand: CREATE_ADMIN_COMMAND,
     };
     return body;

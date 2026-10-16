@@ -19,7 +19,7 @@ import { POWERSHELL_TIMEOUT_MS, ProbeError } from './powershell.ts';
 import { parsePrinters } from './printer.ts';
 import type { SystemProbes } from './probes.ts';
 import { parseTailscaleStatus, TAILSCALE_FAMILY_DOWN_REASON, TAILSCALE_TIMEOUT_MS } from './tailscale.ts';
-import { pendingVolume, toVolumeInfo } from './volumes.ts';
+import { pendingVolume, toVolumeInfo, type VolumeSpace } from './volumes.ts';
 
 /** Windows edition/build is re-read at most every 6 hours (it changes only after an update). */
 const OS_VERSION_REFRESH_MS = 6 * 60 * 60 * 1000;
@@ -33,6 +33,7 @@ export const SCHEDULE_MS = {
 
 const DISKS_SOURCE = 'PowerShell Get-PhysicalDisk';
 const NOT_MEASURED = 'Ещё не измерено';
+const STATFS_STILL_RUNNING = 'Проверка места ещё не завершилась';
 
 export interface ProbeTimeouts {
   /** Outer guard for PowerShell probes (the process itself is killed after 15 s). */
@@ -190,12 +191,32 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
     }
   }
 
+  /**
+   * Volumes whose fs.statfs has not returned yet. The timeout only stops waiting; the call itself
+   * keeps a libuv thread busy, so a dead network/USB volume would otherwise get one more stuck
+   * call every minute until the thread pool is exhausted.
+   */
+  const statfsInFlight = new Set<string>();
+
+  function statfsOnce(path: string): Promise<VolumeSpace> {
+    statfsInFlight.add(path);
+    const call = Promise.resolve().then(() => probes.statfs(path));
+    const settled = () => statfsInFlight.delete(path);
+    call.then(settled, settled);
+    return call;
+  }
+
   function collectVolumes(): Promise<void> {
     return exclusive('volumes', async () => {
+      const previous = volumes;
       volumes = await Promise.all(
         config.volumes.map(async (path) => {
+          if (statfsInFlight.has(path)) {
+            const last = previous.find((volume) => volume.path === path);
+            return last && last.freeBytes !== null ? last : pendingVolume(path, STATFS_STILL_RUNNING);
+          }
           try {
-            const space = await withTimeout(probes.statfs(path), timeouts.statfs);
+            const space = await withTimeout(statfsOnce(path), timeouts.statfs);
             return toVolumeInfo(path, space, clock(), config.lowSpacePercent);
           } catch (error) {
             report(`volume ${path}`, error);

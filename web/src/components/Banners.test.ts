@@ -14,7 +14,14 @@ import {
   mount,
   textOf,
 } from '../testing/dom.ts';
-import { failure, polling, servicesResponse, systemResponse, withProviders } from '../testing/fixtures.ts';
+import {
+  failure,
+  NOW_ISO,
+  polling,
+  servicesResponse,
+  systemResponse,
+  withProviders,
+} from '../testing/fixtures.ts';
 import { ConnectionBanner } from './Banners.tsx';
 
 let view: Mounted | null = null;
@@ -73,6 +80,32 @@ describe('connection banner', () => {
     const button = getButton(view.container, 'Повторить');
     expect(button.hasAttribute('disabled')).toBe(false);
     expect(textOf(view.container)).not.toContain('Проверяем');
+  });
+
+  it('gives the age of the oldest data on screen, not the freshest', async () => {
+    const fresh = Date.parse(NOW_ISO);
+    const stale = fresh - 10 * 60_000;
+    // /api/system stopped answering ten minutes ago; /api/services was just refreshed.
+    const system = offline({ receivedAt: stale });
+    const services = polling<ServicesResponse>(servicesResponse([]), { receivedAt: fresh });
+    view = await mount(withProviders(h(ConnectionBanner, {}), { system, services }));
+    const times = byTag(view.container, 'time');
+    expect(times.length).toBe(1);
+    const time = times[0] as FakeElement;
+    expect(time.getAttribute('dateTime') ?? time.getAttribute('datetime')).toBe(
+      new Date(stale).toISOString(),
+    );
+  });
+
+  it('ignores a source that has no data yet when giving the age', async () => {
+    const stale = Date.parse(NOW_ISO) - 5 * 60_000;
+    const system = offline({ receivedAt: stale });
+    const services = polling<ServicesResponse>(null, { error: failure(true) });
+    view = await mount(withProviders(h(ConnectionBanner, {}), { system, services }));
+    const time = byTag(view.container, 'time')[0] as FakeElement;
+    expect(time.getAttribute('dateTime') ?? time.getAttribute('datetime')).toBe(
+      new Date(stale).toISOString(),
+    );
   });
 
   it('shows «Проверяем…» after a manual retry until the check finishes', async () => {

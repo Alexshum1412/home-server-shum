@@ -1,6 +1,7 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { UsersResponse } from '../../shared/api.ts';
 import { checkPasswordPolicy, hashPassword, verifyPassword } from '../src/auth/passwords.ts';
 import { createSlidingWindowLimiter } from '../src/auth/rate-limit.ts';
 import { INVALID_CREDENTIALS_MESSAGE } from '../src/auth/routes.ts';
@@ -70,6 +71,54 @@ describe('setup state', () => {
     const res = await t.app.inject({ url: '/api/setup-state' });
     expect(res.json().hasUsers).toBe(true);
   });
+
+  it('never offers the first run when users.json exists but is broken; sign-in answers 503', async () => {
+    const usersUnavailable = {
+      error: 'users_unavailable',
+      message: 'Не удаётся прочитать список пользователей на сервере. Сообщите администратору.',
+    };
+    for (const broken of ['{"version":1,"users":[{"id":', '{"version":1,"users":"none"}']) {
+      const dir = await makeTempDir();
+      await writeFile(path.join(dir, 'users.json'), broken);
+      const lines: string[] = [];
+      const broke = await createTestApp({
+        dataDir: dir,
+        logger: { level: 'error', stream: { write: (line: string) => lines.push(line) } },
+      });
+      try {
+        const setup = await broke.app.inject({ url: '/api/setup-state' });
+        expect(setup.statusCode).toBe(200);
+        expect(setup.json().hasUsers, broken).toBe(true);
+        for (let i = 0; i < 12; i += 1) {
+          const res = await login(broke.app, ADMIN.username, ADMIN.password);
+          expect(res.res.statusCode, broken).toBe(503);
+          expect(res.res.json()).toEqual(usersUnavailable);
+          expect(res.cookie).toBeUndefined();
+        }
+        expect(lines.join('\n')).toContain('users.json');
+        // The broken file is never overwritten.
+        expect(await readFile(path.join(dir, 'users.json'), 'utf8')).toBe(broken);
+        // Once the owner repairs the file, sign-in works and the 503s did not count as failures.
+        await rm(path.join(dir, 'users.json'));
+        await addUser(dir, broke.clock, ADMIN);
+        expect((await login(broke.app, ADMIN.username, ADMIN.password)).res.statusCode).toBe(200);
+      } finally {
+        await broke.app.close();
+        await removeDir(dir);
+      }
+    }
+  });
+
+  it('answers 503 when users.json breaks while the server runs, instead of trusting a stale list', async () => {
+    const file = path.join(t.dataDir, 'users.json');
+    const good = await readFile(file, 'utf8');
+    await writeFile(file, '{ not json');
+    expect((await login(t.app, FAMILY.username, FAMILY.password)).res.statusCode).toBe(503);
+    expect((await t.app.inject({ url: '/api/setup-state' })).json().hasUsers).toBe(true);
+    expect(await readFile(file, 'utf8')).toBe('{ not json');
+    await writeFile(file, good);
+    expect((await login(t.app, FAMILY.username, FAMILY.password)).res.statusCode).toBe(200);
+  });
 });
 
 describe('login', () => {
@@ -86,8 +135,52 @@ describe('login', () => {
     const session = await t.app.inject({ url: '/api/session', headers: { cookie } });
     expect(session.statusCode).toBe(200);
     expect(session.json().user.username).toBe('mama');
-    const stored = (await t.app.dashboard.users.findByUsername('mama'))?.lastLoginAt;
-    expect(stored).toBe('2026-10-16T10:00:00.000Z');
+    const mama = await t.app.dashboard.users.findByUsername('mama');
+    expect(t.app.dashboard.logins.get(mama?.id ?? '')).toBe('2026-10-16T10:00:00.000Z');
+  });
+
+  it('records the sign-in time in logins.json and never writes users.json (the CLI owns it)', async () => {
+    const usersFile = path.join(t.dataDir, 'users.json');
+    const before = await readFile(usersFile, 'utf8');
+    const beforeMtime = (await stat(usersFile)).mtimeMs;
+    t.clock.advance(60_000);
+    expect((await login(t.app, FAMILY.username, FAMILY.password)).res.statusCode).toBe(200);
+    expect(await readFile(usersFile, 'utf8')).toBe(before);
+    expect((await stat(usersFile)).mtimeMs).toBe(beforeMtime);
+
+    const mama = await t.app.dashboard.users.findByUsername('mama');
+    const logins = JSON.parse(await readFile(path.join(t.dataDir, 'logins.json'), 'utf8'));
+    expect(logins).toEqual({ version: 1, lastLoginAt: { [mama?.id ?? '']: '2026-10-16T10:01:00.000Z' } });
+
+    // Still shown to the admin, also after a restart.
+    const lastLoginOf = async (app: TestApp['app'], username: string) => {
+      const cookie = await cookieFor(app, ADMIN);
+      const res = await app.inject({ url: '/api/admin/users', headers: { cookie } });
+      return (res.json() as UsersResponse).users.find((u) => u.username === username)?.lastLoginAt;
+    };
+    expect(await lastLoginOf(t.app, 'mama')).toBe('2026-10-16T10:01:00.000Z');
+    const restarted = await createTestApp({ dataDir: t.dataDir, clock: t.clock });
+    try {
+      expect(await lastLoginOf(restarted.app, 'mama')).toBe('2026-10-16T10:01:00.000Z');
+    } finally {
+      await restarted.app.close();
+    }
+    expect(await readFile(usersFile, 'utf8')).toBe(before);
+  });
+
+  it('still shows a sign-in time stored in users.json by an older version', async () => {
+    const usersFile = path.join(t.dataDir, 'users.json');
+    const data = JSON.parse(await readFile(usersFile, 'utf8')) as { users: Array<Record<string, unknown>> };
+    for (const user of data.users) {
+      user.lastLoginAt = user.username === 'mama' ? '2026-01-02T03:04:05.000Z' : null;
+    }
+    await writeFile(usersFile, JSON.stringify(data));
+    const cookie = await cookieFor(t.app, ADMIN);
+    const res = await t.app.inject({ url: '/api/admin/users', headers: { cookie } });
+    const users = (res.json() as UsersResponse).users;
+    expect(users.find((u) => u.username === 'mama')?.lastLoginAt).toBe('2026-01-02T03:04:05.000Z');
+    // A newer time from logins.json wins over the old field.
+    expect(users.find((u) => u.username === 'papa')?.lastLoginAt).toBe('2026-10-16T10:00:00.000Z');
   });
 
   it('answers wrong password and unknown user with the same generic 401', async () => {

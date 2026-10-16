@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AuditResponse, DiagnosticsResponse, UsersResponse } from '../../../shared/api.ts';
 import { AUDIT_MAX_READ, type AuditLog } from '../audit/log.ts';
 import { currentUser, type Guards } from '../auth/guards.ts';
+import { type LoginTimes, lastLoginOf } from '../auth/logins.ts';
 import type { UserStore } from '../auth/users.ts';
 import type { Config } from '../config.ts';
 import { type Clock, isoNow } from '../lib/time.ts';
@@ -15,6 +16,7 @@ export interface AdminRouteDeps {
   guards: Guards;
   audit: AuditLog;
   users: UserStore;
+  logins: LoginTimes;
   registry: ServiceRegistry;
   collector: SystemCollector;
 }
@@ -44,7 +46,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         displayName: user.displayName,
         role: user.role,
         createdAt: user.createdAt,
-        lastLoginAt: user.lastLoginAt,
+        lastLoginAt: lastLoginOf(user, deps.logins),
       })),
     };
     return body;

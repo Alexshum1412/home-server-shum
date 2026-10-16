@@ -1,4 +1,5 @@
 import { Eye, EyeOff, LogIn, Terminal } from 'lucide-preact';
+import { Fragment } from 'preact';
 import { useRef, useState } from 'preact/hooks';
 import type { SessionResponse, SetupStateResponse } from '../../../shared/api.ts';
 import { apiGet, apiPost, NO_CONNECTION, toFailure } from '../api.ts';
@@ -16,12 +17,13 @@ function FirstRun(props: { command: string }) {
         команду. Пароль вводится там же, в браузер он не передаётся.
       </p>
       <code class="first-run__command">
-        {/* Each argument stays on one line (browsers may otherwise break after the hyphen in --role). */}
+        {/* Each argument stays on one line (browsers may otherwise break after the hyphen in --role).
+            The index is a stable key: the command is static and its parts never reorder. */}
         {props.command.split(' ').map((part, index) => (
-          <>
+          <Fragment key={index}>
             {index > 0 ? ' ' : null}
             <span class="nowrap">{part}</span>
-          </>
+          </Fragment>
         ))}
       </code>
       <p>После этого войдите здесь под созданным именем.</p>

@@ -10,7 +10,8 @@
 | Гости в домашнем Wi-Fi | LAN-доступ выключен по умолчанию; при включении — правило Firewall только для профиля Private и `LocalSubnet` + обязательный вход | Not configured (по решению пользователя) |
 | Чужой/потерянный телефон в tailnet | вход по паролю обязателен, Tailscale ≠ авторизация; сессии можно отозвать сменой пароля | Implemented |
 | Подбор пароля | ≥10 символов; 10 неудач на имя / 30 на адрес за 15 мин → 429; scrypt (N=2^15) | Implemented |
-| CSRF / чужие сайты | cookie `SameSite=Strict`, `HttpOnly`; POST только с `application/json` и своим `Origin`; `Sec-Fetch-Site: cross-site` → 403 | Implemented |
+| CSRF / чужие сайты | cookie `SameSite=Strict`, `HttpOnly`; POST только с `application/json` и своим `Origin`; `Sec-Fetch-Site: cross-site` → 403; проверка идёт по найденному маршруту, поэтому закодированный путь (`/%61pi/...`) её не обходит | Implemented |
+| DNS-rebinding со страницы, открытой на самом сервере | сервер отвечает только на известные имена (`Host`/`X-Forwarded-Host`): `127.0.0.1:8070`, `localhost:8070`, `[::1]:8070`, имя из `PUBLIC_URL`, имя из `LAN_URL` (и `127.0.0.1:5173`/`localhost:5173` для dev-сервера Vite — только с loopback); остальное → 421. Без этого чужая страница могла бы подбирать пароли и подделывать `X-Forwarded-For`, обходя лимит по адресу | Implemented |
 | XSS | Preact экранирует вывод; нет `innerHTML`; CSP `script-src 'self'` без inline-скриптов | Implemented |
 | Утечка через логи | pino `redact` для `cookie`, `authorization`, `password`; журнал аудита без паролей/токенов | Implemented |
 | Выполнение команд | в UI/API нет shell, перезапусков, просмотра файлов; системные пробы — фиксированный allowlist read-only команд PowerShell без пользовательских аргументов | Implemented |

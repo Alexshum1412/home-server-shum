@@ -5,17 +5,20 @@ import Fastify, {
   type FastifyInstance,
   type FastifyRequest,
   type FastifyServerOptions,
+  LogController,
 } from 'fastify';
 import type { ConnectionResponse, HealthResponse } from '../../shared/api.ts';
 import { registerAdminRoutes } from './admin/routes.ts';
 import { type AuditLog, createAuditLog } from './audit/log.ts';
 import { createGuards, type Guards } from './auth/guards.ts';
+import { createLoginTimes, type LoginTimes } from './auth/logins.ts';
 import { createLoginLimiter, type LoginLimiter } from './auth/rate-limit.ts';
 import { registerAuthRoutes } from './auth/routes.ts';
 import { createSessionStore, type SessionStore } from './auth/sessions.ts';
 import { createUserStore, type UserStore } from './auth/users.ts';
 import type { Config } from './config.ts';
 import { isApiPath, sendError, urlPath } from './lib/http.ts';
+import { removeStaleTempFiles } from './lib/json-store.ts';
 import { type Clock, isoNow, systemClock } from './lib/time.ts';
 import { readAppVersion } from './lib/version.ts';
 import { createServiceRegistry, type FetchLike, type ServiceRegistry } from './services/checker.ts';
@@ -53,6 +56,14 @@ const SECURITY_HEADERS: Record<string, string> = {
 
 /** Tailscale Serve proxies to the loopback port; only loopback peers may set X-Forwarded-*. */
 const TRUSTED_PROXIES = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
+const TRUSTED_PROXY_SET = new Set(TRUSTED_PROXIES);
+
+/**
+ * `npm run dev`: the Vite dev server (vite.config.ts, 127.0.0.1:5173, changeOrigin: false) forwards
+ * the browser's own Host. Accepted only from a loopback peer; a DNS-rebinding page can never send
+ * a loopback name as Host (its Host is the attacker's domain), so this opens nothing.
+ */
+const DEV_UI_HOSTS = new Set(['127.0.0.1:5173', 'localhost:5173']);
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -62,6 +73,7 @@ export interface AppContext {
   version: string;
   startedAt: string;
   users: UserStore;
+  logins: LoginTimes;
   sessions: SessionStore;
   audit: AuditLog;
   limiter: LoginLimiter;
@@ -122,12 +134,43 @@ function isApiRequest(request: FastifyRequest): boolean {
   }
 }
 
-function allowedOrigins(config: Config): Set<string> {
-  const origins = new Set([`http://127.0.0.1:${config.port}`, `http://localhost:${config.port}`]);
+/** The addresses the portal answers under: its loopback port plus PUBLIC_URL and LAN_URL. */
+function portalUrls(config: Config): URL[] {
+  const urls = ['127.0.0.1', 'localhost', '[::1]'].map((name) => new URL(`http://${name}:${config.port}`));
   for (const url of [config.publicUrl, config.lanUrl]) {
-    if (url) origins.add(new URL(url).origin);
+    if (url) urls.push(new URL(url));
   }
-  return origins;
+  return urls;
+}
+
+function allowedOrigins(config: Config): Set<string> {
+  return new Set(portalUrls(config).map((url) => url.origin));
+}
+
+/** Host header values (lowercase) of the portal; a default port may also be spelled out. */
+function allowedHosts(config: Config): Set<string> {
+  const hosts = new Set<string>();
+  for (const url of portalUrls(config)) {
+    hosts.add(url.host.toLowerCase());
+    if (url.port === '') hosts.add(`${url.hostname}:${url.protocol === 'https:' ? 443 : 80}`.toLowerCase());
+  }
+  return hosts;
+}
+
+/**
+ * DNS-rebinding guard: the raw Host header (and X-Forwarded-Host, when the trusted loopback proxy
+ * sent one) must name the portal itself. A page on an attacker's domain that resolves to this PC
+ * carries that domain as Host, so it is refused before it can reach any route or spoof
+ * X-Forwarded-For (which the server trusts from loopback peers).
+ */
+function isAllowedHost(request: FastifyRequest, hosts: Set<string>): boolean {
+  const fromProxy = TRUSTED_PROXY_SET.has(request.socket.remoteAddress ?? '');
+  const host = request.headers.host?.trim().toLowerCase();
+  if (!host || !(hosts.has(host) || (fromProxy && DEV_UI_HOSTS.has(host)))) return false;
+  const forwarded = request.headers['x-forwarded-host'];
+  if (forwarded === undefined || !fromProxy) return true;
+  const values = (Array.isArray(forwarded) ? forwarded.join(',') : forwarded).split(',');
+  return values.every((value) => hosts.has(value.trim().toLowerCase()));
 }
 
 /** Origin must be the portal's own host (as seen through the trusted proxy) or a configured address. */
@@ -162,10 +205,22 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
 
   const app = Fastify({
     logger: options.logger === undefined ? defaultLogger(config) : options.logger,
+    // No "incoming request"/"request completed" pair per request: with tabs polling every few
+    // seconds that grew the log by megabytes a day. Responses are logged by the onResponse hook.
+    logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: BODY_LIMIT,
     trustProxy: TRUSTED_PROXIES,
   });
   const log = app.log;
+
+  // A forced stop (scripts\stop.cmd) can interrupt an atomic write and leave its temp file behind.
+  const strayTemp = await removeStaleTempFiles(config.dataDir).catch((error: unknown) => {
+    log.warn(`Не удалось проверить временные файлы в каталоге данных: ${(error as Error).message}`);
+    return [];
+  });
+  if (strayTemp.length > 0) {
+    log.warn(`Удалены временные файлы прерванной записи: ${strayTemp.join(', ')}`);
+  }
 
   // --- stores and background components -----------------------------------------------------
   const users = createUserStore(config.dataDir, {
@@ -174,6 +229,8 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     onLoadError: (message) => log.error(message),
   });
   await users.reload().catch((error: unknown) => log.error((error as Error).message));
+  const logins = createLoginTimes(config.dataDir, { onError: (message) => log.warn(message) });
+  await logins.load();
   const sessions = createSessionStore(config.dataDir, { clock, onError: (message) => log.error(message) });
   await sessions.load();
   const audit = createAuditLog(config.dataDir, { clock, onError: (message) => log.error(message) });
@@ -202,6 +259,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     version,
     startedAt,
     users,
+    logins,
     sessions,
     audit,
     limiter,
@@ -235,6 +293,15 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     }
   });
 
+  const hosts = allowedHosts(config);
+  // Runs first, for every method and path (health, pages and 404s included). The rejected host is
+  // neither logged nor echoed back.
+  app.addHook('onRequest', async (request, reply) => {
+    if (!isAllowedHost(request, hosts)) {
+      return sendError(reply, 421, 'bad_host', 'Запрос отклонён: неизвестный адрес сервера.');
+    }
+  });
+
   const fixedOrigins = allowedOrigins(config);
   // CSRF / origin guard runs before the body is read, so a rejected request does nothing.
   // Applied to EVERY state-changing request, whatever the path: the router decodes the path
@@ -264,6 +331,21 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) reply.header(name, value);
     if (isApiRequest(request)) reply.header('Cache-Control', 'no-store');
     return payload;
+  });
+
+  // Only server-side failures reach the log at the default level; 4xx are visible with LOG_LEVEL=debug.
+  // Path only: no query string, headers or cookies.
+  app.addHook('onResponse', async (request, reply) => {
+    const { statusCode } = reply;
+    if (statusCode < 400) return;
+    const entry = {
+      method: request.method,
+      url: urlPath(request.url),
+      statusCode,
+      responseTimeMs: Math.round(reply.elapsedTime),
+    };
+    if (statusCode >= 500) request.log.error(entry, 'Ответ с ошибкой сервера');
+    else request.log.debug(entry, 'Ответ с ошибкой запроса');
   });
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
@@ -312,10 +394,10 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     return body;
   });
 
-  registerAuthRoutes(app, { config, clock, users, sessions, audit, limiter, guards });
+  registerAuthRoutes(app, { config, clock, users, logins, sessions, audit, limiter, guards });
   registerServiceRoutes(app, { registry, guards, audit, clock });
   registerSystemRoutes(app, { collector, guards });
-  registerAdminRoutes(app, { config, clock, version, guards, audit, users, registry, collector });
+  registerAdminRoutes(app, { config, clock, version, guards, audit, users, logins, registry, collector });
   await registerStatic(app, webRoot);
 
   // --- lifecycle ----------------------------------------------------------------------------

@@ -74,7 +74,7 @@ scripts/                      start/stop/status/serve PowerShell + .cmd-обёр
 CSP `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`; `X-Content-Type-Options: nosniff`; `Referrer-Policy: no-referrer`; `Permissions-Policy` без камеры/микрофона/геолокации; `Cross-Origin-Opener-Policy: same-origin`. `trustProxy` — только loopback (Tailscale Serve проксирует на 127.0.0.1); cookie `Secure`, когда запрос пришёл по HTTPS. Лимит тела 64 КиБ. Логи pino с `redact` для `authorization`, `cookie`, `password`.
 
 ### D7. Интерфейс
-- Preact без UI-библиотек; собственный маленький роутер на History API; иконки `lucide-preact`; системные шрифты.
+- Preact без UI-библиотек; собственный маленький роутер на History API; иконки `lucide-preact`; шрифт Onest (OFL), упакован локально в сборку (`@fontsource-variable/onest`), с системными шрифтами как запасными — без запросов к внешним CDN.
 - Дизайн-токены в `web/src/styles/tokens.css` (цвета, отступы, радиусы, тени, типографика, состояния); тёмная тема по умолчанию (slate/zinc), светлая — по `prefers-color-scheme: light`.
 - Навигация: нижняя панель (≤ 768 px) / боковая (> 768 px). Цели касания ≥ 44 px.
 - Опрос: `/api/services` раз в 60 с, `/api/system` раз в 30 с, только когда вкладка видима; таймаут запроса 10 с.

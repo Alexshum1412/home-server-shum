@@ -37,18 +37,25 @@ export interface SessionResponse {
 
 /** GET /api/setup-state — public: tells the login screen whether any user exists yet. */
 export interface SetupStateResponse {
+  /** Also true when users.json exists but cannot be read: a broken file is never a first run. */
   hasUsers: boolean;
   /** Command the owner must run on the server to create the first admin. */
   createAdminCommand: string;
 }
 
-/** POST /api/login body. */
+/**
+ * POST /api/login body. Errors: 401 invalid_credentials, 429 too_many_attempts,
+ * 503 users_unavailable (users.json on the server cannot be read).
+ */
 export interface LoginRequest {
   username: string;
   password: string;
 }
 
-/** Error body used by every non-2xx JSON response. */
+/**
+ * Error body used by every non-2xx JSON response. Any request to an unknown host name
+ * (DNS rebinding) gets 421 bad_host.
+ */
 export interface ApiError {
   error: string;
   /** Russian, safe to show to the user. */
@@ -252,7 +259,10 @@ export interface AuditEntry {
   action: string;
   /** Username or null for anonymous. */
   actor: string | null;
-  /** Client address as seen by the server (may be 127.0.0.1 behind Tailscale Serve). */
+  /**
+   * Client address. Through Tailscale Serve it is the device's tailnet IP (100.x.y.z), taken from
+   * X-Forwarded-For, which is trusted only from the loopback proxy; 127.0.0.1 means the server itself.
+   */
   ip: string | null;
   /** Short non-sensitive detail. Never contains passwords, tokens or file contents. */
   detail: string | null;

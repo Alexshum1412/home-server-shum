@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, utimes, writeFile } from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CONTENT_SECURITY_POLICY } from '../src/app.ts';
@@ -211,8 +212,9 @@ describe('request guards', () => {
 
   it('accepts the portal own origins', async () => {
     const origins = [
-      'http://localhost', // inject() uses Host: localhost:80
+      `http://localhost:${t.config.port}`,
       `http://127.0.0.1:${t.config.port}`,
+      `http://[::1]:${t.config.port}`,
       'https://server-home.tail89d77e.ts.net',
     ];
     for (const origin of origins) {
@@ -227,18 +229,239 @@ describe('request guards', () => {
   });
 
   it('honours X-Forwarded-Host only from the loopback proxy', async () => {
-    const headers = { origin: 'https://family.example.ts.net', 'x-forwarded-host': 'family.example.ts.net' };
     const payload = { username: 'nobody', password: 'wrong-password' };
-    const viaProxy = await t.app.inject({ method: 'POST', url: '/api/login', headers, payload });
+    // Tailscale Serve: raw Host is the loopback port, X-Forwarded-Host the tailnet name.
+    const viaProxy = await t.app.inject({
+      method: 'POST',
+      url: '/api/login',
+      headers: {
+        origin: 'https://server-home.tail89d77e.ts.net',
+        'x-forwarded-host': 'server-home.tail89d77e.ts.net',
+      },
+      payload,
+    });
     expect(viaProxy.statusCode).toBe(401);
+    // From a LAN peer the header is ignored, so it cannot vouch for a foreign Origin either.
     const direct = await t.app.inject({
       method: 'POST',
       url: '/api/login',
-      headers,
+      headers: { origin: 'https://family.example.ts.net', 'x-forwarded-host': 'family.example.ts.net' },
       payload,
       remoteAddress: '192.168.1.50',
     });
     expect(direct.statusCode).toBe(403);
+  });
+});
+
+describe('host allowlist (DNS rebinding)', () => {
+  const REBIND_HOST = 'rebind.attacker.test:8070';
+  const BAD_HOST_BODY = { error: 'bad_host', message: 'Запрос отклонён: неизвестный адрес сервера.' };
+
+  it('answers 421 to a foreign Host even with a matching Origin, on every kind of request', async () => {
+    await addUser(t.dataDir, t.clock, ADMIN);
+    const headers = { host: REBIND_HOST, origin: `http://${REBIND_HOST}` };
+    const requests = [
+      { method: 'GET' as const, url: '/api/health' },
+      { method: 'GET' as const, url: '/api/setup-state' },
+      { method: 'GET' as const, url: '/' },
+      { method: 'GET' as const, url: '/api/nope' },
+      { method: 'HEAD' as const, url: '/api/health' },
+      { method: 'OPTIONS' as const, url: '/api/login' },
+      {
+        method: 'POST' as const,
+        url: '/api/login',
+        payload: { username: ADMIN.username, password: ADMIN.password },
+      },
+    ];
+    for (const request of requests) {
+      const label = `${request.method} ${request.url}`;
+      const res = await t.app.inject({ ...request, headers });
+      expect(res.statusCode, label).toBe(421);
+      expect(res.headers['content-security-policy'], label).toBe(CONTENT_SECURITY_POLICY);
+      expect(res.headers['x-content-type-options'], label).toBe('nosniff');
+      expect(res.cookies, label).toHaveLength(0);
+      if (request.method !== 'HEAD') {
+        expect(res.json(), label).toEqual(BAD_HOST_BODY);
+        expect(res.body, label).not.toContain('attacker');
+      }
+    }
+    expect(await t.app.dashboard.audit.readLatest(10)).toEqual([]);
+    expect(t.app.dashboard.sessions.count()).toBe(0);
+  });
+
+  it('keeps a rebinding page with a rotating X-Forwarded-For away from /api/login', async () => {
+    for (let i = 0; i < 40; i += 1) {
+      const res = await t.app.inject({
+        method: 'POST',
+        url: '/api/login',
+        headers: {
+          host: REBIND_HOST,
+          origin: `http://${REBIND_HOST}`,
+          'x-forwarded-for': `203.0.113.${i}`,
+        },
+        payload: { username: `guess${i}`, password: `wrong-password-${i}` },
+      });
+      expect(res.statusCode, `attempt ${i}`).toBe(421);
+    }
+    // Nothing reached the login handler: no failures counted, no forged addresses audited.
+    expect(await t.app.dashboard.audit.readLatest(100)).toEqual([]);
+    expect(t.app.dashboard.limiter.byUser.check('guess0').allowed).toBe(true);
+  });
+
+  it('accepts the portal own addresses, case-insensitively', async () => {
+    const port = t.config.port;
+    const allowed: Array<Record<string, string>> = [
+      { host: `127.0.0.1:${port}` },
+      { host: `localhost:${port}` },
+      { host: `LocalHost:${port}` },
+      { host: `[::1]:${port}` },
+      // Tailscale Serve may forward the tailnet name as the raw Host...
+      { host: 'server-home.tail89d77e.ts.net' },
+      { host: 'Server-Home.tail89d77e.ts.net' },
+      { host: 'server-home.tail89d77e.ts.net:443' },
+      // ...or the loopback port with the tailnet name in X-Forwarded-Host.
+      { host: `127.0.0.1:${port}`, 'x-forwarded-host': 'server-home.tail89d77e.ts.net' },
+      // npm run dev: the Vite dev server forwards the browser's Host unchanged.
+      { host: '127.0.0.1:5173' },
+      { host: 'localhost:5173' },
+    ];
+    for (const headers of allowed) {
+      const res = await t.app.inject({ url: '/api/health', headers });
+      expect(res.statusCode, JSON.stringify(headers)).toBe(200);
+    }
+  });
+
+  it('rejects other ports, unknown names and a foreign X-Forwarded-Host from the proxy', async () => {
+    const port = t.config.port;
+    const rejected: Array<{ headers: Record<string, string>; remoteAddress?: string }> = [
+      { headers: { host: `127.0.0.1:${port + 1}` } },
+      { headers: { host: 'localhost:80' } },
+      { headers: { host: 'localhost' } },
+      { headers: { host: '127.0.0.1' } },
+      { headers: { host: `server-home.tail89d77e.ts.net:${port}` } },
+      { headers: { host: `127.0.0.1:${port}.evil.test` } },
+      { headers: { host: `192.168.1.10:${port}` } }, // LAN_URL is not configured
+      { headers: { host: `127.0.0.1:${port}`, 'x-forwarded-host': 'evil.test' } },
+      {
+        headers: {
+          host: `127.0.0.1:${port}`,
+          'x-forwarded-host': 'evil.test, server-home.tail89d77e.ts.net',
+        },
+      },
+      {
+        headers: {
+          host: `127.0.0.1:${port}`,
+          'x-forwarded-host': 'server-home.tail89d77e.ts.net, evil.test',
+        },
+      },
+      // The dev-server address is accepted only from the local Vite proxy.
+      { headers: { host: '127.0.0.1:5173' }, remoteAddress: '192.168.1.50' },
+    ];
+    for (const { headers, remoteAddress } of rejected) {
+      const res = await t.app.inject({ url: '/api/health', headers, remoteAddress });
+      expect(res.statusCode, JSON.stringify(headers)).toBe(421);
+      expect(res.json().error).toBe('bad_host');
+    }
+  });
+
+  it('allows the LAN address only when LAN_URL is set, and the tailnet name only with PUBLIC_URL', async () => {
+    const lan = await createTestApp({ env: { LAN_URL: 'http://192.168.1.10:8070', PUBLIC_URL: '' } });
+    dirs.push(lan.dataDir);
+    try {
+      const ok = await lan.app.inject({ url: '/api/health', headers: { host: '192.168.1.10:8070' } });
+      expect(ok.statusCode).toBe(200);
+      const tailnet = await lan.app.inject({
+        url: '/api/health',
+        headers: { host: 'server-home.tail89d77e.ts.net' },
+      });
+      expect(tailnet.statusCode).toBe(421);
+    } finally {
+      await lan.app.close();
+    }
+  });
+
+  it('checks the raw Host header on a real socket, and rejects a request without one', async () => {
+    await t.app.listen({ host: '127.0.0.1', port: 0 });
+    const address = t.app.server.address();
+    if (address === null || typeof address === 'string') throw new Error('no TCP address');
+    const send = (head: string) =>
+      new Promise<string>((resolve, reject) => {
+        const socket = net.connect(address.port, '127.0.0.1', () => socket.end(`${head}\r\n\r\n`));
+        let text = '';
+        socket.setEncoding('utf8');
+        socket.on('data', (chunk: string) => {
+          text += chunk;
+        });
+        socket.on('end', () => resolve(text));
+        socket.on('error', reject);
+      });
+    const port = t.config.port;
+    expect(await send('GET /api/health HTTP/1.0')).toMatch(/^HTTP\/1\.1 421 /);
+    expect(await send(`GET /api/health HTTP/1.1\r\nHost: ${REBIND_HOST}\r\nConnection: close`)).toMatch(
+      /^HTTP\/1\.1 421 /,
+    );
+    expect(await send(`GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close`)).toMatch(
+      /^HTTP\/1\.1 200 /,
+    );
+  });
+});
+
+describe('startup cleanup', () => {
+  it('removes temp files left by an interrupted atomic write in the data dir, and nothing else', async () => {
+    const dir = await makeTempDir();
+    dirs.push(dir);
+    const old = new Date(Date.now() - 10 * 60_000);
+    const orphans = ['.users.json.4242.0123456789ab.tmp', '.sessions.json.17.abcdef012345.tmp'];
+    // Same pattern but brand new: may be a write in progress (e.g. scripts\user.cmd), so it stays.
+    const fresh = '.services.json.4242.fedcba987654.tmp';
+    const others = [
+      'notes.tmp',
+      'users.json.tmp',
+      '.users.json.tmp',
+      '.users.json.4242.0123456789ab.tmp.bak',
+    ];
+    const nested = path.join('logs', '.x.json.1.0123456789ab.tmp');
+    const folder = '.folder.json.1.0123456789ab.tmp';
+    await mkdir(path.join(dir, 'logs'));
+    await mkdir(path.join(dir, folder));
+    for (const name of [...orphans, fresh, ...others, nested]) await writeFile(path.join(dir, name), 'x');
+    for (const name of [...orphans, ...others, nested, folder]) await utimes(path.join(dir, name), old, old);
+
+    const started = await createTestApp({ dataDir: dir });
+    await started.app.close();
+
+    const left = new Set(await readdir(dir));
+    for (const name of orphans) expect(left.has(name), name).toBe(false);
+    for (const name of [fresh, ...others, folder, 'logs']) expect(left.has(name), name).toBe(true);
+    expect(await readdir(path.join(dir, 'logs'))).toEqual([path.basename(nested)]);
+  });
+});
+
+describe('request logging', () => {
+  it('writes nothing for ordinary requests; a 5xx gets one line without query string or headers', async () => {
+    const lines: Array<Record<string, unknown>> = [];
+    const stream = { write: (line: string) => lines.push(JSON.parse(line) as Record<string, unknown>) };
+    const logged = await createTestApp({ logger: { level: 'info', stream } });
+    dirs.push(logged.dataDir);
+    try {
+      logged.app.get('/api/boom', async () => {
+        throw new Error('boom');
+      });
+      for (const url of ['/api/health?token=abc', '/api/session', '/api/nope']) {
+        await logged.app.inject({ url, headers: { cookie: 'fd_session=x' } });
+      }
+      expect(lines.filter((line) => line.reqId !== undefined)).toEqual([]);
+
+      await logged.app.inject({ url: '/api/boom?secret=1', headers: { cookie: 'fd_session=x' } });
+      const responseLines = lines.filter((line) => line.statusCode === 500);
+      expect(responseLines).toHaveLength(1);
+      expect(responseLines[0]).toMatchObject({ method: 'GET', url: '/api/boom', statusCode: 500 });
+      const text = JSON.stringify(lines);
+      expect(text).not.toContain('secret=1');
+      expect(text).not.toContain('fd_session');
+    } finally {
+      await logged.app.close();
+    }
   });
 });
 

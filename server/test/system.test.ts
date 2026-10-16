@@ -630,6 +630,45 @@ describe('probe failures', () => {
     expect(alertIds(body)).not.toContain('tailscale-not-running');
   });
 
+  it('never piles up stuck statfs calls: a volume waits while its previous check still runs', async () => {
+    const calls: string[] = [];
+    let release: ((space: { totalBytes: number; freeBytes: number }) => void) | undefined;
+    const t = await systemApp({
+      collect: false,
+      env: { VOLUMES: 'C:\\;Z:\\' },
+      probeTimeouts: { statfs: 50 },
+      probes: fakeProbes({
+        statfs: (volumePath) => {
+          calls.push(volumePath);
+          if (volumePath !== 'Z:\\') return Promise.resolve({ totalBytes: 2000, freeBytes: 1000 });
+          // A dead network or USB volume: fs.statfs never comes back.
+          return new Promise((resolve) => {
+            release = resolve;
+          });
+        },
+      }),
+    });
+    const { collector } = t.app.dashboard;
+    for (let round = 0; round < 4; round += 1) await collector.collectVolumes();
+    const count = (volumePath: string) => calls.filter((item) => item === volumePath).length;
+    expect(count('Z:\\')).toBe(1);
+    expect(count('C:\\')).toBe(4);
+
+    const body = await systemAs(t, ADMIN);
+    expect(body.volumes.find((v) => v.path === 'Z:\\')).toMatchObject({
+      totalBytes: null,
+      freeBytes: null,
+      reason: 'Проверка места ещё не завершилась',
+    });
+    expect(body.volumes.find((v) => v.path === 'C:\\')?.freeBytes).toBe(1000);
+
+    // When the stuck call finally returns, the next round measures the volume again.
+    release?.({ totalBytes: 2000, freeBytes: 500 });
+    await new Promise((resolve) => setImmediate(resolve));
+    await collector.collectVolumes();
+    expect(count('Z:\\')).toBe(2);
+  });
+
   it('turns a failing probe into nulls with a Russian reason and never leaks the raw error', async () => {
     const t = await systemApp({
       probes: fakeProbes({

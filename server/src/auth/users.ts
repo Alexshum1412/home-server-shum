@@ -18,7 +18,11 @@ export interface StoredUser {
   passwordHash: string;
   createdAt: string;
   passwordChangedAt: string;
-  lastLoginAt: string | null;
+  /**
+   * Written by versions before logins.json; still read as a fallback for the last sign-in time and
+   * kept as is when the CLI rewrites the file. Nothing writes it any more.
+   */
+  lastLoginAt?: string | null;
 }
 
 const userSchema = z.object({
@@ -29,7 +33,7 @@ const userSchema = z.object({
   passwordHash: z.string().min(1),
   createdAt: z.string(),
   passwordChangedAt: z.string(),
-  lastLoginAt: z.string().nullable(),
+  lastLoginAt: z.string().nullable().optional(),
 });
 
 const fileSchema = z.object({ version: z.literal(1), users: z.array(userSchema) });
@@ -43,7 +47,7 @@ export function toSessionUser(user: StoredUser): SessionUser {
 }
 
 export type UserPatch = Partial<
-  Pick<StoredUser, 'displayName' | 'role' | 'passwordHash' | 'passwordChangedAt' | 'lastLoginAt'>
+  Pick<StoredUser, 'displayName' | 'role' | 'passwordHash' | 'passwordChangedAt'>
 >;
 
 export interface NewUser {
@@ -64,7 +68,10 @@ export interface UserStore {
   add(user: NewUser): Promise<StoredUser>;
   update(id: string, patch: UserPatch): Promise<StoredUser | undefined>;
   remove(id: string): Promise<boolean>;
-  /** Last load problem (invalid file), for logs/diagnostics. */
+  /**
+   * Non-null while users.json exists but cannot be read or parsed (as of the last check). The
+   * server then refuses sign-ins and never treats the store as empty; the file is not rewritten.
+   */
   loadError(): string | null;
 }
 
@@ -111,10 +118,17 @@ export function createUserStore(dataDir: string, options: UserStoreOptions): Use
   }
 
   async function reload(): Promise<StoredUser[]> {
-    const sig = await fileSignature();
-    users = sig === 'missing' ? [] : await readUsersFile(file);
-    signature = sig;
-    lastCheck = performance.now();
+    try {
+      const sig = await fileSignature();
+      users = sig === 'missing' ? [] : await readUsersFile(file);
+      signature = sig;
+    } catch (error) {
+      // Remembered so the portal does not mistake a broken file for a fresh install.
+      lastError = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      lastCheck = performance.now();
+    }
     lastError = null;
     return users;
   }
@@ -124,7 +138,9 @@ export function createUserStore(dataDir: string, options: UserStoreOptions): Use
     lastCheck = performance.now();
     try {
       const sig = await fileSignature();
-      if (sig !== signature) {
+      // While the file is broken, re-read it on every check so a repair is noticed even when it
+      // restores the exact size and timestamp of the last good version.
+      if (sig !== signature || lastError !== null) {
         users = sig === 'missing' ? [] : await readUsersFile(file);
         signature = sig;
         lastError = null;
@@ -174,7 +190,6 @@ export function createUserStore(dataDir: string, options: UserStoreOptions): Use
           passwordHash: input.passwordHash,
           createdAt: now,
           passwordChangedAt: now,
-          lastLoginAt: null,
         };
         await write([...current, user]);
         return user;

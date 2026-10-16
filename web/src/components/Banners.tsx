@@ -25,7 +25,9 @@ export function DemoBanner() {
 export function ConnectionBanner() {
   const { services, system, refreshAll } = useData();
   const failure = system.error ?? services.error;
-  const receivedAt = Math.max(services.receivedAt ?? 0, system.receivedAt ?? 0) || null;
+  // The age of the OLDEST data on screen: one fresh source must not hide that the other is stale.
+  const times = [services.receivedAt, system.receivedAt].filter((time): time is number => time !== null);
+  const receivedAt = times.length > 0 ? Math.min(...times) : null;
   const loading = services.loading || system.loading;
   // «Проверяем…» only after the user pressed the button, not during background polls:
   // the retry ends when the requests it started have finished.

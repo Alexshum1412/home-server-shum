@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { SessionResponse } from '../../shared/api.ts';
@@ -135,6 +135,31 @@ describe('users CLI', { timeout: 60_000 }, () => {
     expect((await login(t.app, 'papa', ADMIN_PW)).res.statusCode).toBe(200);
     const family = await login(t.app, 'mama', FAMILY_PW);
     expect((family.res.json() as SessionResponse).user.role).toBe('family');
+  });
+
+  it('works on a users.json from an older version and lists sign-in times from logins.json', async () => {
+    await seed();
+    // Older versions kept lastLoginAt inside users.json.
+    const file = path.join(dataDir, 'users.json');
+    const legacy = JSON.parse(await readFile(file, 'utf8')) as { users: Array<Record<string, unknown>> };
+    for (const user of legacy.users) {
+      user.lastLoginAt = user.username === 'mama' ? '2026-01-02T03:04:05.000Z' : null;
+    }
+    await writeFile(file, JSON.stringify(legacy, null, 2));
+
+    const t = await appOnDataDir();
+    expect((await login(t.app, 'papa', ADMIN_PW)).res.statusCode).toBe(200);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const list = await runCli(['list']);
+    expect(list.code, list.stderr).toBe(0);
+    expect(list.stdout).toMatch(new RegExp(`papa .*${today} \\d\\d:\\d\\d`));
+    expect(list.stdout).toMatch(/mama .*2026-01-02 03:04/);
+
+    const role = await runCli(['role', 'mama', 'admin']);
+    expect(role.code, role.stderr).toBe(0);
+    expect((await storedUsers()).find((u) => u.username === 'mama')?.role).toBe('admin');
+    expect((await runCli(['list'])).stdout).toMatch(/mama .*2026-01-02 03:04/);
   });
 
   it('rejects a duplicate or invalid login name', async () => {

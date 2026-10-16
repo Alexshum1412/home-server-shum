@@ -6,6 +6,7 @@
  */
 import { promises as fsp } from 'node:fs';
 import type { Role } from '../../../shared/api.ts';
+import { lastLoginOf, readLoginTimes } from '../auth/logins.ts';
 import { checkPasswordPolicy, hashPassword } from '../auth/passwords.ts';
 import {
   createUserStore,
@@ -264,13 +265,21 @@ async function run(argv: string[]): Promise<void> {
         console.log(`Пользователей пока нет. Каталог данных: ${config.dataDir}`);
         return;
       }
-      const rows = users.map((user) => [
-        user.username,
-        user.displayName,
-        ROLE_LABEL[user.role],
-        user.createdAt.slice(0, 10),
-        user.lastLoginAt ? user.lastLoginAt.replace('T', ' ').slice(0, 16) : 'не входил',
-      ]);
+      // Sign-in times are kept by the server in logins.json (older versions: inside users.json).
+      const times = await readLoginTimes(config.dataDir).catch((error: unknown) => {
+        console.error(`Время последнего входа недоступно: ${(error as Error).message}`);
+        return {} as Record<string, string>;
+      });
+      const rows = users.map((user) => {
+        const lastLoginAt = lastLoginOf(user, { get: (id) => times[id] ?? null });
+        return [
+          user.username,
+          user.displayName,
+          ROLE_LABEL[user.role],
+          user.createdAt.slice(0, 10),
+          lastLoginAt ? lastLoginAt.replace('T', ' ').slice(0, 16) : 'не входил',
+        ];
+      });
       const header = ['Логин', 'Имя', 'Роль', 'Создан', 'Последний вход'];
       const widths = header.map((title, col) =>
         Math.max(title.length, ...rows.map((row) => (row[col] ?? '').length)),

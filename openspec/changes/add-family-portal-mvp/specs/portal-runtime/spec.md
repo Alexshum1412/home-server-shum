@@ -35,11 +35,20 @@ Non-API GET requests for unknown paths SHALL return the app shell so deep links 
 - **THEN** the app shell is returned with status 200
 
 ### Requirement: Graceful start and stop on Windows
-The project SHALL provide documented commands to build, start in the background, check status and stop the server; stopping SHALL close the listener and flush data files.
+The project SHALL provide documented commands to build, start in the background, check status and stop the server. Stopping SHALL terminate the server process and release the port. Every data change SHALL be written to disk atomically when it happens, so a forced stop loses at most the last-activity time of sessions from the last minute.
 
 #### Scenario: Stop
 - **WHEN** the owner runs the stop command
 - **THEN** the server process exits and the port is released
+- **AND** data saved before the stop is intact; only session last-activity times from the last minute may be lost
+
+#### Scenario: Interrupted write
+- **WHEN** the server starts and the data directory holds a temporary file left by an atomic write cut off by a forced stop
+- **THEN** the server removes that file and keeps the last complete version of the data file
+
+#### Scenario: Ctrl+C in development mode
+- **WHEN** the developer presses Ctrl+C in the terminal where the server runs in the foreground (`npm.cmd start`, `npm.cmd run dev:server`)
+- **THEN** the server closes gracefully: pending writes are flushed and the port is released
 
 ### Requirement: Private remote access only
 Remote access SHALL be provided only through the private tailnet (Tailscale Serve HTTPS to the loopback port). The project SHALL NOT enable Tailscale Funnel, router port forwarding or firewall changes.

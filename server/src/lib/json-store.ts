@@ -48,10 +48,38 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
   }
 }
 
+/** Name of writeJsonAtomic()'s temp file: ".<target name>.<pid>.<12 hex digits>.tmp". */
+export const ATOMIC_TEMP_FILE_RE = /^\..+\.\d+\.[0-9a-f]{12}\.tmp$/;
+
+/** A temp file younger than this may belong to a write in progress (server or CLI). */
+const STALE_TEMP_AGE_MS = 60_000;
+
+/**
+ * Deletes temp files that an interrupted writeJsonAtomic() (forced stop, power loss) left directly
+ * in `dir`: only regular files with the temp-file name pattern, only when older than a minute.
+ * Returns the names removed; a file that cannot be removed now is left for the next start.
+ */
+export async function removeStaleTempFiles(dir: string, now = Date.now()): Promise<string[]> {
+  const removed: string[] = [];
+  for (const entry of await fsp.readdir(dir, { withFileTypes: true })) {
+    if (!entry.isFile() || !ATOMIC_TEMP_FILE_RE.test(entry.name)) continue;
+    const file = path.join(dir, entry.name);
+    try {
+      if (now - (await fsp.stat(file)).mtimeMs < STALE_TEMP_AGE_MS) continue;
+      await fsp.rm(file);
+      removed.push(entry.name);
+    } catch {
+      // Already gone or locked by another process.
+    }
+  }
+  return removed;
+}
+
 /** Atomic write: temp file in the same directory, fsync, then rename over the target. */
 export async function writeJsonAtomic(file: string, data: unknown): Promise<void> {
   const dir = path.dirname(file);
   await fsp.mkdir(dir, { recursive: true });
+  // Keep in sync with ATOMIC_TEMP_FILE_RE (startup cleanup of interrupted writes).
   const tmp = path.join(dir, `.${path.basename(file)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
   const text = `${JSON.stringify(data, null, 2)}\n`;
   try {

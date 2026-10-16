@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { LightMyRequestResponse } from 'fastify';
+import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import { type BuildAppOptions, buildApp, type DashboardApp } from '../src/app.ts';
 import { hashPassword } from '../src/auth/passwords.ts';
 import { createUserStore, type StoredUser } from '../src/auth/users.ts';
@@ -81,6 +81,22 @@ export interface TestAppOptions extends Partial<Omit<BuildAppOptions, 'config' |
   clock?: FakeClock;
 }
 
+/** The portal's own loopback address: what a browser on the server sends as Host. */
+export function localHost(config: Config): string {
+  return `127.0.0.1:${config.port}`;
+}
+
+/**
+ * inject() would send "Host: localhost:80", which the host allowlist rejects. Requests without an
+ * explicit Host header get the portal's own loopback address instead (a test may still pass one).
+ */
+function injectWithDefaultHost(app: DashboardApp, host: string): void {
+  const inject = app.inject.bind(app) as (options: InjectOptions) => Promise<LightMyRequestResponse>;
+  const patched = (options: InjectOptions | string) =>
+    inject(typeof options === 'string' ? { url: options, authority: host } : { authority: host, ...options });
+  (app as { inject: unknown }).inject = patched;
+}
+
 /** App with a temp data dir, no logger, no background timers, fake probes/clock and no network. */
 export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
   const { env, dataDir: givenDir, clock: givenClock, ...rest } = options;
@@ -98,6 +114,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     config,
     clock,
   });
+  injectWithDefaultHost(app, localHost(config));
   return { app, config, dataDir, clock };
 }
 
