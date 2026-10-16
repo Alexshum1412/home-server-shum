@@ -40,7 +40,7 @@
 ## 7. Operations
 
 - [x] 7.1 Windows scripts: start (background, PID file, health wait), stop, status, tailnet serve on/off, with `.cmd` wrappers; verify start → health 200 → stop releases port
-- [ ] 7.2 Configure Tailscale Serve HTTPS → 127.0.0.1:8070 without Funnel; verify `tailscale serve status` and an HTTPS request from this machine
+- [x] 7.2 Configure Tailscale Serve HTTPS → 127.0.0.1:8070 without Funnel; verify `tailscale serve status` and an HTTPS request from this machine
 
 ## 8. Integration checks
 

@@ -269,6 +269,8 @@ export function HomePage() {
   const list = services.data?.services;
   const loaded = services.data !== null;
   const servicesFailed = services.error !== null && !loaded;
+  const alerts = system.data?.alerts ?? [];
+  const alertsFirst = alerts.some((alert) => alert.level === 'critical');
   return (
     <div class="page page--home">
       <div class="home-hero">
@@ -277,13 +279,15 @@ export function HomePage() {
         </h1>
         <p class="home-hero__date">{formatLongDate(now)}</p>
       </div>
-      {system.data ? <AlertList alerts={system.data.alerts} /> : null}
+      {/* The cinema is the first thing the family sees; only critical problems go above it. */}
+      {alertsFirst ? <AlertList alerts={alerts} compact /> : null}
       <CinemaScreen
         service={findService(list, 'media')}
         loaded={loaded}
         failed={servicesFailed}
         isAdmin={isAdmin}
       />
+      {alertsFirst ? null : <AlertList alerts={alerts} compact />}
       <section class="home-section">
         <h2 id="services-title" class="section-title">
           Сервисы

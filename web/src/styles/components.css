@@ -200,17 +200,24 @@
   gap: var(--sp-2);
 }
 
+/*
+ * Quiet by default: a neutral surface with a coloured rule and icon, so warnings do not
+ * compete with the one warm element (the cinema glow). Only critical alerts get a tint.
+ */
 .alert {
   display: flex;
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--alert-fg);
   border-radius: var(--r-md);
-  background: var(--alert-bg);
+  background: var(--c-surface);
 }
 
 .alert--bad {
   --alert-fg: var(--c-bad);
   --alert-bg: var(--c-bad-bg);
+  background: var(--alert-bg);
 }
 
 .alert--warn {
@@ -243,6 +250,39 @@
 .alert__text {
   color: var(--c-text-muted);
   font-size: var(--fs-sm);
+}
+
+/* «Подробнее» exists only for collapsible alerts and only matters on phones. */
+.alert__more {
+  display: none;
+  align-self: flex-start;
+  min-height: var(--tap-min);
+  margin: calc(var(--sp-2) * -1) 0 calc(var(--sp-2) * -1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .alert--clampable .alert__more {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .alert--clampable:not(.alert--expanded) .alert__text {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
 }
 
 /* --- Page header and sections ---------------------------------------------- */

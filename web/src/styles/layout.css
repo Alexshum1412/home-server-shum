@@ -206,6 +206,8 @@
   z-index: 3;
   max-height: calc(var(--viewport-h) - var(--tabbar-h) - 5rem);
   overflow-y: auto;
+  /* Scrolling to the end of the menu must not scroll the page behind it. */
+  overscroll-behavior: contain;
   padding: var(--sp-2);
   border: 1px solid var(--c-border);
   border-radius: var(--r-lg);

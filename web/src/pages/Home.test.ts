@@ -112,3 +112,32 @@ describe('home page: disk row', () => {
     expect(row).not.toContain('Места достаточно');
   });
 });
+
+describe('home page: order of the cinema and the alerts', () => {
+  /** Position in the rendered text: the cinema title vs the first alert title. */
+  function order(root: Mounted['container'], alertTitle: string): 'cinema-first' | 'alerts-first' {
+    const text = textOf(root);
+    const cinema = text.indexOf('Кинотеатр');
+    const alert = text.indexOf(alertTitle);
+    if (cinema < 0 || alert < 0) throw new Error(`Missing cinema or alert in: ${text}`);
+    return cinema < alert ? 'cinema-first' : 'alerts-first';
+  }
+
+  it('keeps the cinema above ordinary warnings', async () => {
+    const system = polling(
+      systemResponse({
+        alerts: [{ id: 'b', level: 'warning', title: 'Резервные копии не настроены', text: 'x' }],
+      }),
+    );
+    view = await mount(withProviders(h(HomePage, {}), { system }));
+    expect(order(view.container, 'Резервные копии не настроены')).toBe('cinema-first');
+  });
+
+  it('puts critical problems above the cinema', async () => {
+    const system = polling(
+      systemResponse({ alerts: [{ id: 'd', level: 'critical', title: 'Диск почти заполнен', text: 'x' }] }),
+    );
+    view = await mount(withProviders(h(HomePage, {}), { system }));
+    expect(order(view.container, 'Диск почти заполнен')).toBe('alerts-first');
+  });
+});
