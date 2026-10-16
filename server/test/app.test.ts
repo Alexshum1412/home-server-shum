@@ -43,6 +43,19 @@ describe('runtime basics', () => {
     expect(CONTENT_SECURITY_POLICY).not.toContain('unsafe-inline');
   });
 
+  it('uses exactly the Content-Security-Policy agreed in design D6', async () => {
+    const res = await t.app.inject({ url: '/api/health' });
+    expect(res.headers['content-security-policy']).toBe(
+      "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; " +
+        "manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    );
+    expect(res.headers['x-frame-options']).toBe('DENY');
+    const permissions = String(res.headers['permissions-policy']);
+    for (const feature of ['camera=()', 'microphone=()', 'geolocation=()']) {
+      expect(permissions).toContain(feature);
+    }
+  });
+
   it('marks every API response Cache-Control: no-store', async () => {
     for (const url of ['/api/health', '/api/setup-state', '/api/nope', '/api/session']) {
       const res = await t.app.inject({ url });

@@ -132,9 +132,8 @@ export function App() {
   }, [effectiveRoute]);
 
   // Move focus to the page heading after every navigation (not on the first load),
-  // so screen readers announce the new page.
+  // so screen readers announce the new page. `path` is the trigger, not an input.
   const focusArmed = useRef(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs on every page change by design
   useEffect(() => {
     if (boot.status === 'loading') return;
     if (!focusArmed.current) {

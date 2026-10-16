@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Семейный сервер</title>
+  <defs>
+    <clipPath id="tile"><rect width="512" height="512" rx="112"/></clipPath>
+    <radialGradient id="halo" cx="256" cy="318" r="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f3bc63" stop-opacity="0.22"/>
+      <stop offset="0.45" stop-color="#f3bc63" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#f3bc63" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="room" cx="256" cy="318" r="230" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#49463f"/>
+      <stop offset="1" stop-color="#1f2833"/>
+    </radialGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7cd86"/>
+      <stop offset="1" stop-color="#f3bc63"/>
+    </linearGradient>
+    <filter id="blur" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect width="512" height="512" fill="#10151b"/>
+    <rect width="512" height="512" fill="url(#halo)"/>
+    <g>
+      <path d="M256 92 L428 232 V400 Q428 424 404 424 H108 Q84 424 84 400 V232 Z" fill="url(#room)" stroke="#3d4a5a" stroke-width="16" stroke-linejoin="round"/>
+      <rect x="160" y="262" width="192" height="112" rx="14" fill="#f3bc63" opacity="0.85" filter="url(#blur)"/>
+    <rect x="160" y="262" width="192" height="112" rx="14" fill="url(#screen)"/>
+    </g>
+  </g>
+</svg>

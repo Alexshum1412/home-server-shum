@@ -1,0 +1,27 @@
+{
+  "Version": "1.104.1-t7f4efe814-g8da26756c",
+  "TUN": true,
+  "BackendState": "NoState",
+  "HaveNodeKey": true,
+  "AuthURL": "",
+  "TailscaleIPs": null,
+  "Self": {
+    "ID": "",
+    "PublicKey": "nodekey:0000000000000000000000000000000000000000000000000000000000000000",
+    "HostName": "TEST-SERVER",
+    "DNSName": "",
+    "OS": "windows",
+    "UserID": 0,
+    "TailscaleIPs": null,
+    "Online": false
+  },
+  "Health": [
+    "Tailscale is starting",
+    "Unable to connect to the Tailscale coordination server to synchronize the state of your tailnet. Peers might not be reachable."
+  ],
+  "MagicDNSSuffix": "",
+  "CurrentTailnet": null,
+  "Peer": null,
+  "User": null,
+  "ClientVersion": null
+}

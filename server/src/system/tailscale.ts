@@ -5,27 +5,44 @@ import { ProbeError, parseJsonOutput } from './powershell.ts';
 
 export const TAILSCALE_TIMEOUT_MS = 5000;
 
-function mapState(backendState: string): TailscaleState {
-  switch (backendState) {
-    case 'Running':
-      return 'running';
-    case 'Stopped':
-      return 'stopped';
-    case 'NeedsLogin':
-    case 'NeedsMachineAuth':
-      return 'needs_login';
-    default:
-      return 'unknown';
-  }
+interface MappedState {
+  state: TailscaleState;
+  reason: string | null;
 }
 
-const STATE_REASON: Record<TailscaleState, string | null> = {
-  running: null,
+export const TAILSCALE_REASON = {
   stopped: 'Tailscale на сервере остановлен',
-  needs_login: 'Tailscale на сервере требует входа в учётную запись',
-  not_installed: 'Tailscale не найден на этом компьютере',
+  /**
+   * BackendState "NoState": the service runs but nobody has brought the connection up — typical
+   * after a reboot when the Tailscale app has not been started and Unattended mode is off.
+   */
+  noState:
+    'Tailscale на сервере не подключён к сети. Откройте приложение Tailscale на сервере (или включите режим Unattended).',
+  starting: 'Tailscale подключается…',
+  needsLogin: 'Tailscale на сервере требует входа в учётную запись',
+  notInstalled: 'Tailscale не найден на этом компьютере',
   unknown: 'Tailscale сообщает неизвестное состояние',
-};
+} as const;
+
+/** Maps ipn.State names reported by `tailscale status --json` (BackendState). */
+function mapState(backendState: string): MappedState {
+  switch (backendState) {
+    case 'Running':
+      return { state: 'running', reason: null };
+    case 'Stopped':
+      return { state: 'stopped', reason: TAILSCALE_REASON.stopped };
+    case 'NoState':
+      return { state: 'stopped', reason: TAILSCALE_REASON.noState };
+    case 'Starting':
+      // Transitional: not an outage yet, so no alert is raised for it.
+      return { state: 'unknown', reason: TAILSCALE_REASON.starting };
+    case 'NeedsLogin':
+    case 'NeedsMachineAuth':
+      return { state: 'needs_login', reason: TAILSCALE_REASON.needsLogin };
+    default:
+      return { state: 'unknown', reason: TAILSCALE_REASON.unknown };
+  }
+}
 
 /** Normalises `tailscale status --json`. */
 export function parseTailscaleStatus(raw: unknown): Omit<TailscaleInfo, 'collectedAt'> {
@@ -39,13 +56,18 @@ export function parseTailscaleStatus(raw: unknown): Omit<TailscaleInfo, 'collect
     };
   }
   const status = raw as Record<string, unknown>;
-  const state = mapState(typeof status.BackendState === 'string' ? status.BackendState : '');
+  const { state, reason } = mapState(typeof status.BackendState === 'string' ? status.BackendState : '');
   const self = status.Self as Record<string, unknown> | null | undefined;
   const dns = typeof self?.DNSName === 'string' ? self.DNSName.replace(/\.$/, '') : '';
   const peers = status.Peer && typeof status.Peer === 'object' ? Object.values(status.Peer as object) : [];
-  const peersOnline = peers.filter(
-    (peer) => typeof peer === 'object' && peer !== null && (peer as { Online?: unknown }).Online === true,
-  ).length;
+  // Peer "Online" flags are only meaningful while connected; otherwise the count is unknown, not 0.
+  const peersOnline =
+    state === 'running'
+      ? peers.filter(
+          (peer) =>
+            typeof peer === 'object' && peer !== null && (peer as { Online?: unknown }).Online === true,
+        ).length
+      : null;
   const version =
     typeof status.Version === 'string' && status.Version !== '' ? status.Version.split('-')[0] : null;
   return {
@@ -53,7 +75,7 @@ export function parseTailscaleStatus(raw: unknown): Omit<TailscaleInfo, 'collect
     dnsName: dns === '' ? null : dns,
     peersOnline,
     version: version ?? null,
-    reason: STATE_REASON[state],
+    reason,
   };
 }
 
@@ -67,7 +89,7 @@ export function runTailscaleStatus(exe: string, timeoutMs = TAILSCALE_TIMEOUT_MS
       (error, stdout) => {
         if (error) {
           if (error.code === 'ENOENT') {
-            reject(new ProbeError('not_installed', STATE_REASON.not_installed ?? ''));
+            reject(new ProbeError('not_installed', TAILSCALE_REASON.notInstalled));
             return;
           }
           if (error.killed || error.signal) {

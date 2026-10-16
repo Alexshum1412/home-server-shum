@@ -30,7 +30,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $cfg.RepoRoot 'node_modules'))) {
   exit 1
 }
 
-$running = @(Get-DashboardProcess)
+$running = @(Get-DashboardProcess $cfg)
 if ($running.Count -gt 0) {
   if (Test-DashboardHealth $cfg.Port) {
     Write-Host "Дашборд уже запущен (PID $($running[0].ProcessId)): http://127.0.0.1:$($cfg.Port)" -ForegroundColor Green

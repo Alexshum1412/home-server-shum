@@ -1,5 +1,5 @@
 import type { DiskHealth, PhysicalDiskInfo } from '../../../shared/api.ts';
-import { formatBytes } from '../lib/time.ts';
+import { formatBytes } from '../lib/format.ts';
 
 /** Seagate drives in a firmware-failure state report an internal identity such as "ST_M13FQBL". */
 const FIRMWARE_IDENTITY = /^ST_[A-Z0-9]+$/;

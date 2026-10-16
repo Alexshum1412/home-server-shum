@@ -19,19 +19,6 @@ export function ceilMinutes(seconds: number): number {
   return Math.max(1, Math.ceil(seconds / 60));
 }
 
-const BYTE_UNITS = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ', 'ПБ'];
-
-/** Human-readable decimal size, e.g. 4142054400 → "4,1 ГБ". */
-export function formatBytes(bytes: number): string {
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1000 && unit < BYTE_UNITS.length - 1) {
-    value /= 1000;
-    unit += 1;
-  }
-  return `${decimalFormat.format(value)} ${BYTE_UNITS[unit]}`;
-}
-
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

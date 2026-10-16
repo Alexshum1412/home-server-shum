@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Continue'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $cfg = Get-DashboardConfig
 
-$procs = @(Get-DashboardProcess)
+$procs = @(Get-DashboardProcess $cfg)
 if ($procs.Count -eq 0) {
   Write-Host 'Процесс дашборда: не запущен' -ForegroundColor Yellow
 } else {

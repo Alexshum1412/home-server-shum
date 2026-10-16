@@ -137,6 +137,39 @@ describe('login', () => {
     expect((await login(t.app, FAMILY.username, FAMILY.password)).res.statusCode).toBe(200);
   });
 
+  it('blocks a client address after 30 failures across usernames, other addresses unaffected', async () => {
+    const attacker = { remoteAddress: '10.0.0.7' };
+    for (let i = 0; i < 30; i += 1) {
+      const res = await t.app.inject({
+        method: 'POST',
+        url: '/api/login',
+        payload: { username: `guess${i % 5}`, password: `wrong-password-${i}` },
+        ...attacker,
+      });
+      expect(res.statusCode).toBe(401);
+    }
+    const blocked = await t.app.inject({
+      method: 'POST',
+      url: '/api/login',
+      payload: { username: ADMIN.username, password: ADMIN.password },
+      ...attacker,
+    });
+    expect(blocked.statusCode).toBe(429);
+    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+    expect(blocked.json().error).toBe('too_many_attempts');
+    const [entry] = await t.app.dashboard.audit.readLatest(1);
+    expect(entry).toMatchObject({ action: 'login.blocked', ip: '10.0.0.7' });
+    expect(entry?.detail).toContain('с этого адреса');
+
+    const other = await t.app.inject({
+      method: 'POST',
+      url: '/api/login',
+      payload: { username: ADMIN.username, password: ADMIN.password },
+      remoteAddress: '10.0.0.8',
+    });
+    expect(other.statusCode).toBe(200);
+  });
+
   it('clears the username counter after a successful sign-in', async () => {
     for (let i = 0; i < 9; i += 1) await login(t.app, FAMILY.username, `wrong-${i}-password`);
     expect((await login(t.app, FAMILY.username, FAMILY.password)).res.statusCode).toBe(200);

@@ -22,6 +22,7 @@ import { StatusBadge } from '../components/StatusBadge.tsx';
 import { Metric, Tile } from '../components/Tile.tsx';
 import {
   formatBytes,
+  formatBytesPair,
   formatCount,
   formatDateTime,
   formatDuration,
@@ -64,6 +65,7 @@ function MemoryTile({ data }: { data: SystemResponse }) {
   const { memory } = data;
   const used = memory.usedBytes.value;
   const percent = used == null || memory.totalBytes <= 0 ? null : (used / memory.totalBytes) * 100;
+  const [usedText, totalText] = formatBytesPair(used, memory.totalBytes);
   return (
     <Tile
       title="Память"
@@ -72,7 +74,7 @@ function MemoryTile({ data }: { data: SystemResponse }) {
       footer={<UpdatedAt value={memory.usedBytes.collectedAt} />}
     >
       <Metric
-        value={used == null ? null : `${formatBytes(used)} из ${formatBytes(memory.totalBytes)}`}
+        value={used == null ? null : `${usedText} из ${totalText}`}
         caption={percent == null ? undefined : `Занято ${formatPercent(percent)}`}
         reason={memory.usedBytes.reason}
       />
@@ -119,6 +121,7 @@ function VolumeTile({ volume }: { volume: VolumeInfo }) {
   const known = volume.totalBytes != null && volume.freeBytes != null;
   const used = usedPercent(volume.freeBytes, volume.totalBytes);
   const status = known ? (volume.lowSpace ? LOW_SPACE : SPACE_OK) : UNKNOWN;
+  const [freeText, totalText] = formatBytesPair(volume.freeBytes, volume.totalBytes);
   return (
     <Tile
       title={`Диск ${volume.path}`}
@@ -128,8 +131,8 @@ function VolumeTile({ volume }: { volume: VolumeInfo }) {
       footer={<UpdatedAt value={volume.collectedAt} />}
     >
       <Metric
-        value={known ? `Свободно ${formatBytes(volume.freeBytes)}` : null}
-        caption={known ? `из ${formatBytes(volume.totalBytes)}, занято ${formatPercent(used)}` : undefined}
+        value={known ? `Свободно ${freeText}` : null}
+        caption={known ? `из ${totalText}, занято ${formatPercent(used)}` : undefined}
         reason={volume.reason}
       />
       <Meter

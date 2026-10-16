@@ -26,17 +26,53 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-/** Binary units (as Windows Explorer shows them): 2 000 398 934 016 → «1,8 ТБ». */
-export function formatBytes(bytes: number | null | undefined): string {
-  if (!isFiniteNumber(bytes) || bytes < 0) return NO_DATA;
+/** Index of «ТБ» in BYTE_UNITS: disk-sized values get one more decimal. */
+const TB = 4;
+/** Upper bound for decimals, whatever precision a caller asks for. */
+const MAX_BYTE_DIGITS = 3;
+
+function isByteCount(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0;
+}
+
+/**
+ * Binary units, as Windows Explorer shows them (1 ГБ = 1024³ байт), with a decimal comma:
+ * 4 142 054 400 → «3,9 ГБ», 2 000 398 934 016 → «1,82 ТБ», 512 → «512 Б».
+ * Decimals: none from 10 up; one below 10 (two for ТБ and larger); two below 1.
+ * `extraDigits` adds precision (used by formatBytesPair); trailing zeros are dropped.
+ */
+export function formatBytes(bytes: number | null | undefined, extraDigits = 0): string {
+  if (!isByteCount(bytes)) return NO_DATA;
   let value = bytes;
   let unit = 0;
+  // Switch at 1000 (not 1024) so that a value never reads «1 010 МБ».
   while (value >= 1000 && unit < BYTE_UNITS.length - 1) {
     value /= 1024;
     unit += 1;
   }
-  const digits = unit === 0 ? 0 : value < 1 ? 2 : value < 10 ? 1 : 0;
+  let digits = 0;
+  if (unit > 0) {
+    if (value < 1) digits = 2;
+    else if (value < 10) digits = unit >= TB ? 2 : 1;
+    digits = Math.min(MAX_BYTE_DIGITS, digits + Math.max(0, Math.trunc(extraDigits)));
+  }
   return `${formatNumber(value, digits)}${NBSP}${BYTE_UNITS[unit]}`;
+}
+
+/**
+ * Two byte counts shown side by side («X из Y»). When they differ but would render
+ * the same («931 ГБ из 931 ГБ»), both get more decimals until they read differently.
+ */
+export function formatBytesPair(
+  first: number | null | undefined,
+  second: number | null | undefined,
+): [string, string] {
+  let pair: [string, string] = [formatBytes(first), formatBytes(second)];
+  if (!isByteCount(first) || !isByteCount(second) || first === second) return pair;
+  for (let extra = 1; pair[0] === pair[1] && extra <= 2; extra += 1) {
+    pair = [formatBytes(first, extra), formatBytes(second, extra)];
+  }
+  return pair;
 }
 
 /** 23.4 → «23 %». */
@@ -144,10 +180,11 @@ export function formatLongDate(input: TimeInput): string {
   return text.charAt(0).toLocaleUpperCase(LOCALE) + text.slice(1);
 }
 
-/** «Свободно 1,7 ТБ из 1,8 ТБ». */
+/** «Свободно 1,78 ТБ из 1,82 ТБ». */
 export function formatFreeOf(freeBytes: number | null, totalBytes: number | null): string {
-  if (!isFiniteNumber(freeBytes) || !isFiniteNumber(totalBytes)) return NO_DATA;
-  return `Свободно ${formatBytes(freeBytes)} из ${formatBytes(totalBytes)}`;
+  if (!isByteCount(freeBytes) || !isByteCount(totalBytes)) return NO_DATA;
+  const [free, total] = formatBytesPair(freeBytes, totalBytes);
+  return `Свободно ${free} из ${total}`;
 }
 
 /** Share of used space, 0..100, or null when it cannot be computed. */

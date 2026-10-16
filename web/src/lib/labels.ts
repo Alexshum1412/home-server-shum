@@ -175,7 +175,7 @@ export function findService(services: readonly ServiceStatus[] | undefined, kind
  * The server already guarantees the scheme; this is defence in depth.
  */
 export function openableUrl(service: Pick<ServiceStatus, 'state' | 'openUrl'> | undefined): string | null {
-  if (!service || service.state !== 'online' || !service.openUrl) return null;
+  if (service?.state !== 'online' || !service.openUrl) return null;
   try {
     const url = new URL(service.openUrl);
     return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;

@@ -86,6 +86,12 @@ function reasonOf(error: unknown, fallback: string): string {
   return error instanceof ProbeError ? error.message : fallback;
 }
 
+/** "Windows не ответила" stays capitalised; only the first letter of the sentence is lowered. */
+function lowerFirst(text: string): string {
+  if (/^[A-Z]/.test(text)) return text; // a proper name such as "Windows" or "PowerShell"
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
 export function createSystemCollector(options: SystemCollectorOptions): SystemCollector {
   const { config, clock, probes } = options;
   const timeouts: ProbeTimeouts = {
@@ -258,7 +264,7 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
         printer = {
           name: config.printerName,
           state: 'unknown',
-          message: `Состояние принтера неизвестно: ${reasonOf(error, 'не удалось получить данные от Windows').toLowerCase()}`,
+          message: `Состояние принтера неизвестно: ${lowerFirst(reasonOf(error, 'не удалось получить данные от Windows'))}`,
           collectedAt: null,
         };
       }

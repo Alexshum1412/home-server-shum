@@ -18,6 +18,8 @@ export interface RouteDef {
   path: string;
   /** Page name used in the document title and navigation. */
   title: string;
+  /** Shown in the navigation only to admins (the server enforces 403 on its API anyway). */
+  adminOnly?: boolean;
 }
 
 export const APP_NAME = 'Семейный сервер';
@@ -31,7 +33,7 @@ export const ROUTES: readonly RouteDef[] = [
   { id: 'print', path: '/print', title: 'Печать' },
   { id: 'system', path: '/system', title: 'Состояние системы' },
   { id: 'help', path: '/help', title: 'Подключение' },
-  { id: 'admin', path: '/admin', title: 'Администрирование' },
+  { id: 'admin', path: '/admin', title: 'Администрирование', adminOnly: true },
   { id: 'login', path: '/login', title: 'Вход' },
 ];
 
@@ -48,6 +50,11 @@ export function normalizePath(pathname: string): string {
 
 export function matchRoute(pathname: string): RouteId {
   return byPath.get(normalizePath(pathname))?.id ?? 'notFound';
+}
+
+/** True for sections that only admins may open (unknown paths are not admin-only). */
+export function isAdminOnly(id: RouteId): boolean {
+  return ROUTES.some((route) => route.id === id && route.adminOnly === true);
 }
 
 export function routePath(id: Exclude<RouteId, 'notFound'>): string {

@@ -3,11 +3,12 @@
  * Caches only the app shell and hashed build assets. API responses are never
  * cached: everything under /api/ always goes to the network.
  */
-const CACHE = 'family-shell-v1';
+const CACHE = 'family-shell-v2';
 const SHELL = [
   '/',
   '/manifest.webmanifest',
   '/icons/icon.svg',
+  '/icons/favicon-32.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-maskable-512.png',

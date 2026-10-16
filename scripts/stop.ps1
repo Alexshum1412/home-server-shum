@@ -2,7 +2,7 @@
 .SYNOPSIS
   Останавливает фоновый процесс семейного дашборда.
 .DESCRIPTION
-  Останавливает только процессы node.exe, запущенные с server/src/index.ts.
+  Останавливает только экземпляр дашборда этой конфигурации (PID из start.ps1 или процесс на её порту).
   Данные пишутся на диск атомарно сразу при изменении, поэтому остановка безопасна.
 #>
 [CmdletBinding()]
@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $cfg = Get-DashboardConfig
 
-$procs = @(Get-DashboardProcess)
+$procs = @(Get-DashboardProcess $cfg)
 if ($procs.Count -eq 0) {
   Write-Host 'Дашборд не запущен.'
   Remove-Item -LiteralPath $cfg.PidFile -ErrorAction SilentlyContinue
@@ -25,10 +25,10 @@ foreach ($p in $procs) {
 }
 
 $deadline = (Get-Date).AddSeconds(10)
-while ((Get-Date) -lt $deadline -and @(Get-DashboardProcess).Count -gt 0) { Start-Sleep -Milliseconds 300 }
+while ((Get-Date) -lt $deadline -and @(Get-DashboardProcess $cfg).Count -gt 0) { Start-Sleep -Milliseconds 300 }
 Remove-Item -LiteralPath $cfg.PidFile -ErrorAction SilentlyContinue
 
-if (@(Get-DashboardProcess).Count -gt 0) {
+if (@(Get-DashboardProcess $cfg).Count -gt 0) {
   Write-Host 'Не удалось остановить процесс. Попробуйте ещё раз или перезагрузите компьютер.' -ForegroundColor Red
   exit 1
 }

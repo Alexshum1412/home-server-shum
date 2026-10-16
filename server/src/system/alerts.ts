@@ -4,9 +4,10 @@ import type {
   PhysicalDiskInfo,
   Role,
   TailscaleInfo,
+  TailscaleState,
   VolumeInfo,
 } from '../../../shared/api.ts';
-import { formatBytes } from '../lib/time.ts';
+import { formatBytes } from '../lib/format.ts';
 import { freePercent } from './volumes.ts';
 
 export type AlertAudience = 'all' | 'admin';
@@ -25,6 +26,19 @@ export interface AlertInputs {
 }
 
 export const CRITICAL_FREE_PERCENT = 5;
+
+/** Tailscale states that mean remote access is confirmed to be down. */
+const TAILSCALE_DOWN_STATES: ReadonlySet<TailscaleState> = new Set<TailscaleState>([
+  'stopped',
+  'needs_login',
+  'not_installed',
+]);
+
+/** Ends a reason with a full stop unless it already ends with punctuation. */
+function asSentence(text: string): string {
+  const trimmed = text.trim();
+  return /[.!?…)]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
 
 /** Alerts are built only from real probe results; nothing is assumed. */
 export function buildAlerts(inputs: AlertInputs): AudienceAlert[] {
@@ -84,11 +98,9 @@ export function buildAlerts(inputs: AlertInputs): AudienceAlert[] {
     });
   });
 
-  if (
-    tailscale.state === 'stopped' ||
-    tailscale.state === 'needs_login' ||
-    tailscale.state === 'not_installed'
-  ) {
+  // Only states Tailscale itself confirmed. 'unknown' (probe error, timeout, "Starting") is not
+  // evidence of an outage, so it never raises this alert.
+  if (TAILSCALE_DOWN_STATES.has(tailscale.state)) {
     alerts.push({
       id: 'tailscale-not-running',
       level: 'warning',
@@ -96,7 +108,7 @@ export function buildAlerts(inputs: AlertInputs): AudienceAlert[] {
       title: 'Удалённый доступ не работает',
       text: [
         'Родственники вне дома (в том числе из других стран) сейчас не смогут открыть семейный сервер.',
-        tailscale.reason ? `${tailscale.reason}.` : '',
+        tailscale.reason ? asSentence(tailscale.reason) : '',
         'Попросите администратора проверить Tailscale.',
       ]
         .filter(Boolean)

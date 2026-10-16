@@ -312,10 +312,19 @@
 
 /* --- Cards (home) ------------------------------------------------------------- */
 
+/*
+ * Five service cards: 2 columns, 3 once the content area is wide enough (≥ 1024 px viewport).
+ * Columns are never narrower than the longest status badge («Работает с ошибками», ~185 px),
+ * except on phones. The last card of an odd row spans two columns, so no card sits alone.
+ */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 9.5rem), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-3);
+}
+
+.card-grid > :last-child:nth-child(odd) {
+  grid-column: span 2;
 }
 
 .card {
@@ -353,7 +362,10 @@
 }
 
 .card__title {
+  max-width: 100%;
   font-size: var(--fs-lg);
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
 .card__link {
@@ -396,11 +408,14 @@
   background: var(--c-surface-2);
 }
 
-@media (min-width: 640px) {
-  .card-grid {
-    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+/* Small phones: a little less side padding keeps «Готов к печати» on one line. */
+@media (max-width: 389px) {
+  .card {
+    padding-inline: var(--sp-3);
   }
+}
 
+@media (min-width: 640px) {
   .card {
     padding: var(--sp-5);
   }
@@ -411,11 +426,18 @@
   }
 }
 
+@media (min-width: 1024px) {
+  .card-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 /* --- Tiles and metrics (system page) --------------------------------------- */
 
+/* auto-fit: a short last group (e.g. one disk) stretches instead of leaving empty columns. */
 .tile-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
   gap: var(--sp-3);
 }
 
@@ -562,6 +584,7 @@
 }
 
 .facts__row dd {
+  margin-left: auto;
   font-weight: var(--fw-medium);
   text-align: right;
   overflow-wrap: anywhere;
@@ -614,7 +637,8 @@
 }
 
 .table__num,
-.table__nowrap {
+.table__nowrap,
+.table .badge {
   white-space: nowrap;
 }
 
@@ -781,6 +805,12 @@
   font-size: var(--fs-sm);
 }
 
+/* The live region stays in the page but takes no room (and no gap) until it has a message. */
+.copy-field__status:empty {
+  min-height: 0;
+  margin-top: calc(-1 * var(--sp-2));
+}
+
 /* --- Form fields ------------------------------------------------------------------ */
 
 .field {
@@ -842,6 +872,12 @@
   font-weight: var(--fw-medium);
 }
 
+/* No error: the alert region stays in the form but only adds a little air above the button. */
+.form-error:empty {
+  min-height: 0;
+  margin-top: calc(-1 * var(--sp-2));
+}
+
 .action-row {
   display: flex;
   flex-wrap: wrap;
@@ -857,4 +893,14 @@
 
 .action-message--error {
   color: var(--c-bad);
+}
+
+.page-section > .action-message:empty {
+  min-height: 0;
+  margin-top: calc(-1 * var(--sp-4));
+}
+
+/* A quiet button next to a section title: its label lines up with the edges of the text column. */
+.section-head > .button--quiet {
+  margin-inline: calc(-1 * var(--sp-4));
 }

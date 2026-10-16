@@ -52,10 +52,30 @@ function Get-NodeExe {
   return $null
 }
 
-function Get-DashboardProcess {
-  # Finds running dashboard server processes by their command line (node ... server/src/index.ts).
-  Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -match 'server[\\/]src[\\/]index\.ts' }
+function Test-IsDashboardCommandLine($proc) {
+  return ($proc -and $proc.Name -eq 'node.exe' -and $proc.CommandLine -and
+    $proc.CommandLine -match 'server[\\/]src[\\/]index\.ts')
+}
+
+function Get-DashboardProcess($Cfg) {
+  # The dashboard instance of THIS configuration: the PID recorded by start.ps1, or the node
+  # process that listens on the configured port. Other node servers (e.g. e2e test servers on
+  # other ports) are never matched.
+  $found = @{}
+  if (Test-Path -LiteralPath $Cfg.PidFile) {
+    try {
+      $info = Get-Content -LiteralPath $Cfg.PidFile -Raw -Encoding UTF8 | ConvertFrom-Json
+      $p = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$info.pid)" -ErrorAction SilentlyContinue
+      if (Test-IsDashboardCommandLine $p) { $found[[int]$p.ProcessId] = $p }
+    } catch {
+      # unreadable PID file: fall back to the port check below
+    }
+  }
+  foreach ($l in @(Get-NetTCPConnection -State Listen -LocalPort $Cfg.Port -ErrorAction SilentlyContinue)) {
+    $p = Get-CimInstance Win32_Process -Filter "ProcessId = $($l.OwningProcess)" -ErrorAction SilentlyContinue
+    if (Test-IsDashboardCommandLine $p) { $found[[int]$p.ProcessId] = $p }
+  }
+  return @($found.Values)
 }
 
 function Test-DashboardHealth([int]$Port, [int]$TimeoutSec = 2) {

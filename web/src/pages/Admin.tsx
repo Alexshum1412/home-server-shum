@@ -106,10 +106,12 @@ function UsersBlock() {
               {users.data.users.map((user) => (
                 <tr key={user.id}>
                   <th scope="row">{user.displayName}</th>
-                  <td>{user.username}</td>
+                  <td class="table__nowrap">{user.username}</td>
                   <td>{ROLE_LABEL[user.role]}</td>
-                  <td>{formatDateTime(user.createdAt)}</td>
-                  <td>{user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Входов не было'}</td>
+                  <td class="table__nowrap">{formatDateTime(user.createdAt)}</td>
+                  <td class="table__nowrap">
+                    {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Входов не было'}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -161,7 +163,7 @@ function AuditBlock() {
                 <tr key={`${entry.time}-${entry.action}-${index}`}>
                   <td class="table__nowrap">{formatDateTime(entry.time)}</td>
                   <td>{auditActionLabel(entry.action)}</td>
-                  <td>{entry.actor ?? 'Без входа'}</td>
+                  <td class="table__nowrap">{entry.actor ?? 'Без входа'}</td>
                   <td class="table__nowrap">{entry.ip ?? 'Нет данных'}</td>
                   <td class="table__note">{entry.detail ?? ''}</td>
                 </tr>

@@ -36,7 +36,8 @@
 
 /*
  * The cinema "screen": the one bold element. A wide panel lit from above like a
- * projector screen in a dark room — dim when the cinema is unavailable, warm when it works.
+ * projector screen in a dark room — softly lit while the cinema is unavailable,
+ * fully warm when it works. All light comes from --c-accent / --c-accent-glow.
  */
 .screen {
   position: relative;
@@ -46,30 +47,52 @@
   gap: var(--sp-4);
   overflow: hidden;
   padding: var(--sp-6) var(--sp-5);
-  border: 1px solid var(--c-border);
+  border: 1px solid color-mix(in srgb, var(--c-accent) 22%, var(--c-border));
   border-radius: var(--r-xl);
   background: var(--c-surface);
+  box-shadow: 0 1.5rem 4rem -2rem var(--c-accent-glow);
 }
 
+/* Projector light: a bright core at the top edge and a wide, soft spill below it. */
 .screen::before {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: radial-gradient(120% 85% at 50% -15%, var(--c-accent-glow), transparent 70%);
+  background:
+    radial-gradient(50% 55% at 50% 0%, var(--c-accent-glow), transparent 80%),
+    radial-gradient(140% 110% at 50% -20%, var(--c-accent-glow), transparent 70%);
+  opacity: 0.8;
+  content: "";
+  pointer-events: none;
+}
+
+/* The lit upper edge of the screen. */
+.screen::after {
+  position: absolute;
+  top: 0;
+  right: 10%;
+  left: 10%;
+  z-index: -1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--c-accent), transparent);
   opacity: 0.55;
   content: "";
   pointer-events: none;
 }
 
 .screen--on {
-  border-color: color-mix(in srgb, var(--c-accent) 35%, var(--c-border));
+  border-color: color-mix(in srgb, var(--c-accent) 40%, var(--c-border));
   box-shadow:
     0 0 0 1px var(--c-accent-glow),
-    0 1.5rem 4rem -1.5rem var(--c-accent-glow);
+    0 1.5rem 5rem -1.5rem var(--c-accent-glow);
 }
 
 .screen--on::before {
   opacity: 1;
+}
+
+.screen--on::after {
+  opacity: 0.9;
 }
 
 .screen__head {
@@ -296,8 +319,7 @@
 
 .auth {
   display: grid;
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: var(--viewport-h);
   place-items: center;
   padding: calc(env(safe-area-inset-top) + var(--sp-8)) var(--sp-4)
     calc(env(safe-area-inset-bottom) + var(--sp-8));
@@ -382,8 +404,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--sp-4);
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: var(--viewport-h);
   padding: var(--sp-8) var(--sp-4);
   text-align: center;
 }

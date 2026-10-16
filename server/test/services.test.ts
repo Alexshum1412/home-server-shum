@@ -85,7 +85,10 @@ async function appWithServices(services: ServiceDefinition[] | string, env: Reco
   return t;
 }
 
-async function getServices(t: TestApp, user = FAMILY): Promise<ServicesResponse> {
+async function getServices(
+  t: TestApp,
+  user: { username: string; password: string } = FAMILY,
+): Promise<ServicesResponse> {
   const cookie = await cookieFor(t.app, user);
   const res = await t.app.inject({ url: '/api/services', headers: { cookie } });
   expect(res.statusCode).toBe(200);

@@ -15,7 +15,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useId, useRef, useState } from 'preact/hooks';
 import type { SessionUser } from '../../../shared/api.ts';
 import { ROLE_LABEL } from '../lib/labels.ts';
-import { isActivePath } from '../lib/routes.ts';
+import { isActivePath, isAdminOnly, matchRoute } from '../lib/routes.ts';
 import { useSession } from '../state.tsx';
 import { ConnectionBanner, DemoBanner } from './Banners.tsx';
 import type { IconComponent } from './icons.ts';
@@ -24,7 +24,6 @@ interface NavItem {
   path: string;
   label: string;
   icon: IconComponent;
-  adminOnly?: boolean;
 }
 
 /** Always visible: in the bottom tab bar on phones. */
@@ -41,7 +40,7 @@ const SECONDARY: readonly NavItem[] = [
   { path: '/print', label: 'Печать', icon: Printer },
   { path: '/system', label: 'Состояние', icon: Activity },
   { path: '/help', label: 'Подключение', icon: Smartphone },
-  { path: '/admin', label: 'Администрирование', icon: ShieldCheck, adminOnly: true },
+  { path: '/admin', label: 'Администрирование', icon: ShieldCheck },
 ];
 
 function NavLink(props: { item: NavItem; path: string; class: string; onClick?: () => void }) {
@@ -161,7 +160,7 @@ function TabBar(props: {
 export function AppShell(props: { path: string; notice?: string | null; children: ComponentChildren }) {
   const { session, logout } = useSession();
   const isAdmin = session.user.role === 'admin';
-  const secondary = SECONDARY.filter((item) => !item.adminOnly || isAdmin);
+  const secondary = SECONDARY.filter((item) => isAdmin || !isAdminOnly(matchRoute(item.path)));
   const onLogout = () => void logout();
 
   return (

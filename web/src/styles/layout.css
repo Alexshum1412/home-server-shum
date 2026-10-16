@@ -10,8 +10,7 @@
 }
 
 .shell {
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: var(--viewport-h);
 }
 
 /* --- Header / sidebar ---------------------------------------------------- */
@@ -95,6 +94,11 @@
 .user-block--side {
   padding: var(--sp-4) var(--sp-3) 0;
   border-top: 1px solid var(--c-border);
+}
+
+/* «Выйти» icon in line with the navigation icons and the user name above it. */
+.user-block--side .user-block__logout {
+  margin-left: calc(-1 * var(--sp-4));
 }
 
 .user-block--sheet {
@@ -181,9 +185,9 @@
   font-weight: var(--fw-semibold);
 }
 
-.tabbar__link[aria-current="page"] svg,
-.tabbar__link--active svg,
-.tabbar__link[aria-expanded="true"] svg {
+/* :where() keeps this at the specificity of .tabbar__link svg (no descending-specificity traps). */
+.tabbar__link:where([aria-current="page"], [aria-expanded="true"]) svg,
+.tabbar__link--active svg {
   background: var(--c-selected);
 }
 
@@ -200,7 +204,7 @@
   bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--sp-2));
   left: max(var(--sp-3), env(safe-area-inset-left));
   z-index: 3;
-  max-height: calc(100dvh - var(--tabbar-h) - 5rem);
+  max-height: calc(var(--viewport-h) - var(--tabbar-h) - 5rem);
   overflow-y: auto;
   padding: var(--sp-2);
   border: 1px solid var(--c-border);
@@ -279,8 +283,7 @@
     flex-direction: column;
     align-items: stretch;
     gap: var(--sp-6);
-    height: 100vh;
-    height: 100dvh;
+    height: var(--viewport-h);
     overflow-y: auto;
     padding: var(--sp-5) var(--sp-3) var(--sp-4);
     border-right: 1px solid var(--c-border);
