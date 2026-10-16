@@ -37,6 +37,19 @@
 - **Браузеры Playwright не скачивались.** Тесты и CLI используют установленный Google Chrome 155 (`channel: 'chrome'`). Не запускайте `npx playwright install chrome` — это перезапишет системный Chrome.
 - **Context7 без API-ключа** (анонимный режим работает; при лимитах можно добавить бесплатный ключ через переменную окружения, не в `.mcp.json`).
 
+### Как инструменты фактически применялись (16.10.2026)
+
+| Инструмент | Применение | Результат |
+|---|---|---|
+| OpenSpec | change `add-family-portal-mvp`: proposal, 6 спецификаций, design, tasks; `openspec validate --strict`; skill `openspec-apply-change` для оставшейся задачи 7.2 | 23/23 задач выполнены, спецификация валидна |
+| Superpowers | `verification-before-completion` (каждое утверждение — после свежего прогона `npm run check`), `test-driven-development` (тест AlertList/Home: красный на старом коде → зелёный), `requesting-code-review` (независимый ревьюер по шаблону на диапазон коммитов) | см. итоговый отчёт сессии |
+| Context7 | MCP-сервер настроен на уровне проекта; в сессии, запущенной не из папки проекта, использован тот же сервер напрямую по HTTP (JSON-RPC `query-docs`): сверены Fastify v5 (`request.host/hostname/protocol`, `trustProxy`, `routeOptions.url`) и Vite 8 (`oxc.jsx`) | расхождений кода с документацией нет |
+| UI/UX Pro Max | Quick Reference и Pre-Delivery Checklist; поиск по CSV-базе `ux-guidelines.csv` (WCAG 2.2: Focus Not Obscured, Accessible Authentication) | требования выполнены (`scroll-padding-bottom` под нижней панелью, `autocomplete`, вставка не блокируется). Поисковый CLI не запускался — нужен Python 3 (не установлен; skill запрещает ставить его самостоятельно) |
+| Web Design Guidelines | свежие правила `vercel-labs/web-interface-guidelines` → проверка `web/src`, `web/index.html` | 1 замечание исправлено (`overscroll-behavior: contain` у меню «Ещё»), 1 минорное отложено (`translate="no"` для названий Jellyfin/Tailscale) |
+| Frontend Design | критика живых снимков | на телефоне «Кинотеатр» вынесен на первый экран, предупреждения стали спокойнее и сворачиваются |
+| Playwright CLI | `npx playwright cli` (Chrome): вход, снимки 390/1440 в тёмной теме, проверка ширины документа, консоли, кнопки «Подробнее» | снимки в `artifacts/ui-review/demo-*.png` |
+| Playwright Test + axe | `npm run test:e2e` — 30 тестов | все проходят |
+
 ### Сознательно НЕ установлено
 
 | Инструмент | Причина |

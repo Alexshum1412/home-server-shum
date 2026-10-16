@@ -21,8 +21,8 @@
 |---|---|---|
 | PWA: manifest, иконки, service worker | Implemented | установка на домашний экран — только по HTTPS-адресу tailnet |
 | Инструкция установки на iOS/Android/Windows | Implemented | страница «Подключение» и README |
-| HTTPS через Tailscale Serve | Partial | скрипт `scripts/serve-tailnet.cmd` готов; включение требует подключённого Tailscale на ПК (после перезагрузки 16.10 приложение Tailscale не было запущено, состояние `NoState`) |
-| Проверка с второго устройства | Not configured | нужен телефон/ноутбук владельца в tailnet — см. `docs/runbooks/network.md` |
+| HTTPS через Tailscale Serve | Implemented | включён 16.10.2026: `https://server-home.tail89d77e.ts.net` (tailnet only, без Funnel) → `127.0.0.1:8070`; с этого ПК проверены TLS, `/api/health` 200, заголовки и CSRF-защита за прокси |
+| Проверка со второго устройства | Not configured | нужен телефон/ноутбук владельца с включённым Tailscale — см. `docs/runbooks/network.md` |
 | LAN-резерв | Not configured | требует правила Firewall (админ) — решение владельца |
 | Реальные проверки доступности служб | Implemented | фоновые проверки с таймаутом 3 с |
 | Страница диагностики подключения | Implemented | «Подключение» + «Состояние системы» |
@@ -58,4 +58,4 @@ Planned, только после стабильного мониторинга �
 
 ## Ближайшая задача
 
-**Включить приватный HTTPS-доступ и проверить его с телефона:** запустить приложение Tailscale на ПК → `scripts\serve-tailnet.cmd` → открыть `https://server-home.tail89d77e.ts.net` на телефоне с включённым Tailscale → войти → добавить на домашний экран. Ожидаемый результат: портал открывается с телефона по HTTPS без предупреждений, а без Tailscale — не открывается.
+**Первый вход и проверка с телефона:** создать свою учётную запись администратора (`scripts\user.cmd add <логин> --name "<Имя>" --role admin`), включить автозапуск (`scripts\autostart.cmd`, т.к. ПК перезагружается из-за обновлений), открыть `https://server-home.tail89d77e.ts.net` на телефоне с включённым Tailscale → войти → добавить на домашний экран. Ожидаемый результат: портал открывается с телефона по HTTPS без предупреждений, а без Tailscale — не открывается. После этого — этап P2 (Jellyfin).

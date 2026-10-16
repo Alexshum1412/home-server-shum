@@ -34,11 +34,7 @@ scripts\start.cmd
    ```bat
    scripts\user.cmd add mama --name "Мама" --role family
    ```
-2. Включите частный HTTPS-адрес внутри вашей сети Tailscale (Tailscale на ПК должен быть запущен и подключён):
-   ```bat
-   scripts\serve-tailnet.cmd
-   ```
-   Адрес для семьи: **https://server-home.tail89d77e.ts.net** — работает только на устройствах, где включён Tailscale вашей сети; из интернета он недоступен.
+2. Частный HTTPS-адрес внутри вашей сети Tailscale **уже включён** (16.10.2026): **https://server-home.tail89d77e.ts.net** — работает только на устройствах, где включён Tailscale вашей сети; из интернета он недоступен. Выключить/включить снова: `scripts\serve-tailnet.cmd -Off` / `scripts\serve-tailnet.cmd`.
 3. На телефоне: открыть адрес → iPhone: Safari → «Поделиться» → «На экран Домой»; Android: Chrome → меню → «Добавить на главный экран». Подробно — на странице портала «Подключение».
 
 ## Ежедневные команды
@@ -56,14 +52,13 @@ scripts\start.cmd
 
 ## Проверка (для разработчика)
 
+Всё по очереди одной командой (линтер Biome, типы TypeScript, тесты Vitest, сборка интерфейса, e2e-тесты Playwright в установленном Google Chrome):
+
 ```bat
-npm.cmd run lint        & rem Biome
-npm.cmd run typecheck   & rem TypeScript: сервер, e2e, интерфейс
-npm.cmd test            & rem Vitest: unit + интеграционные
-npm.cmd run build       & rem сборка интерфейса
-npm.cmd run test:e2e    & rem Playwright в установленном Google Chrome
-npm.cmd run check       & rem всё по очереди
+npm.cmd run check
 ```
+
+По отдельности: `npm.cmd run lint`, `npm.cmd run typecheck`, `npm.cmd test`, `npm.cmd run build`, `npm.cmd run test:e2e`.
 Режим разработки: `npm.cmd run dev` (API на :8070 с автоперезапуском, интерфейс на http://127.0.0.1:5173).
 
 ## Настройки

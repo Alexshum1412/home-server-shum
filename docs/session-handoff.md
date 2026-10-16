@@ -1,27 +1,29 @@
 # Передача работы между сессиями
 
-_Обновлено: 16.10.2026. Держите коротким: статус, что проверено, что дальше._
+_Обновлено: 16.10.2026 (вечер). Коротко: статус, что проверено, что дальше._
 
 ## Где остановились
 
-- MVP портала реализован: сервер (`server/`), интерфейс (`web/`), скрипты (`scripts/`), документация (`docs/`), спецификация OpenSpec `openspec/changes/add-family-portal-mvp`.
-- Последний полный прогон проверок и его результаты — в итоговом отчёте сессии и в `docs/roadmap.md`.
-- ПК перезагружался 16.10 в 00:36; после этого приложение Tailscale не запущено (`NoState`) → Tailscale Serve ещё не включён.
+- MVP портала реализован и проверен: сервер (`server/`), интерфейс (`web/`), скрипты (`scripts/`), документация (`docs/`), OpenSpec `openspec/changes/add-family-portal-mvp` — 23/23 задач.
+- Последний полный прогон `npm run check`: Biome чисто, типы OK, 256 unit-тестов, сборка, 30 e2e — всё проходит (см. git log).
+- Рабочий экземпляр: `http://127.0.0.1:8070` (данные в `%LOCALAPPDATA%\FamilyDashboard`, пользователей ещё нет — владелец создаёт сам).
+- Tailscale Serve включён: `https://server-home.tail89d77e.ts.net` (tailnet only, без Funnel).
+- ПК перезагружался 16.10 дважды (обновление Windows; неожиданное отключение в 12:37) — автозапуск дашборда ещё не включён.
 
 ## Как продолжить
 
 ```bat
 cd /d "C:\Users\PC\Desktop\THE DASHBOARD"
-git log --oneline | more
+git log --oneline
 npm.cmd run check
 scripts\status.cmd
 ```
 
 ## Следующие шаги
 
-1. Владелец: открыть приложение Tailscale и войти → `scripts\serve-tailnet.cmd` → проверить с телефона (`docs/runbooks/network.md`).
-2. Владелец: создать свою учётную запись администратора `scripts\user.cmd add <логин> --name "<Имя>" --role admin` (агент не создаёт реальные учётные записи и пароли).
-3. Владелец: решить про автозапуск (`scripts\autostart.cmd`) и обновления Windows/ESU.
+1. Владелец: `scripts\user.cmd add <логин> --name "<Имя>" --role admin`, затем вход в портал.
+2. Владелец: решить про автозапуск (`scripts\autostart.cmd`) и обновления Windows/ESU.
+3. Владелец: проверить вход с телефона по адресу tailnet и добавить на домашний экран.
 4. Разработка: этап P2 — Jellyfin (см. `docs/roadmap.md`), затем файловый сервис и бэкап (нужен второй носитель).
 
 ## Известные ограничения
@@ -29,3 +31,4 @@ scripts\status.cmd
 - Второй диск `ST_M13FQBL` неисправен — не трогать (`docs/runbooks/second-disk.md`).
 - Бэкапа нет (Blocked).
 - LAN-резерв выключен (нужно правило Firewall от администратора).
+- UI/UX Pro Max: поисковый CLI требует Python 3 (не установлен).
