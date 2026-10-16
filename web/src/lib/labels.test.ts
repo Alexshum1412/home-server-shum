@@ -10,6 +10,7 @@ import type {
 import { STATUS_ICONS } from '../components/icons.ts';
 import {
   ALERT_LEVEL,
+  adminDetail,
   auditActionLabel,
   BACKUP_STATE,
   DISK_HEALTH,
@@ -91,9 +92,18 @@ describe('status labels', () => {
 
   it('uses the agreed words for the main service states', () => {
     expect(SERVICE_STATE.online.label).toBe('Работает');
+    expect(SERVICE_STATE.degraded).toEqual({ label: 'Отвечает с ошибкой', tone: 'warn', icon: 'warn' });
     expect(SERVICE_STATE.offline.label).toBe('Не отвечает');
     expect(SERVICE_STATE.not_configured.label).toBe('Не настроено');
     expect(SERVICE_STATE.unknown.label).toBe('Нет данных');
+  });
+
+  it('never presents a service as available unless it is online', () => {
+    for (const state of SERVICE_STATES) {
+      if (state === 'online') continue;
+      expect(SERVICE_STATE[state].label, state).not.toMatch(/работает/i);
+      expect(SERVICE_STATE[state].tone, state).not.toBe('ok');
+    }
   });
 
   it('never tells working and broken apart by colour alone', () => {
@@ -125,6 +135,20 @@ describe('openableUrl', () => {
     expect(openableUrl({ state: 'online', openUrl: 'javascript:alert(1)' })).toBeNull();
     expect(openableUrl({ state: 'online', openUrl: 'not a url' })).toBeNull();
     expect(openableUrl(undefined)).toBeNull();
+  });
+});
+
+describe('adminDetail', () => {
+  it('gives the technical detail to administrators only', () => {
+    expect(adminDetail({ detail: 'HTTP 503' }, true)).toBe('HTTP 503');
+    expect(adminDetail({ detail: 'HTTP 503' }, false)).toBeNull();
+  });
+
+  it('treats a missing or blank detail as none', () => {
+    expect(adminDetail({ detail: null }, true)).toBeNull();
+    expect(adminDetail({}, true)).toBeNull();
+    expect(adminDetail({ detail: '  ' }, true)).toBeNull();
+    expect(adminDetail(undefined, true)).toBeNull();
   });
 });
 

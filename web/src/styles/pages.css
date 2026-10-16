@@ -392,8 +392,10 @@
   border-radius: var(--r-md);
   background: var(--c-bg);
   font-size: var(--fs-sm);
-  overflow-wrap: anywhere;
+  /* Wrap at spaces only, so flags like --role are never split; break a word only if it cannot fit. */
+  overflow-wrap: break-word;
   white-space: pre-wrap;
+  hyphens: none;
   -webkit-user-select: all;
   user-select: all;
 }

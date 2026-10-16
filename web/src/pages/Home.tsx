@@ -19,14 +19,16 @@ import { RelativeTime } from '../components/RelativeTime.tsx';
 import { ServiceCard } from '../components/ServiceCard.tsx';
 import { Skeleton } from '../components/Skeleton.tsx';
 import { StatusBadge } from '../components/StatusBadge.tsx';
+import { TechDetail } from '../components/TechDetail.tsx';
 import { useNow } from '../hooks/useNow.ts';
 import type { PollingResult } from '../hooks/usePolling.ts';
-import { formatDuration, formatFreeOf, formatLongDate } from '../lib/format.ts';
+import { summarizeVolumes } from '../lib/disks.ts';
+import { formatDuration, formatLongDate } from '../lib/format.ts';
 import { greetingLine } from '../lib/greeting.ts';
 import {
+  adminDetail,
   BACKUP_STATE,
   findService,
-  LOW_SPACE,
   openableUrl,
   PRINTER_STATE,
   SERVER_DOWN,
@@ -34,25 +36,37 @@ import {
   SERVICE_PAGES,
   SERVICE_STATE,
   type ServicePageKind,
-  SPACE_OK,
   type StatusView,
   TAILSCALE_STATE,
   UNKNOWN,
 } from '../lib/labels.ts';
-import { useData, useSession } from '../state.tsx';
+import { useData, useIsAdmin, useSession } from '../state.tsx';
 
-/** Status for a service tile: from the server list, «Не настроено» if the server does not know it. */
-function serviceStatus(service: ServiceStatus | undefined, loaded: boolean): StatusView | null {
+/**
+ * Status for a service tile: from the server list, «Не настроено» if the server does not know it,
+ * «Нет данных» if the list could not be loaded at all, null (skeleton) while the first load runs.
+ */
+function serviceStatus(
+  service: ServiceStatus | undefined,
+  loaded: boolean,
+  failed: boolean,
+): StatusView | null {
   if (service) return SERVICE_STATE[service.state];
-  return loaded ? SERVICE_STATE.not_configured : null;
+  if (loaded) return SERVICE_STATE.not_configured;
+  return failed ? UNKNOWN : null;
 }
 
 /** The one bold element: the cinema as a softly lit projector screen. */
-function CinemaScreen(props: { service: ServiceStatus | undefined; loaded: boolean; failed: boolean }) {
+function CinemaScreen(props: {
+  service: ServiceStatus | undefined;
+  loaded: boolean;
+  failed: boolean;
+  isAdmin: boolean;
+}) {
   const { service } = props;
   const copy = SERVICE_PAGES.media;
   const url = openableUrl(service);
-  const status = props.failed && !service ? UNKNOWN : serviceStatus(service, props.loaded);
+  const status = serviceStatus(service, props.loaded, props.failed);
   return (
     <section class={url ? 'screen screen--on' : 'screen'} aria-labelledby="cinema-title">
       <div class="screen__head">
@@ -82,6 +96,7 @@ function CinemaScreen(props: { service: ServiceStatus | undefined; loaded: boole
             <div class="screen__note">
               <p>{service?.message ?? 'Кинотеатр ещё не настроен.'}</p>
               {service?.hint ? <p class="screen__hint">{service.hint}</p> : null}
+              <TechDetail detail={adminDetail(service, props.isAdmin)} />
             </div>
           ) : null}
           <div class="screen__actions">
@@ -109,8 +124,11 @@ const TILE_KINDS: ReadonlyArray<{ kind: Exclude<ServicePageKind, 'media'>; icon:
 function ServiceTiles(props: {
   services: ServiceStatus[] | undefined;
   loaded: boolean;
+  /** The service list could not be loaded even once. */
+  servicesFailed: boolean;
   system: SystemResponse | null;
   systemFailed: boolean;
+  isAdmin: boolean;
 }) {
   const calendar = findService(props.services, 'calendar');
   const calendarUrl = openableUrl(calendar);
@@ -125,8 +143,9 @@ function ServiceTiles(props: {
             key={kind}
             name={service?.name ?? copy.name}
             icon={icon}
-            status={serviceStatus(service, props.loaded)}
+            status={serviceStatus(service, props.loaded, props.servicesFailed)}
             text={service?.message ?? (props.loaded ? 'Сервис ещё не настроен.' : null)}
+            detail={adminDetail(service, props.isAdmin)}
             href={copy.path}
           />
         );
@@ -141,8 +160,9 @@ function ServiceTiles(props: {
       <ServiceCard
         name={calendar?.name ?? 'Календарь'}
         icon={CalendarDays}
-        status={serviceStatus(calendar, props.loaded)}
+        status={serviceStatus(calendar, props.loaded, props.servicesFailed)}
         text={calendar?.message ?? (props.loaded ? 'Семейный календарь пока не подключён.' : null)}
+        detail={adminDetail(calendar, props.isAdmin)}
         href={calendarUrl}
         external
       />
@@ -172,7 +192,6 @@ function StatusRow(props: {
 function HouseStatus(props: { system: PollingResult<SystemResponse> }) {
   const { data, error } = props.system;
   const waiting = !data && !error;
-  const volume = data?.volumes[0];
   const uptime = data?.server.uptimeSeconds;
   let serverStatus: StatusView | null = null;
   let serverDetail: ComponentChildren = null;
@@ -189,16 +208,9 @@ function HouseStatus(props: { system: PollingResult<SystemResponse> }) {
   let diskStatus: StatusView | null = null;
   let diskDetail: ComponentChildren = null;
   if (data) {
-    if (!volume) {
-      diskStatus = UNKNOWN;
-      diskDetail = 'Диски для контроля не указаны.';
-    } else if (volume.totalBytes == null || volume.freeBytes == null) {
-      diskStatus = UNKNOWN;
-      diskDetail = volume.reason ?? 'Объём диска не удалось прочитать.';
-    } else {
-      diskStatus = volume.lowSpace ? LOW_SPACE : SPACE_OK;
-      diskDetail = `${formatFreeOf(volume.freeBytes, volume.totalBytes)} (${volume.path})`;
-    }
+    const disks = summarizeVolumes(data.volumes);
+    diskStatus = disks.status;
+    diskDetail = disks.detail;
   } else if (error) {
     diskStatus = UNKNOWN;
   }
@@ -252,9 +264,11 @@ function HouseStatus(props: { system: PollingResult<SystemResponse> }) {
 export function HomePage() {
   const { session } = useSession();
   const { services, system } = useData();
+  const isAdmin = useIsAdmin();
   const now = useNow(60_000);
   const list = services.data?.services;
   const loaded = services.data !== null;
+  const servicesFailed = services.error !== null && !loaded;
   return (
     <div class="page page--home">
       <div class="home-hero">
@@ -267,7 +281,8 @@ export function HomePage() {
       <CinemaScreen
         service={findService(list, 'media')}
         loaded={loaded}
-        failed={services.error !== null && !loaded}
+        failed={servicesFailed}
+        isAdmin={isAdmin}
       />
       <section class="home-section">
         <h2 id="services-title" class="section-title">
@@ -276,8 +291,10 @@ export function HomePage() {
         <ServiceTiles
           services={list}
           loaded={loaded}
+          servicesFailed={servicesFailed}
           system={system.data}
           systemFailed={system.error !== null}
+          isAdmin={isAdmin}
         />
       </section>
       <HouseStatus system={system} />

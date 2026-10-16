@@ -2,7 +2,16 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CONTENT_SECURITY_POLICY } from '../src/app.ts';
-import { ADMIN, addUser, createTestApp, login, makeTempDir, removeDir, type TestApp } from './helpers.ts';
+import {
+  ADMIN,
+  addUser,
+  cookieFor,
+  createTestApp,
+  login,
+  makeTempDir,
+  removeDir,
+  type TestApp,
+} from './helpers.ts';
 
 let t: TestApp;
 const dirs: string[] = [];
@@ -61,6 +70,17 @@ describe('runtime basics', () => {
       const res = await t.app.inject({ url });
       expect(res.headers['cache-control'], url).toBe('no-store');
     }
+  });
+
+  it('marks percent-encoded API paths no-store too (the router decodes them)', async () => {
+    await addUser(t.dataDir, t.clock, ADMIN);
+    const cookie = await cookieFor(t.app, ADMIN);
+    const session = await t.app.inject({ url: '/%61pi/session', headers: { cookie } });
+    expect(session.statusCode).toBe(200);
+    expect(session.json().user.username).toBe(ADMIN.username);
+    expect(session.headers['cache-control']).toBe('no-store');
+    const unknown = await t.app.inject({ url: '/%61pi/nope', headers: { cookie } });
+    expect(unknown.headers['cache-control']).toBe('no-store');
   });
 
   it('answers unknown /api paths with a JSON 404', async () => {
@@ -146,6 +166,38 @@ describe('request guards', () => {
     expect(res.json().error).toBe('forbidden_origin');
     expect(res.cookies).toHaveLength(0);
     expect(await t.app.dashboard.audit.readLatest(10)).toEqual([]);
+  });
+
+  it('guards percent-encoded API paths too: foreign origin, cross-site and non-JSON do nothing', async () => {
+    await addUser(t.dataDir, t.clock, ADMIN);
+    const cookie = await cookieFor(t.app, ADMIN);
+    for (const url of ['/%61pi/logout', '/%61pi/services/refresh', '/%61pi/login']) {
+      const res = await t.app.inject({
+        method: 'POST',
+        url,
+        headers: { cookie, origin: 'https://evil.example', 'content-type': 'text/plain' },
+        payload: 'x',
+      });
+      expect(res.statusCode, url).toBe(403);
+      expect(res.json().error, url).toBe('forbidden_origin');
+    }
+    const crossSite = await t.app.inject({
+      method: 'POST',
+      url: '/%61pi/logout',
+      headers: { cookie, 'sec-fetch-site': 'cross-site', 'content-type': 'application/json' },
+    });
+    expect(crossSite.statusCode).toBe(403);
+    const textPlain = await t.app.inject({
+      method: 'POST',
+      url: '/%61pi/logout',
+      headers: { cookie, 'content-type': 'text/plain' },
+      payload: 'x',
+    });
+    expect(textPlain.statusCode).toBe(415);
+    // No side effect: the session survives and nothing but the sign-in was audited.
+    expect(t.app.dashboard.sessions.count()).toBe(1);
+    expect((await t.app.inject({ url: '/api/session', headers: { cookie } })).statusCode).toBe(200);
+    expect((await t.app.dashboard.audit.readLatest(10)).map((e) => e.action)).toEqual(['login.success']);
   });
 
   it('rejects Sec-Fetch-Site: cross-site', async () => {

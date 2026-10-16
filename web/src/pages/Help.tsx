@@ -5,6 +5,7 @@ import { ErrorState } from '../components/ErrorState.tsx';
 import { PageHeader } from '../components/PageHeader.tsx';
 import { Loading } from '../components/Skeleton.tsx';
 import { useResource } from '../hooks/useResource.ts';
+import { useIsAdmin } from '../state.tsx';
 
 function MainAddress(props: { data: ConnectionResponse }) {
   const { tailnetUrl } = props.data;
@@ -80,7 +81,7 @@ function InstallSteps() {
   );
 }
 
-function LanAddress(props: { data: ConnectionResponse }) {
+function LanAddress(props: { data: ConnectionResponse; isAdmin: boolean }) {
   const { lanUrl, localUrl } = props.data;
   return (
     <section class="prose-block">
@@ -98,14 +99,26 @@ function LanAddress(props: { data: ConnectionResponse }) {
           </p>
         </>
       ) : (
-        <p>Запасной адрес для домашней сети выключен. Дома тоже пользуйтесь основным адресом.</p>
+        <p>
+          Запасной адрес для домашней сети пока не включён, поэтому дома тоже пользуйтесь основным адресом.
+          Если запасной адрес нужен, попросите администратора его включить.
+        </p>
       )}
-      <CopyField label="Адрес на самом домашнем компьютере" value={localUrl} />
+      {/* The local address works only in a browser on the server itself: useless on a phone. */}
+      {props.isAdmin ? (
+        <>
+          <CopyField label="Адрес только для самого домашнего компьютера" value={localUrl} />
+          <p class="meta">
+            Открывается только в браузере на самом домашнем компьютере. С телефона или ноутбука по нему не
+            зайти.
+          </p>
+        </>
+      ) : null}
     </section>
   );
 }
 
-function Limits() {
+function Limits(props: { hasLanAddress: boolean }) {
   return (
     <section class="prose-block">
       <h2 class="section-title">
@@ -114,7 +127,11 @@ function Limits() {
       </h2>
       <ul class="plain-list">
         <li>Домашний компьютер выключен, спит или перезагружается.</li>
-        <li>Дома пропал интернет: из других мест портал недоступен, дома может выручить запасной адрес.</li>
+        <li>
+          {props.hasLanAddress
+            ? 'Дома пропал интернет: из других мест портал недоступен, дома может выручить запасной адрес.'
+            : 'Дома пропал интернет: из других мест портал недоступен.'}
+        </li>
         <li>На вашем телефоне или ноутбуке выключен Tailscale или выполнен выход из семейной сети.</li>
       </ul>
     </section>
@@ -123,6 +140,7 @@ function Limits() {
 
 export function HelpPage() {
   const connection = useResource<ConnectionResponse>('/api/connection');
+  const isAdmin = useIsAdmin();
   let addresses = null;
   if (connection.data) {
     addresses = (
@@ -130,7 +148,7 @@ export function HelpPage() {
         <MainAddress data={connection.data} />
         <FirstSteps />
         <InstallSteps />
-        <LanAddress data={connection.data} />
+        <LanAddress data={connection.data} isAdmin={isAdmin} />
       </>
     );
   } else if (connection.error) {
@@ -148,7 +166,7 @@ export function HelpPage() {
         lead="Как открыть семейный портал с телефона, планшета или ноутбука — дома и в поездке."
       />
       {addresses}
-      <Limits />
+      <Limits hasLanAddress={Boolean(connection.data?.lanUrl)} />
     </div>
   );
 }

@@ -15,9 +15,12 @@ export function RelativeTime(props: { value: string | number | null | undefined 
   );
 }
 
-/** «Обновлено 2 мин назад» / «Ещё не измерялось». */
+/**
+ * «Обновлено 2 мин назад». Nothing for a value that was never measured: its reason is shown
+ * next to it, and «ещё не измерялось» would wrongly promise a measurement (e.g. no sensor at all).
+ */
 export function UpdatedAt(props: { value: string | number | null | undefined; prefix?: string }) {
-  if (props.value == null) return <p class="meta">Ещё не измерялось</p>;
+  if (props.value == null) return null;
   return (
     <p class="meta">
       {props.prefix ?? 'Обновлено'} <RelativeTime value={props.value} />

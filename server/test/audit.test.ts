@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createAuditLog } from '../src/audit/log.ts';
@@ -78,6 +78,48 @@ describe('audit log', () => {
     await audit.write({ action: 'logout', actor: 'two', ip: null });
     const entries = await audit.readLatest(10_000);
     expect(entries.map((e) => e.actor)).toEqual(['two', 'one']);
+  });
+
+  it('counts only valid entries: broken lines never hide newer entries behind older files', async () => {
+    const entry = (actor: string, time: string) =>
+      `${JSON.stringify({ time, action: 'logout', actor, ip: null, detail: null })}\n`;
+    await writeFile(path.join(dir, 'audit.1.jsonl'), entry('rotated-old', '2026-10-16T08:00:00.000Z'));
+    await writeFile(
+      path.join(dir, 'audit.jsonl'),
+      `${entry('a', '2026-10-16T09:00:00.000Z')}${entry('b', '2026-10-16T09:00:01.000Z')}junk1\n{"half":\n["x"]\n`,
+    );
+    const audit = createAuditLog(dir, { clock: createFakeClock() });
+    expect((await audit.readLatest(2)).map((e) => e.actor)).toEqual(['b', 'a']);
+    expect((await audit.readLatest(3)).map((e) => e.actor)).toEqual(['b', 'a', 'rotated-old']);
+    expect((await audit.readLatest(1)).map((e) => e.actor)).toEqual(['b']);
+  });
+
+  it('starts a new line after a torn last line, so the next entry is not lost', async () => {
+    const file = path.join(dir, 'audit.jsonl');
+    const old = JSON.stringify({
+      time: '2026-10-16T09:00:00.000Z',
+      action: 'logout',
+      actor: 'old',
+      ip: null,
+      detail: null,
+    });
+    // The previous run crashed in the middle of an append.
+    await writeFile(file, `${old}\n{"time":"2026-10-16T09:00:01.000Z","action":"lo`);
+    const audit = createAuditLog(dir, { clock: createFakeClock() });
+    await audit.write({ action: 'logout', actor: 'new', ip: null });
+    await audit.write({ action: 'logout', actor: 'newer', ip: null });
+    expect((await audit.readLatest(10)).map((e) => e.actor)).toEqual(['newer', 'new', 'old']);
+    const lines = (await readFile(file, 'utf8')).split('\n');
+    expect(lines).toHaveLength(5); // old, torn, new, newer, '' after the final newline
+    expect(lines.filter((line) => line === '')).toHaveLength(1);
+
+    // A clean file gets no extra blank line on the next start.
+    const restarted = createAuditLog(dir, { clock: createFakeClock() });
+    await restarted.write({ action: 'logout', actor: 'after-restart', ip: null });
+    const again = (await readFile(file, 'utf8')).split('\n');
+    expect(again).toHaveLength(6);
+    expect(again.filter((line) => line === '')).toHaveLength(1);
+    expect((await restarted.readLatest(1))[0]?.actor).toBe('after-restart');
   });
 
   it('never records passwords, tokens or cookies from real requests', async () => {

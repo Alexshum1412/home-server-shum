@@ -3,7 +3,7 @@
  * Caches only the app shell and hashed build assets. API responses are never
  * cached: everything under /api/ always goes to the network.
  */
-const CACHE = 'family-shell-v2';
+const CACHE = 'family-shell-v3';
 const SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -38,18 +38,46 @@ function cacheable(response) {
   return response.ok && response.type === 'basic' && !response.redirected;
 }
 
-/** Network first; on success refresh the cached copy under `cacheKey`; offline → cached copy. */
-async function networkFirst(request, cacheKey) {
+function isHtml(response) {
+  return (response.headers.get('content-type') || '').toLowerCase().includes('text/html');
+}
+
+/** Network first; on success refresh the cached copy; offline → cached copy. */
+async function networkFirst(request) {
   const cache = await caches.open(CACHE);
   try {
     const response = await fetch(request);
-    if (cacheable(response)) await cache.put(cacheKey ?? request, response.clone());
+    if (cacheable(response)) await cache.put(request, response.clone());
     return response;
   } catch (error) {
-    const cached = await cache.match(cacheKey ?? request);
+    const cached = await cache.match(request);
     if (cached) return cached;
     throw error;
   }
+}
+
+/**
+ * Page navigations. Every page is the same app shell, so it is stored once under '/',
+ * and only when the answer really is the HTML page (not /robots.txt or an icon opened in a tab).
+ * Offline, or a 5xx from Tailscale Serve while the portal is down → the cached shell,
+ * which then shows its own «Нет связи с домашним сервером» screen.
+ */
+async function navigation(request) {
+  const cache = await caches.open(CACHE);
+  let response;
+  try {
+    response = await fetch(request);
+  } catch (error) {
+    const cached = await cache.match('/');
+    if (cached) return cached;
+    throw error;
+  }
+  if (response.status >= 500) {
+    const cached = await cache.match('/');
+    return cached || response;
+  }
+  if (cacheable(response) && isHtml(response)) await cache.put('/', response.clone());
+  return response;
 }
 
 /** Hashed files under /assets/ never change: cache first. */
@@ -70,8 +98,7 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') {
-    // Every page is the same app shell, so it is stored once under '/'.
-    event.respondWith(networkFirst(request, '/'));
+    event.respondWith(navigation(request));
     return;
   }
   if (url.pathname.startsWith('/assets/')) {

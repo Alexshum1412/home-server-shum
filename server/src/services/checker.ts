@@ -17,7 +17,10 @@ interface CheckResult {
   state: 'online' | 'degraded' | 'offline';
   checkedAt: string;
   latencyMs: number | null;
+  /** Plain words for everyone. */
   message: string;
+  /** Technical detail for the admin, e.g. "HTTP 503", "ECONNREFUSED 127.0.0.1:8096". */
+  detail: string | null;
 }
 
 export interface ServiceRegistry {
@@ -46,6 +49,20 @@ function isTimeout(error: unknown): boolean {
   return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
 }
 
+/** Error code of a failed fetch (undici puts it on `cause`), with the address when known. */
+function connectionErrorDetail(error: unknown): string | null {
+  const cause =
+    error instanceof Error && typeof error.cause === 'object' && error.cause !== null ? error.cause : null;
+  for (const source of [cause, error]) {
+    if (typeof source !== 'object' || source === null) continue;
+    const { code, address, port } = source as { code?: unknown; address?: unknown; port?: unknown };
+    if (typeof code === 'string' && /^[A-Z0-9_]{2,40}$/.test(code)) {
+      return typeof address === 'string' && typeof port === 'number' ? `${code} ${address}:${port}` : code;
+    }
+  }
+  return error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 160) : null;
+}
+
 async function checkOne(
   url: string,
   options: { fetch: FetchLike; timeoutMs: number; clock: Clock },
@@ -63,24 +80,32 @@ async function checkOne(
     await response.body?.cancel().catch(() => undefined);
     const status = response.status;
     if (status === 0 || (status >= 200 && status < 400)) {
-      return { url, state: 'online', checkedAt: isoNow(options.clock), latencyMs, message: 'Работает' };
+      return {
+        url,
+        state: 'online',
+        checkedAt: isoNow(options.clock),
+        latencyMs,
+        message: 'Работает',
+        detail: null,
+      };
     }
     return {
       url,
       state: 'degraded',
       checkedAt: isoNow(options.clock),
       latencyMs: null,
-      message: `Сервис отвечает с ошибкой (HTTP ${status})`,
+      message: 'Сервис отвечает с ошибкой',
+      detail: `HTTP ${status}`,
     };
   } catch (error) {
+    const timedOut = isTimeout(error);
     return {
       url,
       state: 'offline',
       checkedAt: isoNow(options.clock),
       latencyMs: null,
-      message: isTimeout(error)
-        ? `Сервис не ответил за ${formatSeconds(options.timeoutMs)} с`
-        : 'Сервис не отвечает',
+      message: timedOut ? `Сервис не ответил за ${formatSeconds(options.timeoutMs)} с` : 'Сервис не отвечает',
+      detail: timedOut ? `timeout ${options.timeoutMs} мс` : connectionErrorDetail(error),
     };
   }
 }
@@ -122,6 +147,7 @@ function toStatus(item: Resolved, result: CheckResult | undefined): ServiceStatu
     state,
     message,
     hint,
+    detail: null,
     ...extra,
   });
 
@@ -146,6 +172,7 @@ function toStatus(item: Resolved, result: CheckResult | undefined): ServiceStatu
     openUrl: item.openUrl,
     checkedAt: result.checkedAt,
     latencyMs: result.latencyMs,
+    detail: result.detail,
   });
 }
 
@@ -167,6 +194,7 @@ function demoStatuses(clock: Clock): ServiceStatus[] {
       latencyMs: 12,
       message: 'Работает (демо)',
       hint: null,
+      detail: null,
     }),
     make('photos', {
       openUrl: 'http://127.0.0.1:2283',
@@ -175,6 +203,7 @@ function demoStatuses(clock: Clock): ServiceStatus[] {
       latencyMs: null,
       message: 'Сервис не отвечает (демо)',
       hint: OFFLINE_HINT,
+      detail: 'ECONNREFUSED 127.0.0.1:2283 (демо)',
     }),
     make('files', {
       openUrl: null,
@@ -183,14 +212,16 @@ function demoStatuses(clock: Clock): ServiceStatus[] {
       latencyMs: null,
       message: 'Сервис ещё не подключён (демо)',
       hint: byId.get('files')?.hint ?? null,
+      detail: null,
     }),
     make('downloads', {
       openUrl: 'http://127.0.0.1:8080',
       state: 'degraded',
       checkedAt: now,
       latencyMs: null,
-      message: 'Сервис отвечает с ошибкой (HTTP 503) (демо)',
+      message: 'Сервис отвечает с ошибкой (демо)',
       hint: DEGRADED_HINT,
+      detail: 'HTTP 503 (демо)',
     }),
     make('calendar', {
       openUrl: null,
@@ -199,6 +230,7 @@ function demoStatuses(clock: Clock): ServiceStatus[] {
       latencyMs: null,
       message: 'Сервис ещё не подключён (демо)',
       hint: byId.get('calendar')?.hint ?? null,
+      detail: null,
     }),
   ];
 }

@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { type ExecFileException, execFile } from 'node:child_process';
 import type { TailscaleInfo, TailscaleState } from '../../../shared/api.ts';
 import { formatSeconds } from '../lib/time.ts';
 import { ProbeError, parseJsonOutput } from './powershell.ts';
@@ -21,8 +21,13 @@ export const TAILSCALE_REASON = {
   starting: 'Tailscale подключается…',
   needsLogin: 'Tailscale на сервере требует входа в учётную запись',
   notInstalled: 'Tailscale не найден на этом компьютере',
+  /** The CLI is installed but the background service (tailscaled) is not running. */
+  serviceNotRunning: 'Служба Tailscale на сервере не запущена',
   unknown: 'Tailscale сообщает неизвестное состояние',
 } as const;
+
+/** What family members see instead of the technical reason while remote access is down. */
+export const TAILSCALE_FAMILY_DOWN_REASON = 'Удалённый доступ сейчас не работает. Сообщите администратору.';
 
 /** Maps ipn.State names reported by `tailscale status --json` (BackendState). */
 function mapState(backendState: string): MappedState {
@@ -79,40 +84,52 @@ export function parseTailscaleStatus(raw: unknown): Omit<TailscaleInfo, 'collect
   };
 }
 
-/** Runs the Tailscale CLI with fixed arguments; ENOENT becomes `not_installed`. */
+/**
+ * What the CLI prints to stderr when the background service (tailscaled) is not running:
+ * "failed to connect to local Tailscale service" (Windows) / "... local tailscaled" (Linux, macOS).
+ */
+const SERVICE_NOT_RUNNING_RE = /failed to connect to local tail(scale|scaled)/i;
+
+/**
+ * Turns the outcome of `tailscale status --json` into parsed JSON or a ProbeError:
+ * ENOENT → `not_installed`, killed → `timeout`, service down → `not_running`, else `failed`.
+ */
+export function interpretTailscaleResult(
+  error: ExecFileException | null,
+  stdout: string,
+  stderr: string,
+  timeoutMs: number,
+): unknown {
+  if (!error) return parseJsonOutput(stdout);
+  if (error.code === 'ENOENT') throw new ProbeError('not_installed', TAILSCALE_REASON.notInstalled);
+  if (error.killed || error.signal) {
+    throw new ProbeError('timeout', `Tailscale не ответил за ${formatSeconds(timeoutMs)} с`);
+  }
+  // `tailscale status` exits non-zero in some states but still prints JSON.
+  try {
+    const parsed = parseJsonOutput(stdout);
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
+  } catch {
+    // fall through
+  }
+  if (SERVICE_NOT_RUNNING_RE.test(stderr) || SERVICE_NOT_RUNNING_RE.test(stdout)) {
+    throw new ProbeError('not_running', TAILSCALE_REASON.serviceNotRunning);
+  }
+  throw new ProbeError('failed', 'Не удалось получить состояние Tailscale');
+}
+
+/** Runs the Tailscale CLI with fixed arguments (see `interpretTailscaleResult`). */
 export function runTailscaleStatus(exe: string, timeoutMs = TAILSCALE_TIMEOUT_MS): Promise<unknown> {
   return new Promise((resolve, reject) => {
     execFile(
       exe,
       ['status', '--json'],
       { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' },
-      (error, stdout) => {
-        if (error) {
-          if (error.code === 'ENOENT') {
-            reject(new ProbeError('not_installed', TAILSCALE_REASON.notInstalled));
-            return;
-          }
-          if (error.killed || error.signal) {
-            reject(new ProbeError('timeout', `Tailscale не ответил за ${formatSeconds(timeoutMs)} с`));
-            return;
-          }
-          // `tailscale status` exits non-zero in some states but still prints JSON.
-          try {
-            const parsed = parseJsonOutput(stdout);
-            if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-              resolve(parsed);
-              return;
-            }
-          } catch {
-            // fall through
-          }
-          reject(new ProbeError('failed', 'Не удалось получить состояние Tailscale'));
-          return;
-        }
+      (error, stdout, stderr) => {
         try {
-          resolve(parseJsonOutput(stdout));
-        } catch (parseError) {
-          reject(parseError);
+          resolve(interpretTailscaleResult(error, stdout, stderr, timeoutMs));
+        } catch (failure) {
+          reject(failure);
         }
       },
     );

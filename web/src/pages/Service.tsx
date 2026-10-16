@@ -7,14 +7,19 @@ import { PageHeader } from '../components/PageHeader.tsx';
 import { RelativeTime } from '../components/RelativeTime.tsx';
 import { Loading } from '../components/Skeleton.tsx';
 import { StatusBadge } from '../components/StatusBadge.tsx';
+import { TechDetail } from '../components/TechDetail.tsx';
 import {
+  adminDetail,
   findService,
   openableUrl,
   SERVICE_PAGES,
   SERVICE_STATE,
   type ServicePageKind,
 } from '../lib/labels.ts';
-import { useData } from '../state.tsx';
+import { useData, useIsAdmin } from '../state.tsx';
+
+/** What a configured service that has not been checked yet (state «unknown») needs: a moment. */
+const UNCHECKED_TEXT = 'Проверка ещё не выполнялась — обновите страницу через минуту.';
 
 const ICONS: Record<ServicePageKind, IconComponent> = {
   media: Clapperboard,
@@ -61,6 +66,7 @@ function PhotoBackupNote() {
 
 export function ServicePage(props: { kind: ServicePageKind }) {
   const { services } = useData();
+  const isAdmin = useIsAdmin();
   const copy = SERVICE_PAGES[props.kind];
   const service = findService(services.data?.services, props.kind);
   const url = openableUrl(service);
@@ -74,6 +80,11 @@ export function ServicePage(props: { kind: ServicePageKind }) {
     body = <Loading label="Проверяем сервис…" />;
   } else {
     const status = service ? SERVICE_STATE[service.state] : SERVICE_STATE.not_configured;
+    // Install advice and «Что здесь будет» are only for a service that is not set up yet;
+    // a configured service that has not been checked yet just needs a moment.
+    const notConfigured = !service || service.state === 'not_configured';
+    const unchecked = service?.state === 'unknown';
+    const todo = notConfigured ? (service?.hint ?? copy.adminTodo) : unchecked ? null : service?.hint;
     body = (
       <>
         <div class={url ? 'service-panel service-panel--on' : 'service-panel'}>
@@ -102,15 +113,22 @@ export function ServicePage(props: { kind: ServicePageKind }) {
             </>
           ) : (
             <EmptyState icon={Wrench} title={unavailableTitle(service)}>
-              <p>{service?.message ?? 'Сервис пока не установлен на домашний компьютер.'}</p>
-              <p>
-                <strong>Что нужно сделать: </strong>
-                {service?.hint ?? copy.adminTodo}
-              </p>
+              {unchecked ? (
+                <p>{UNCHECKED_TEXT}</p>
+              ) : (
+                <p>{service?.message ?? 'Сервис пока не установлен на домашний компьютер.'}</p>
+              )}
+              {todo ? (
+                <p>
+                  <strong>Что нужно сделать: </strong>
+                  {todo}
+                </p>
+              ) : null}
+              <TechDetail detail={adminDetail(service, isAdmin)} />
             </EmptyState>
           )}
         </div>
-        {!url ? (
+        {notConfigured ? (
           <section class="prose-block">
             <h2 class="section-title">Что здесь будет</h2>
             <p>{copy.purpose}</p>

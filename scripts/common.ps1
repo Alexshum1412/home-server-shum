@@ -8,7 +8,16 @@ function Get-DotEnv {
   $result = @{}
   $path = Join-Path $script:RepoRoot '.env'
   if (Test-Path -LiteralPath $path) {
-    foreach ($line in Get-Content -LiteralPath $path -Encoding UTF8) {
+    # Node reads .env as UTF-8 without BOM: a BOM breaks the first key and UTF-16 (what
+    # `> .env` produces in Windows PowerShell 5.1) is ignored entirely. Refuse both so the
+    # scripts never check a different PORT/data dir than the server actually uses.
+    $bytes = [IO.File]::ReadAllBytes($path)
+    if (($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) -or
+        ($bytes.Length -ge 2 -and (($bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) -or ($bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF)))) {
+      throw "Файл .env сохранён с BOM или в UTF-16. Сохраните его в кодировке UTF-8 без BOM (например, в Блокноте: «Сохранить как» → UTF-8)."
+    }
+    $text = (New-Object Text.UTF8Encoding($false)).GetString($bytes)
+    foreach ($line in ($text -split "`r?`n")) {
       $t = $line.Trim()
       if ($t -eq '' -or $t.StartsWith('#')) { continue }
       $i = $t.IndexOf('=')

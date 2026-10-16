@@ -20,7 +20,10 @@ export function registerServiceRoutes(app: FastifyInstance, deps: ServiceRouteDe
   let lastRefreshAt = Number.NEGATIVE_INFINITY;
 
   const body = (isAdmin: boolean): ServicesResponse => ({
-    services: registry.statuses(),
+    // Technical detail (HTTP codes, error codes) is for the admin; family members get plain words.
+    services: isAdmin
+      ? registry.statuses()
+      : registry.statuses().map((service) => ({ ...service, detail: null })),
     generatedAt: isoNow(clock),
     configError: isAdmin ? registry.configError() : null,
   });

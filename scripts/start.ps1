@@ -61,28 +61,46 @@ foreach ($f in $out, $err) {
   if (Test-Path -LiteralPath $f) { Move-Item -LiteralPath $f -Destination "$f.1" -Force }
 }
 
-$proc = Start-Process -FilePath $node `
-  -ArgumentList '--env-file-if-exists=.env', 'server/src/index.ts' `
-  -WorkingDirectory $cfg.RepoRoot -WindowStyle Hidden `
-  -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
-
-@{ pid = $proc.Id; port = $cfg.Port; startedAt = (Get-Date).ToString('o') } |
-  ConvertTo-Json | Set-Content -LiteralPath $cfg.PidFile -Encoding UTF8
+# cmd.exe writes the server output to the log files. Start-Process WITHOUT -Redirect* goes through
+# ShellExecute, so the background server does not inherit this window's handles: a caller that
+# captures the output of start.cmd (scripts, agents, CI) would otherwise hang until the server stops.
+$cmdExe = Join-Path $env:SystemRoot 'System32\cmd.exe'
+$cmdArgs = "/d /s /c `"`"$node`" --env-file-if-exists=.env server/src/index.ts 1>`"$out`" 2>`"$err`"`""
+$launcher = Start-Process -FilePath $cmdExe -ArgumentList $cmdArgs -WorkingDirectory $cfg.RepoRoot `
+  -WindowStyle Hidden -PassThru
 
 $deadline = (Get-Date).AddSeconds(25)
 while ((Get-Date) -lt $deadline) {
-  if ($proc.HasExited) { break }
   if (Test-DashboardHealth $cfg.Port) {
-    Write-Host "Дашборд запущен (PID $($proc.Id))." -ForegroundColor Green
+    $server = @(Get-DashboardProcess $cfg) | Select-Object -First 1
+    $serverPid = if ($server) { [int]$server.ProcessId } else { $null }
+    @{ pid = $serverPid; port = $cfg.Port; startedAt = (Get-Date).ToString('o') } |
+      ConvertTo-Json | Set-Content -LiteralPath $cfg.PidFile -Encoding UTF8
+    Write-Host "Дашборд запущен (PID $serverPid)." -ForegroundColor Green
     Write-Host "  На этом компьютере: http://127.0.0.1:$($cfg.Port)"
     Write-Host "  Логи: $($cfg.LogDir)"
     exit 0
   }
+  if ($launcher.HasExited) { break }
   Start-Sleep -Milliseconds 500
 }
 
-Write-Host 'Сервер не ответил за 25 секунд. Последние строки журнала ошибок:' -ForegroundColor Red
-if (Test-Path -LiteralPath $err) { Get-Content -LiteralPath $err -Tail 20 }
-if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+if ($launcher.HasExited) {
+  Write-Host 'Сервер завершился при запуске. Последние строки журналов:' -ForegroundColor Red
+} else {
+  Write-Host 'Сервер не ответил за 25 секунд. Последние строки журналов:' -ForegroundColor Red
+  # Stop the half-started server (the node child of the launcher) and the launcher itself.
+  Get-CimInstance Win32_Process -Filter "ParentProcessId = $($launcher.Id)" -ErrorAction SilentlyContinue |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  Stop-Process -Id $launcher.Id -Force -ErrorAction SilentlyContinue
+}
+# Fastify logs (including listen errors such as a busy or reserved port) go to stdout -> out.log;
+# configuration errors go to stderr -> err.log. Both are UTF-8.
+foreach ($f in $out, $err) {
+  if (Test-Path -LiteralPath $f) {
+    Write-Host "--- $f"
+    Get-Content -LiteralPath $f -Tail 20 -Encoding UTF8
+  }
+}
 Remove-Item -LiteralPath $cfg.PidFile -ErrorAction SilentlyContinue
 exit 1

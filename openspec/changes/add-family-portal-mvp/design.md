@@ -95,4 +95,4 @@ CSP `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' dat
 
 ## Migration Plan
 
-Новая установка: `npm ci` → `npm run build` → `npm run user -- add …` → `scripts\start.cmd` → (опционально) `scripts\serve-tailnet.cmd`. Откат: `scripts\stop.cmd`, `tailscale serve reset`; каталог данных можно оставить.
+Новая установка: `npm ci` → `npm run build` → `npm run user -- add …` → `scripts\start.cmd` → (опционально) `scripts\serve-tailnet.cmd`. Откат: `scripts\stop.cmd`, `scripts\serve-tailnet.cmd -Off` (удаляет только адрес дашборда в Serve); каталог данных можно оставить.

@@ -10,15 +10,19 @@ import type {
 } from '../../../shared/api.ts';
 import type { Config } from '../config.ts';
 import { type Clock, formatSeconds, isoNow } from '../lib/time.ts';
-import { alertsForRole, buildAlerts } from './alerts.ts';
+import { alertsForRole, buildAlerts, TAILSCALE_DOWN_STATES } from './alerts.ts';
 import { readBackupStatus } from './backup.ts';
 import { createCpuSampler } from './cpu.ts';
 import { parsePhysicalDisks } from './disks.ts';
+import { parseOsVersion } from './os-version.ts';
 import { POWERSHELL_TIMEOUT_MS, ProbeError } from './powershell.ts';
 import { parsePrinters } from './printer.ts';
 import type { SystemProbes } from './probes.ts';
-import { parseTailscaleStatus, TAILSCALE_TIMEOUT_MS } from './tailscale.ts';
+import { parseTailscaleStatus, TAILSCALE_FAMILY_DOWN_REASON, TAILSCALE_TIMEOUT_MS } from './tailscale.ts';
 import { pendingVolume, toVolumeInfo } from './volumes.ts';
+
+/** Windows edition/build is re-read at most every 6 hours (it changes only after an update). */
+const OS_VERSION_REFRESH_MS = 6 * 60 * 60 * 1000;
 
 export const SCHEDULE_MS = {
   cpu: 5_000,
@@ -107,7 +111,9 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
   const cpuModel = cpuInfo[0]?.model.trim() || 'Неизвестный процессор';
   const cores = cpuInfo.length;
   const hostname = probes.hostname();
-  const osRelease = probes.osRelease();
+  let osRelease = probes.osRelease();
+  /** When the registry-based Windows version was last read (it changes only after updates). */
+  let osVersionReadAt: number | null = null;
   const totalMemoryBytes = probes.totalMemoryBytes();
   const cpu = createCpuSampler();
 
@@ -213,9 +219,10 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
         tailscale = { ...parseTailscaleStatus(raw), collectedAt: isoNow(clock) };
       } catch (error) {
         report('tailscale', error);
-        if (error instanceof ProbeError && error.code === 'not_installed') {
+        if (error instanceof ProbeError && (error.code === 'not_installed' || error.code === 'not_running')) {
+          // Both are confirmed outages (unlike a timeout), so the remote-access alert is raised.
           tailscale = {
-            state: 'not_installed',
+            state: error.code === 'not_installed' ? 'not_installed' : 'stopped',
             dnsName: null,
             peersOnline: null,
             version: null,
@@ -238,6 +245,18 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
 
   function collectDevices(): Promise<void> {
     return exclusive('devices', async () => {
+      if (
+        probes.osVersion &&
+        (osVersionReadAt === null || clock().getTime() - osVersionReadAt > OS_VERSION_REFRESH_MS)
+      ) {
+        try {
+          const parsed = parseOsVersion(await withTimeout(probes.osVersion(), timeouts.powershell));
+          if (parsed) osRelease = parsed;
+          osVersionReadAt = clock().getTime();
+        } catch (error) {
+          report('osVersion', error);
+        }
+      }
       // Sequential on purpose: two PowerShell processes at once are a noticeable load on this PC.
       try {
         const raw = await withTimeout(probes.physicalDisks(), timeouts.powershell);
@@ -341,7 +360,17 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
               source: DISKS_SOURCE,
               reason: 'Подробности доступны администратору',
             },
-        tailscale: isAdmin ? { ...tailscale } : { ...tailscale, dnsName: null, peersOnline: null },
+        tailscale: isAdmin
+          ? { ...tailscale }
+          : {
+              ...tailscale,
+              dnsName: null,
+              peersOnline: null,
+              // The technical reason (app, Unattended mode, service) is for the admin only.
+              reason: TAILSCALE_DOWN_STATES.has(tailscale.state)
+                ? TAILSCALE_FAMILY_DOWN_REASON
+                : tailscale.reason,
+            },
         printer: { ...printer },
         backup: { ...backup },
         alerts: alertsForRole(alerts, role),

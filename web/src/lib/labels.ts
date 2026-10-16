@@ -27,7 +27,8 @@ const NO_DATA: StatusView = { label: 'Нет данных', tone: 'neutral', ico
 
 export const SERVICE_STATE: Record<ServiceState, StatusView> = {
   online: { label: 'Работает', tone: 'ok', icon: 'ok' },
-  degraded: { label: 'Работает с ошибками', tone: 'warn', icon: 'warn' },
+  // Not «Работает…»: only an online service may be presented as available.
+  degraded: { label: 'Отвечает с ошибкой', tone: 'warn', icon: 'warn' },
   offline: { label: 'Не отвечает', tone: 'bad', icon: 'bad' },
   not_configured: { label: 'Не настроено', tone: 'neutral', icon: 'dashed' },
   disabled: { label: 'Выключено', tone: 'neutral', icon: 'minus' },
@@ -182,4 +183,14 @@ export function openableUrl(service: Pick<ServiceStatus, 'state' | 'openUrl'> | 
   } catch {
     return null;
   }
+}
+
+/** Technical detail of a service check (e.g. «HTTP 503»): for administrators only, never for the family. */
+export function adminDetail(
+  service: Pick<ServiceStatus, 'detail'> | undefined,
+  isAdmin: boolean,
+): string | null {
+  if (!isAdmin) return null;
+  const detail = service?.detail?.trim();
+  return detail ? detail : null;
 }

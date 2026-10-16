@@ -123,6 +123,7 @@ describe('service registry', () => {
       expect(s.checkedAt).toBeNull();
       expect(s.hint).toBeTruthy();
       expect(s.demo).toBe(false);
+      expect(s).toHaveProperty('detail', null);
     }
     expect(byId(body.services, 'media')).toMatchObject({
       name: 'Кинотеатр',
@@ -159,17 +160,59 @@ describe('service registry', () => {
 
     expect(byId(services, 'err')).toMatchObject({
       state: 'degraded',
-      message: 'Сервис отвечает с ошибкой (HTTP 500)',
+      message: 'Сервис отвечает с ошибкой',
       latencyMs: null,
+      detail: null,
     });
-    expect(byId(services, 'slow')).toMatchObject({ state: 'offline', message: 'Сервис не ответил за 0,3 с' });
+    expect(byId(services, 'slow')).toMatchObject({
+      state: 'offline',
+      message: 'Сервис не ответил за 0,3 с',
+      detail: null,
+    });
     const down = byId(services, 'down');
-    expect(down).toMatchObject({ state: 'offline', message: 'Сервис не отвечает' });
+    expect(down).toMatchObject({ state: 'offline', message: 'Сервис не отвечает', detail: null });
     expect(down.checkedAt).not.toBeNull();
     expect(byId(services, 'moved').state).toBe('online');
     expect(byId(services, 'off')).toMatchObject({ state: 'disabled', openUrl: null });
     expect(byId(services, 'none')).toMatchObject({ state: 'not_configured', openUrl: null });
     expect(requests).not.toContain('/login');
+    for (const s of services) expect(s, s.id).toHaveProperty('detail', null);
+
+    // The admin sees the technical detail behind the same plain message.
+    const admin = (await getServices(t, ADMIN)).services;
+    expect(byId(admin, 'err')).toMatchObject({ message: 'Сервис отвечает с ошибкой', detail: 'HTTP 500' });
+    expect(byId(admin, 'slow')).toMatchObject({
+      message: 'Сервис не ответил за 0,3 с',
+      detail: 'timeout 300 мс',
+    });
+    expect(byId(admin, 'down').detail).toMatch(/^ECONNREFUSED 127\.0\.0\.1:\d+$/);
+    expect(byId(admin, 'up').detail).toBeNull();
+    expect(byId(admin, 'none').detail).toBeNull();
+  });
+
+  it('keeps HTTP codes out of the family view; admin, refresh and diagnostics keep them', async () => {
+    const t = await appWithServices([service('busy', { openUrl: `${base}/unavailable` })]);
+    await t.app.dashboard.registry.checkAll();
+    const family = byId((await getServices(t, FAMILY)).services, 'busy');
+    expect(family).toMatchObject({ state: 'degraded', message: 'Сервис отвечает с ошибкой', detail: null });
+    const familyRaw = await t.app.inject({
+      url: '/api/services',
+      headers: { cookie: await cookieFor(t.app, FAMILY) },
+    });
+    expect(familyRaw.body).not.toContain('503');
+
+    expect(byId((await getServices(t, ADMIN)).services, 'busy').detail).toBe('HTTP 503');
+    const cookie = await cookieFor(t.app, ADMIN);
+    const refresh = await t.app.inject({
+      method: 'POST',
+      url: '/api/services/refresh',
+      headers: { cookie },
+      payload: {},
+    });
+    expect(refresh.statusCode).toBe(200);
+    expect(byId((refresh.json() as ServicesResponse).services, 'busy').detail).toBe('HTTP 503');
+    const diagnostics = await t.app.inject({ url: '/api/admin/diagnostics', headers: { cookie } });
+    expect(byId(diagnostics.json().services, 'busy').detail).toBe('HTTP 503');
   });
 
   it('never sends a javascript: (or otherwise unsafe) URL to the browser', async () => {
@@ -227,8 +270,18 @@ describe('demo mode', () => {
     });
     expect(byId(services, 'photos').state).toBe('offline');
     expect(byId(services, 'files').state).toBe('not_configured');
-    expect(byId(services, 'downloads').state).toBe('degraded');
+    expect(byId(services, 'downloads')).toMatchObject({
+      state: 'degraded',
+      message: 'Сервис отвечает с ошибкой (демо)',
+    });
     expect(byId(services, 'calendar').state).toBe('not_configured');
+    // Family view: every status carries detail, always null.
+    for (const s of services) expect(s, s.id).toHaveProperty('detail', null);
+    await addUser(t.dataDir, t.clock, ADMIN);
+    const admin = (await getServices(t, ADMIN)).services;
+    for (const s of admin) expect(s, s.id).toHaveProperty('detail');
+    expect(byId(admin, 'downloads').detail).toBe('HTTP 503 (демо)');
+    expect(byId(admin, 'media').detail).toBeNull();
     const session = await t.app.inject({
       url: '/api/session',
       headers: { cookie: await cookieFor(t.app, FAMILY) },

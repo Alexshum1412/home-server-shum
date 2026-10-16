@@ -11,7 +11,8 @@ The list of services SHALL come from a configuration file in the data directory 
 
 #### Scenario: Fresh install
 - **WHEN** the server starts and the services file does not exist
-- **THEN** it is created with default entries for media, photos, files, downloads and print, all without URLs
+- **THEN** it is created with default entries for media, photos, files, downloads and calendar, all without URLs
+- **AND** there is no print entry: the printer state comes from the system-status printer probe
 
 ### Requirement: Honest service states
 Each service SHALL report exactly one state: `online` (health check answered 2xx/3xx within the timeout), `degraded` (answered 4xx/5xx), `offline` (connection error or timeout), `not_configured` (no URL), `disabled` (switched off), or `unknown` (configured but not yet checked). The UI SHALL never show a service as available unless its state is `online`.

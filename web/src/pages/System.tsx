@@ -43,11 +43,20 @@ import {
 } from '../lib/labels.ts';
 import { useData, useIsAdmin } from '../state.tsx';
 
+/**
+ * «Обновлено …» only for a value that was actually measured. A value that has never been
+ * measured (no temperature sensor, Tailscale not checked yet) already says why next to it,
+ * so the footer is left out instead of promising a measurement that may never come.
+ */
+function updatedFooter(collectedAt: string | null, prefix?: string) {
+  return collectedAt ? <UpdatedAt value={collectedAt} prefix={prefix} /> : null;
+}
+
 function CpuTile({ data }: { data: SystemResponse }) {
   const { cpu } = data;
   const usage = cpu.usagePercent.value;
   return (
-    <Tile title="Процессор" icon={Cpu} level={3} footer={<UpdatedAt value={cpu.usagePercent.collectedAt} />}>
+    <Tile title="Процессор" icon={Cpu} level={3} footer={updatedFooter(cpu.usagePercent.collectedAt)}>
       <Metric
         value={usage == null ? null : formatPercent(usage)}
         caption="Средняя загрузка за последние секунды"
@@ -67,12 +76,7 @@ function MemoryTile({ data }: { data: SystemResponse }) {
   const percent = used == null || memory.totalBytes <= 0 ? null : (used / memory.totalBytes) * 100;
   const [usedText, totalText] = formatBytesPair(used, memory.totalBytes);
   return (
-    <Tile
-      title="Память"
-      icon={MemoryStick}
-      level={3}
-      footer={<UpdatedAt value={memory.usedBytes.collectedAt} />}
-    >
+    <Tile title="Память" icon={MemoryStick} level={3} footer={updatedFooter(memory.usedBytes.collectedAt)}>
       <Metric
         value={used == null ? null : `${usedText} из ${totalText}`}
         caption={percent == null ? undefined : `Занято ${formatPercent(percent)}`}
@@ -86,7 +90,7 @@ function MemoryTile({ data }: { data: SystemResponse }) {
 function UptimeTile({ data }: { data: SystemResponse }) {
   const uptime = data.server.uptimeSeconds;
   return (
-    <Tile title="Время работы" icon={Clock} level={3} footer={<UpdatedAt value={uptime.collectedAt} />}>
+    <Tile title="Время работы" icon={Clock} level={3} footer={updatedFooter(uptime.collectedAt)}>
       <Metric
         value={uptime.value == null ? null : formatDuration(uptime.value)}
         caption="Компьютер работает без перезагрузки"
@@ -102,12 +106,7 @@ function UptimeTile({ data }: { data: SystemResponse }) {
 function TemperatureTile({ data }: { data: SystemResponse }) {
   const temperature = data.temperatureC;
   return (
-    <Tile
-      title="Температура"
-      icon={Thermometer}
-      level={3}
-      footer={<UpdatedAt value={temperature.collectedAt} />}
-    >
+    <Tile title="Температура" icon={Thermometer} level={3} footer={updatedFooter(temperature.collectedAt)}>
       <Metric
         value={temperature.value == null ? null : `${formatNumber(temperature.value)} °C`}
         caption={temperature.source}
@@ -128,7 +127,7 @@ function VolumeTile({ volume }: { volume: VolumeInfo }) {
       icon={HardDrive}
       level={3}
       status={status}
-      footer={<UpdatedAt value={volume.collectedAt} />}
+      footer={updatedFooter(volume.collectedAt)}
     >
       <Metric
         value={known ? `Свободно ${freeText}` : null}
@@ -157,7 +156,7 @@ function RemoteTile({ data, isAdmin }: { data: SystemResponse; isAdmin: boolean 
       icon={Globe}
       level={3}
       status={TAILSCALE_STATE[remote.state]}
-      footer={<UpdatedAt value={remote.collectedAt} />}
+      footer={updatedFooter(remote.collectedAt)}
     >
       <p class="tile__text">
         {remote.state === 'running'
@@ -196,7 +195,7 @@ function PrinterTile({ data }: { data: SystemResponse }) {
       icon={Printer}
       level={3}
       status={PRINTER_STATE[printer.state]}
-      footer={<UpdatedAt value={printer.collectedAt} prefix="По данным Windows, обновлено" />}
+      footer={updatedFooter(printer.collectedAt, 'По данным Windows, обновлено')}
     >
       <p class="tile__strong">{printer.name ?? 'Принтер не определён'}</p>
       <p class="tile__text">{printer.message}</p>
@@ -206,6 +205,14 @@ function PrinterTile({ data }: { data: SystemResponse }) {
 
 function BackupTile({ data }: { data: SystemResponse }) {
   const { backup } = data;
+  // While the state is unknown, a missing date or `restoreTested: false` is not a fact yet.
+  const known = backup.state !== 'unknown';
+  let lastSuccess = NO_DATA;
+  if (backup.lastSuccessAt) lastSuccess = formatDateTime(backup.lastSuccessAt);
+  else if (known) lastSuccess = 'Не было';
+  let restoreTested = NO_DATA;
+  if (backup.restoreTested) restoreTested = 'Да';
+  else if (known) restoreTested = 'Нет';
   return (
     <Tile
       title="Резервные копии"
@@ -218,11 +225,11 @@ function BackupTile({ data }: { data: SystemResponse }) {
       <dl class="facts">
         <div class="facts__row">
           <dt>Последняя удачная копия</dt>
-          <dd>{backup.lastSuccessAt ? formatDateTime(backup.lastSuccessAt) : 'Не было'}</dd>
+          <dd>{lastSuccess}</dd>
         </div>
         <div class="facts__row">
           <dt>Восстановление проверено</dt>
-          <dd>{backup.restoreTested ? 'Да' : 'Нет'}</dd>
+          <dd>{restoreTested}</dd>
         </div>
       </dl>
     </Tile>
@@ -273,7 +280,7 @@ function DisksSection({ data }: { data: SystemResponse }) {
           </table>
         </TableWrap>
       )}
-      <UpdatedAt value={disks.collectedAt} />
+      {updatedFooter(disks.collectedAt)}
     </section>
   );
 }

@@ -5,7 +5,7 @@ import { formatSeconds } from '../lib/time.ts';
 
 /** Error from a system probe; `reason` is Russian and safe to show. */
 export class ProbeError extends Error {
-  readonly code: 'unsupported' | 'not_installed' | 'timeout' | 'failed' | 'bad_output';
+  readonly code: 'unsupported' | 'not_installed' | 'not_running' | 'timeout' | 'failed' | 'bad_output';
   constructor(code: ProbeError['code'], reason: string) {
     super(reason);
     this.name = 'ProbeError';
@@ -46,6 +46,14 @@ ConvertTo-Json -Compress -Depth 3 -InputObject @($items)
   }
 })
 ConvertTo-Json -Compress -Depth 3 -InputObject @($items)
+`,
+  osVersion: `${HEADER}$p = Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'
+ConvertTo-Json -Compress -InputObject ([pscustomobject]@{
+  product = [string]$p.ProductName
+  displayVersion = [string]$p.DisplayVersion
+  build = [string]$p.CurrentBuild
+  ubr = [int]$p.UBR
+})
 `,
 } as const;
 

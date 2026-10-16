@@ -7,7 +7,12 @@ import { BACKUP_STALE_MS, readBackupStatus } from '../src/system/backup.ts';
 import { parsePhysicalDisks } from '../src/system/disks.ts';
 import { ProbeError } from '../src/system/powershell.ts';
 import { parsePrinters } from '../src/system/printer.ts';
-import { parseTailscaleStatus, TAILSCALE_REASON } from '../src/system/tailscale.ts';
+import {
+  interpretTailscaleResult,
+  parseTailscaleStatus,
+  TAILSCALE_FAMILY_DOWN_REASON,
+  TAILSCALE_REASON,
+} from '../src/system/tailscale.ts';
 import {
   ADMIN,
   addUser,
@@ -174,6 +179,46 @@ describe('tailscale parser', () => {
     expect(parseTailscaleStatus({ BackendState: 'SomethingNew' }).state).toBe('unknown');
   });
 
+  it('recognises a stopped Tailscale service from the CLI error output', () => {
+    const exitCode1 = Object.assign(new Error('Command failed: tailscale status --json'), { code: 1 });
+    const notRunning = [
+      'failed to connect to local Tailscale service; is Tailscale running?\n',
+      "failed to connect to local tailscaled; it doesn't appear to be running (sudo systemctl start tailscaled ?)\n",
+    ];
+    for (const stderr of notRunning) {
+      let failure: unknown;
+      try {
+        interpretTailscaleResult(exitCode1, '', stderr, 5000);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure, stderr).toBeInstanceOf(ProbeError);
+      expect((failure as ProbeError).code, stderr).toBe('not_running');
+      expect((failure as ProbeError).message).toBe(TAILSCALE_REASON.serviceNotRunning);
+    }
+    // Any other failure stays an unconfirmed 'failed' (no outage is claimed).
+    expect(() => interpretTailscaleResult(exitCode1, '', 'some other problem', 5000)).toThrow(
+      'Не удалось получить состояние Tailscale',
+    );
+    // A non-zero exit that still printed JSON is a normal answer.
+    expect(interpretTailscaleResult(exitCode1, '{"BackendState":"Stopped"}', '', 5000)).toEqual({
+      BackendState: 'Stopped',
+    });
+    const enoent = Object.assign(new Error('spawn tailscale ENOENT'), { code: 'ENOENT' });
+    expect(() => interpretTailscaleResult(enoent, '', '', 5000)).toThrow(TAILSCALE_REASON.notInstalled);
+    const killed = Object.assign(new Error('killed'), {
+      code: null,
+      killed: true,
+      signal: 'SIGTERM' as const,
+    });
+    expect(() => interpretTailscaleResult(killed, '', '', 5000)).toThrow('Tailscale не ответил за 5 с');
+    expect(
+      interpretTailscaleResult(null, JSON.stringify(readFixture('tailscale-status.json')), '', 5000),
+    ).toMatchObject({
+      BackendState: 'Running',
+    });
+  });
+
   it('returns unknown with a reason for garbage', () => {
     for (const raw of [null, 'not json', 42, [], {}]) {
       const info = parseTailscaleStatus(raw);
@@ -261,12 +306,30 @@ describe('alerts', () => {
     }
   });
 
-  it('writes the NoState reason into the alert without doubled punctuation', () => {
+  it('writes the NoState reason into the admin variant of the alert without doubled punctuation', () => {
     const tailscale = tailscaleInfo({ state: 'stopped', reason: TAILSCALE_REASON.noState });
-    const [alert] = buildAlerts({ ...inputs, tailscale });
+    const [alert] = alertsForRole(buildAlerts({ ...inputs, tailscale }), 'admin');
+    expect(alert?.title).toBe('Удалённый доступ не работает');
     expect(alert?.text).toContain('Откройте приложение Tailscale на сервере');
     expect(alert?.text).toContain('из других стран');
     expect(alert?.text).not.toContain('..');
+  });
+
+  it('gives family members the remote-access alert in plain words only', () => {
+    for (const reason of [TAILSCALE_REASON.noState, TAILSCALE_REASON.serviceNotRunning, 'Причина']) {
+      const tailscale = tailscaleInfo({ state: 'stopped', reason });
+      const family = alertsForRole(buildAlerts({ ...inputs, tailscale }), 'family');
+      expect(family).toEqual([
+        {
+          id: 'tailscale-not-running',
+          level: 'warning',
+          title: 'Удалённый доступ не работает',
+          text: 'Родственники вне дома сейчас не смогут открыть семейный сервер. Сообщите администратору.',
+        },
+      ]);
+      // One alert for the admin too (its own variant), not a duplicate.
+      expect(alertsForRole(buildAlerts({ ...inputs, tailscale }), 'admin')).toHaveLength(1);
+    }
   });
 
   it('does not raise it for running, starting or a failed probe (unknown)', () => {
@@ -279,9 +342,14 @@ describe('alerts', () => {
     }
   });
 
-  it('removes the audience field before sending alerts to the browser', () => {
+  it('removes the audience and adminText fields before sending alerts to the browser', () => {
     const alerts = buildAlerts({ ...inputs, tailscale: tailscaleInfo({ state: 'stopped' }) });
-    for (const alert of alertsForRole(alerts, 'admin')) expect(alert).not.toHaveProperty('audience');
+    for (const role of ['admin', 'family'] as const) {
+      for (const alert of alertsForRole(alerts, role)) {
+        expect(alert).not.toHaveProperty('audience');
+        expect(alert).not.toHaveProperty('adminText');
+      }
+    }
   });
 });
 
@@ -465,11 +533,55 @@ describe('alerts in the API', () => {
     const t = await systemApp({
       probes: fakeProbes({ tailscaleStatus: async () => readFixture('tailscale-nostate.json') }),
     });
-    const body = await systemAs(t, FAMILY);
-    expect(body.tailscale).toMatchObject({ state: 'stopped', reason: TAILSCALE_REASON.noState });
-    const alert = body.alerts.find((a) => a.id === 'tailscale-not-running');
+    const family = await systemAs(t, FAMILY);
+    // Family members get plain words: no app names, no Unattended mode.
+    expect(family.tailscale).toMatchObject({ state: 'stopped', reason: TAILSCALE_FAMILY_DOWN_REASON });
+    const alert = family.alerts.find((a) => a.id === 'tailscale-not-running');
     expect(alert?.title).toBe('Удалённый доступ не работает');
-    expect(alert?.text).toContain('из других стран');
+    expect(alert?.text).toBe(
+      'Родственники вне дома сейчас не смогут открыть семейный сервер. Сообщите администратору.',
+    );
+    expect(JSON.stringify(family)).not.toContain('Unattended');
+    expect(JSON.stringify(family)).not.toContain('Откройте приложение');
+
+    // The admin keeps the technical reason.
+    const admin = await systemAs(t, ADMIN);
+    expect(admin.tailscale).toMatchObject({ state: 'stopped', reason: TAILSCALE_REASON.noState });
+    expect(admin.alerts.find((a) => a.id === 'tailscale-not-running')?.text).toContain(
+      'включите режим Unattended',
+    );
+  });
+
+  it('keeps the honest reason for family members while the state is merely unknown', async () => {
+    const t = await systemApp({
+      probes: fakeProbes({ tailscaleStatus: async () => ({ BackendState: 'Starting' }) }),
+    });
+    const family = await systemAs(t, FAMILY);
+    expect(family.tailscale).toMatchObject({ state: 'unknown', reason: TAILSCALE_REASON.starting });
+    expect(alertIds(family)).not.toContain('tailscale-not-running');
+  });
+
+  it('raises the alert when the Tailscale service on the server is not running', async () => {
+    const t = await systemApp({
+      probes: fakeProbes({
+        tailscaleStatus: async () => {
+          throw new ProbeError('not_running', TAILSCALE_REASON.serviceNotRunning);
+        },
+      }),
+    });
+    const admin = await systemAs(t, ADMIN);
+    expect(admin.tailscale).toMatchObject({
+      state: 'stopped',
+      reason: 'Служба Tailscale на сервере не запущена',
+      collectedAt: '2026-10-16T10:00:00.000Z',
+      peersOnline: null,
+    });
+    expect(admin.alerts.find((a) => a.id === 'tailscale-not-running')?.text).toContain(
+      'Служба Tailscale на сервере не запущена.',
+    );
+    const family = await systemAs(t, FAMILY);
+    expect(family.tailscale.reason).toBe(TAILSCALE_FAMILY_DOWN_REASON);
+    expect(alertIds(family)).toContain('tailscale-not-running');
   });
 
   it('reports a missing Tailscale CLI as not_installed with the alert', async () => {

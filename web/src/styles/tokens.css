@@ -7,7 +7,8 @@
  *
  * Contrast (WCAG 2.x, measured): every text/status colour below is ≥ 4.5:1
  * on --c-bg, --c-surface and --c-surface-2 in both themes; --c-on-accent on
- * --c-accent ≥ 5.4:1. Re-check with scripts if you change a value.
+ * --c-accent ≥ 5.4:1; --c-input-border ≥ 3:1 on --c-bg and --c-surface.
+ * Re-check with scripts (or web/src/styles/contrast.test.ts) if you change a value.
  */
 
 :root {
@@ -19,6 +20,8 @@
   --c-surface-2: #1f2833;
   --c-border: #2c3744;
   --c-border-strong: #3d4a5a;
+  /* Form field outline: ≥ 3:1 against --c-bg and --c-surface (WCAG 1.4.11, non-text contrast). */
+  --c-input-border: #6b7889;
   --c-text: #e9eef4;
   --c-text-muted: #a3b0c0;
   --c-text-subtle: #8a97a8;
@@ -107,6 +110,7 @@
     --c-surface-2: #eef2f6;
     --c-border: #d9e0e8;
     --c-border-strong: #b9c4d0;
+    --c-input-border: #7a8696;
     --c-text: #141a21;
     --c-text-muted: #4a5767;
     --c-text-subtle: #5f6c7c;

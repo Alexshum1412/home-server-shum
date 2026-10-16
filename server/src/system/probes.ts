@@ -23,9 +23,11 @@ export interface SystemProbes {
   printers(): Promise<unknown>;
   /** Raw `tailscale status --json`. */
   tailscaleStatus(): Promise<unknown>;
+  /** Raw output of the allowlisted `osVersion` script (edition, 22H2, build.UBR); optional. */
+  osVersion?(): Promise<unknown>;
 }
 
-async function windowsOnly(name: 'physicalDisks' | 'printers'): Promise<unknown> {
+async function windowsOnly(name: 'physicalDisks' | 'printers' | 'osVersion'): Promise<unknown> {
   const result = await runPowerShellScript(name);
   if (result === 'unsupported') throw new ProbeError('unsupported', 'Доступно только в Windows');
   return result;
@@ -43,5 +45,6 @@ export function createDefaultProbes(config: Config): SystemProbes {
     physicalDisks: () => windowsOnly('physicalDisks'),
     printers: () => windowsOnly('printers'),
     tailscaleStatus: () => runTailscaleStatus(config.tailscaleExe),
+    osVersion: () => windowsOnly('osVersion'),
   };
 }

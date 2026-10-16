@@ -35,8 +35,11 @@ export function usePolling<T>(path: string, intervalMs: number, enabled = true):
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inflight = useRef<AbortController | null>(null);
   const lastStart = useRef(0);
+  /** Set by the effect cleanup (unmount, path change): nothing may start or be scheduled after it. */
+  const disposed = useRef(false);
 
   const run = useCallback(async () => {
+    if (disposed.current) return;
     clearTimeout(timer.current);
     inflight.current?.abort();
     const controller = new AbortController();
@@ -51,7 +54,9 @@ export function usePolling<T>(path: string, intervalMs: number, enabled = true):
       if (controller.signal.aborted || isAbortError(error)) return;
       setState((prev) => ({ ...prev, error: toFailure(error), loading: false }));
     } finally {
-      if (!controller.signal.aborted && document.visibilityState === 'visible') {
+      if (!controller.signal.aborted && !disposed.current && document.visibilityState === 'visible') {
+        // A timer set meanwhile (e.g. by a visibility change during this request) is replaced, never orphaned.
+        clearTimeout(timer.current);
         timer.current = setTimeout(() => void run(), intervalMs);
       }
     }
@@ -59,15 +64,17 @@ export function usePolling<T>(path: string, intervalMs: number, enabled = true):
 
   useEffect(() => {
     if (!enabled) return;
+    disposed.current = false;
     const onVisibility = () => {
       clearTimeout(timer.current);
-      if (document.visibilityState !== 'visible') return;
+      if (disposed.current || document.visibilityState !== 'visible') return;
       if (Date.now() - lastStart.current >= VISIBLE_REFETCH_GAP_MS) void run();
       else timer.current = setTimeout(() => void run(), intervalMs);
     };
     if (document.visibilityState === 'visible') void run();
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
+      disposed.current = true;
       document.removeEventListener('visibilitychange', onVisibility);
       clearTimeout(timer.current);
       inflight.current?.abort();

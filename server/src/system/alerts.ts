@@ -14,6 +14,8 @@ export type AlertAudience = 'all' | 'admin';
 
 export interface AudienceAlert extends Alert {
   audience: AlertAudience;
+  /** Admin variant of `text` with technical detail; everyone else gets the plain `text`. */
+  adminText?: string;
 }
 
 export interface AlertInputs {
@@ -28,7 +30,7 @@ export interface AlertInputs {
 export const CRITICAL_FREE_PERCENT = 5;
 
 /** Tailscale states that mean remote access is confirmed to be down. */
-const TAILSCALE_DOWN_STATES: ReadonlySet<TailscaleState> = new Set<TailscaleState>([
+export const TAILSCALE_DOWN_STATES: ReadonlySet<TailscaleState> = new Set<TailscaleState>([
   'stopped',
   'needs_login',
   'not_installed',
@@ -106,10 +108,12 @@ export function buildAlerts(inputs: AlertInputs): AudienceAlert[] {
       level: 'warning',
       audience: 'all',
       title: 'Удалённый доступ не работает',
-      text: [
+      // Family members get plain words only; the technical reason is for the admin.
+      text: 'Родственники вне дома сейчас не смогут открыть семейный сервер. Сообщите администратору.',
+      adminText: [
         'Родственники вне дома (в том числе из других стран) сейчас не смогут открыть семейный сервер.',
         tailscale.reason ? asSentence(tailscale.reason) : '',
-        'Попросите администратора проверить Tailscale.',
+        'Проверьте Tailscale на сервере.',
       ]
         .filter(Boolean)
         .join(' '),
@@ -132,5 +136,7 @@ export function buildAlerts(inputs: AlertInputs): AudienceAlert[] {
 export function alertsForRole(alerts: readonly AudienceAlert[], role: Role): Alert[] {
   return alerts
     .filter((alert) => role === 'admin' || alert.audience === 'all')
-    .map(({ audience: _audience, ...alert }) => alert);
+    .map(({ audience: _audience, adminText, ...alert }) =>
+      role === 'admin' && adminText ? { ...alert, text: adminText } : alert,
+    );
 }

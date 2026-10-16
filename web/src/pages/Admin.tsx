@@ -131,7 +131,7 @@ function UsersBlock() {
       </h2>
       <p class="section-lead">
         Только просмотр. Добавлять и удалять пользователей и менять пароли можно на домашнем компьютере
-        командой <code>npm.cmd run user</code> (действия add, list, passwd, remove).
+        командой <code>scripts\user.cmd</code> (действия add, list, passwd, role, remove).
       </p>
       {content}
     </section>

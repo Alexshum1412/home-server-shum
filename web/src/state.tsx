@@ -37,7 +37,8 @@ export interface DataContextValue {
   refreshAll: () => void;
 }
 
-const DataContext = createContext<DataContextValue | null>(null);
+/** Exported for tests, which provide fixed data instead of polling the server. */
+export const DataContext = createContext<DataContextValue | null>(null);
 
 export function DataProvider(props: { children: ComponentChildren }) {
   const services = usePolling<ServicesResponse>('/api/services', SERVICES_INTERVAL_MS);

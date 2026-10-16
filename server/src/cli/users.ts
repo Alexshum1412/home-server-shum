@@ -34,11 +34,11 @@ function usage(dataDir: string): string {
     'Управление пользователями семейного портала.',
     '',
     'Команды (из папки проекта):',
-    '  npm.cmd run user -- add <логин> --name "<Имя>" --role family|admin',
-    '  npm.cmd run user -- list',
-    '  npm.cmd run user -- passwd <логин>',
-    '  npm.cmd run user -- role <логин> family|admin',
-    '  npm.cmd run user -- remove <логин> --yes',
+    '  scripts\\user.cmd add <логин> --name "<Имя>" --role family|admin',
+    '  scripts\\user.cmd list',
+    '  scripts\\user.cmd passwd <логин>',
+    '  scripts\\user.cmd role <логин> family|admin',
+    '  scripts\\user.cmd remove <логин> --yes',
     '',
     'Логин: латиница в нижнем регистре, цифры, «.», «_», «-» (2–32 символа), например mama.',
     'Пароль вводится дважды и не отображается на экране; не меньше 10 символов.',
@@ -317,7 +317,7 @@ async function run(argv: string[]): Promise<void> {
       return;
     }
     default:
-      throw new CliError(`Неизвестная команда «${command}». Справка: npm.cmd run user -- --help`, 2);
+      throw new CliError(`Неизвестная команда «${command}». Справка: scripts\\user.cmd --help`, 2);
   }
 }
 

@@ -4,6 +4,7 @@ import type { StatusView } from '../lib/labels.ts';
 import type { IconComponent } from './icons.ts';
 import { Skeleton } from './Skeleton.tsx';
 import { StatusBadge } from './StatusBadge.tsx';
+import { TechDetail } from './TechDetail.tsx';
 
 interface ServiceCardProps {
   name: string;
@@ -11,6 +12,8 @@ interface ServiceCardProps {
   /** null while the first status is loading. */
   status: StatusView | null;
   text?: ComponentChildren;
+  /** Technical detail for administrators (e.g. «HTTP 503»); pass null for the family. */
+  detail?: string | null;
   /** In-app page or external URL; the whole card becomes the link target. */
   href?: string | null;
   external?: boolean;
@@ -47,6 +50,7 @@ export function ServiceCard(props: ServiceCardProps) {
       </div>
       {props.status ? <StatusBadge status={props.status} /> : <Skeleton kind="badge" />}
       {props.text ? <p class="card__text">{props.text}</p> : null}
+      <TechDetail detail={props.detail ?? null} />
     </li>
   );
 }

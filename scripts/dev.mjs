@@ -6,6 +6,14 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const vite = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import.meta.url));
 
+// Load .env here too, so the Vite proxy (vite.config.ts reads PORT) targets the same port as the API.
+try {
+  process.loadEnvFile(fileURLToPath(new URL('../.env', import.meta.url)));
+} catch {
+  // no .env: defaults apply
+}
+const apiPort = process.env.PORT ?? '8070';
+
 const children = [
   ['api', [process.execPath, ['--watch', '--env-file-if-exists=.env', 'server/src/index.ts']]],
   ['web', [process.execPath, [vite]]],
@@ -36,4 +44,4 @@ function shutdown() {
 }
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGBREAK']) process.on(signal, shutdown);
 
-console.log('API: http://127.0.0.1:8070   UI (dev): http://127.0.0.1:5173   — Ctrl+C to stop');
+console.log(`API: http://127.0.0.1:${apiPort}   UI (dev): http://127.0.0.1:5173   — Ctrl+C to stop`);

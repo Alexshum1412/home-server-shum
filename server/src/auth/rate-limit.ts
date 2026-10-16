@@ -9,6 +9,8 @@ export interface LimitCheck {
 export interface SlidingWindowLimiter {
   check(key: string): LimitCheck;
   hit(key: string): void;
+  /** Takes back the newest hit of `key` (an attempt counted up front that turned out to be fine). */
+  release(key: string): void;
   reset(key: string): void;
 }
 
@@ -61,6 +63,12 @@ export function createSlidingWindowLimiter(options: SlidingWindowOptions): Slidi
       list.push(now);
       hits.set(key, list);
       if (hits.size > maxKeys) prune(now);
+    },
+    release(key) {
+      const list = hits.get(key);
+      if (!list) return;
+      list.pop();
+      if (list.length === 0) hits.delete(key);
     },
     reset(key) {
       hits.delete(key);

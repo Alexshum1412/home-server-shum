@@ -61,7 +61,7 @@ describe('setup state', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({
         hasUsers: false,
-        createAdminCommand: 'npm.cmd run user -- add <логин> --name "<Имя>" --role admin',
+        createAdminCommand: 'scripts\\user.cmd add <логин> --name "<Имя>" --role admin',
       });
     } finally {
       await empty.app.close();
@@ -170,6 +170,70 @@ describe('login', () => {
     expect(other.statusCode).toBe(200);
   });
 
+  it('counts concurrent guesses up front: a burst gets at most 10 evaluations, the rest 429', async () => {
+    const burst = Array.from({ length: 40 }, (_, i) => login(t.app, FAMILY.username, `wrong-password-${i}`));
+    // The correct password arrives inside the burst, after the limit was reached by guesses
+    // that are still being checked (password hashing is slow).
+    const { byUser } = t.app.dashboard.limiter;
+    for (let i = 0; i < 10_000 && byUser.check(FAMILY.username).allowed; i += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    const correct = await login(t.app, FAMILY.username, FAMILY.password);
+    const results = await Promise.all(burst);
+    expect(correct.res.statusCode).toBe(429);
+    expect(correct.cookie).toBeUndefined();
+    expect(correct.res.headers['retry-after']).toBeDefined();
+    const codes = results.map((r) => r.res.statusCode);
+    expect(codes.filter((code) => code === 401).length).toBeLessThanOrEqual(10);
+    expect(codes.filter((code) => code !== 401 && code !== 429)).toEqual([]);
+    const actions = (await t.app.dashboard.audit.readLatest(500)).map((e) => e.action);
+    expect(actions.filter((a) => a === 'login.failure').length).toBeLessThanOrEqual(10);
+    expect(actions).not.toContain('login.success');
+  });
+
+  it('does not count a successful sign-in against the address', async () => {
+    // 31 sign-ins from one address: one more than the 30 failures that would block it.
+    for (let i = 0; i < 31; i += 1) {
+      const user = i % 2 ? ADMIN : FAMILY;
+      const res = await t.app.inject({
+        method: 'POST',
+        url: '/api/login',
+        payload: { username: user.username, password: user.password },
+        remoteAddress: '10.0.0.9',
+      });
+      expect(res.statusCode).toBe(200);
+    }
+  });
+
+  it('audits a blocked login once per window, so a flood cannot push real entries out', async () => {
+    expect((await login(t.app, ADMIN.username, ADMIN.password)).res.statusCode).toBe(200);
+    for (let i = 0; i < 10; i += 1) await login(t.app, FAMILY.username, `wrong-password-${i}`);
+    for (let i = 0; i < 600; i += 1) {
+      const res = await t.app.inject({
+        method: 'POST',
+        url: '/api/login',
+        payload: { username: FAMILY.username, password: `flood-password-${i}` },
+      });
+      expect(res.statusCode).toBe(429);
+      expect(res.headers['retry-after']).toBeDefined();
+    }
+    const entries = await t.app.dashboard.audit.readLatest(500);
+    const blocked = entries.filter((e) => e.action === 'login.blocked');
+    expect(blocked.length).toBeGreaterThanOrEqual(1);
+    expect(blocked.length).toBeLessThanOrEqual(2);
+    expect(blocked[0]?.detail).toContain('не записываются');
+    expect(entries.filter((e) => e.action === 'login.failure')).toHaveLength(10);
+    expect(entries.some((e) => e.action === 'login.success' && e.actor === ADMIN.username)).toBe(true);
+
+    // A new block after the window has passed is recorded again.
+    t.clock.advance(15 * 60 * 1000 + 1000);
+    for (let i = 0; i < 10; i += 1) await login(t.app, FAMILY.username, `wrong-again-${i}`);
+    expect((await login(t.app, FAMILY.username, 'one-more-guess')).res.statusCode).toBe(429);
+    const after = await t.app.dashboard.audit.readLatest(500);
+    expect(after.filter((e) => e.action === 'login.blocked')).toHaveLength(blocked.length + 1);
+    expect(after[0]?.action).toBe('login.blocked');
+  });
+
   it('clears the username counter after a successful sign-in', async () => {
     for (let i = 0; i < 9; i += 1) await login(t.app, FAMILY.username, `wrong-${i}-password`);
     expect((await login(t.app, FAMILY.username, FAMILY.password)).res.statusCode).toBe(200);
@@ -192,6 +256,20 @@ describe('sliding-window limiter', () => {
     expect(limiter.check('10.0.0.2').allowed).toBe(true);
     clock.advance(15 * 60 * 1000);
     expect(limiter.check('10.0.0.1').allowed).toBe(true);
+  });
+
+  it('takes back the newest hit with release()', () => {
+    const limiter = createSlidingWindowLimiter({ limit: 2, windowMs: 1000, clock: createFakeClock() });
+    limiter.hit('k');
+    limiter.hit('k');
+    expect(limiter.check('k').allowed).toBe(false);
+    limiter.release('k');
+    expect(limiter.check('k').allowed).toBe(true);
+    limiter.release('k');
+    limiter.release('k');
+    limiter.release('missing');
+    limiter.hit('k');
+    expect(limiter.check('k').allowed).toBe(true);
   });
 
   it('bounds memory', () => {

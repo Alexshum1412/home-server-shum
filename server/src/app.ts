@@ -105,6 +105,23 @@ function isJsonContentType(value: string | undefined): boolean {
   return mediaType === 'application/json';
 }
 
+/**
+ * Whether a request targets the API. The router decodes the path ("/%61pi/session" matches
+ * "/api/session"), so this looks at the matched route and at the decoded path, never only at the
+ * raw URL. A path that cannot be decoded counts as API, so it errs on the side of no-store.
+ */
+function isApiRequest(request: FastifyRequest): boolean {
+  const route = request.routeOptions.url;
+  if (route !== undefined && isApiPath(route)) return true;
+  const raw = urlPath(request.url);
+  if (isApiPath(raw)) return true;
+  try {
+    return isApiPath(decodeURIComponent(raw));
+  } catch {
+    return true;
+  }
+}
+
 function allowedOrigins(config: Config): Set<string> {
   const origins = new Set([`http://127.0.0.1:${config.port}`, `http://localhost:${config.port}`]);
   for (const url of [config.publicUrl, config.lanUrl]) {
@@ -220,8 +237,11 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
 
   const fixedOrigins = allowedOrigins(config);
   // CSRF / origin guard runs before the body is read, so a rejected request does nothing.
+  // Applied to EVERY state-changing request, whatever the path: the router decodes the path
+  // ("/%61pi/logout" reaches "/api/logout"), so a raw-URL check could be sidestepped, and the
+  // portal has no mutating routes outside /api anyway.
   app.addHook('onRequest', async (request, reply) => {
-    if (!MUTATING_METHODS.has(request.method) || !isApiPath(urlPath(request.url))) return;
+    if (!MUTATING_METHODS.has(request.method)) return;
     const fetchSite = request.headers['sec-fetch-site'];
     const origin = request.headers.origin;
     if (
@@ -242,7 +262,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
 
   app.addHook('onSend', async (request, reply, payload) => {
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) reply.header(name, value);
-    if (isApiPath(urlPath(request.url))) reply.header('Cache-Control', 'no-store');
+    if (isApiRequest(request)) reply.header('Cache-Control', 'no-store');
     return payload;
   });
 

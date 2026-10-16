@@ -25,10 +25,44 @@ if (-not (Test-Path -LiteralPath $ts)) {
 
 $target = "http://127.0.0.1:$($cfg.Port)"
 
+function Get-ServeHandlers {
+  # Every Serve web handler on HTTPS port 443 of this node: site, mount path and proxy target.
+  $raw = (& $ts serve status --json | Out-String).Trim()
+  $list = @()
+  if (-not $raw -or $raw -eq '{}') { return $list }
+  $serve = $raw | ConvertFrom-Json
+  if ($serve.AllowFunnel) {
+    Write-Host 'Внимание: в текущей настройке есть Funnel (публичный доступ). Скрипт его не трогает — проверьте вручную: tailscale funnel status' -ForegroundColor Yellow
+  }
+  if ($serve.Web) {
+    foreach ($site in $serve.Web.PSObject.Properties) {
+      if ($site.Name -notlike '*:443') { continue }
+      foreach ($h in $site.Value.Handlers.PSObject.Properties) {
+        $list += [pscustomobject]@{ Site = $site.Name; Path = $h.Name; Proxy = [string]$h.Value.Proxy }
+      }
+    }
+  }
+  return $list
+}
+
+$handlers = @(Get-ServeHandlers)
+$ours = @($handlers | Where-Object { $_.Path -eq '/' -and $_.Proxy -eq $target })
+$foreign = @($handlers | Where-Object { -not ($_.Path -eq '/' -and $_.Proxy -eq $target) })
+
 if ($Off) {
-  & $ts serve --yes --https=443 off
+  if ($ours.Count -eq 0) {
+    if ($foreign.Count -gt 0) {
+      Write-Host 'Адрес дашборда в Tailscale Serve не настроен; есть другие настройки — их не трогаю:' -ForegroundColor Yellow
+      $foreign | ForEach-Object { Write-Host "  $($_.Site)$($_.Path) -> $($_.Proxy)" }
+    } else {
+      Write-Host 'Частный HTTPS-адрес дашборда и так выключен.'
+    }
+    exit 0
+  }
+  # Remove only the dashboard mount ('/'), never other handlers on the same port.
+  & $ts serve --https=443 --set-path / off
   if ($LASTEXITCODE -ne 0) { Write-Host 'Не удалось выключить Tailscale Serve.' -ForegroundColor Red; exit 1 }
-  Write-Host 'Частный HTTPS-адрес выключен.' -ForegroundColor Green
+  Write-Host 'Частный HTTPS-адрес дашборда выключен.' -ForegroundColor Green
   & $ts serve status
   exit 0
 }
@@ -38,24 +72,16 @@ if ($statusJson.BackendState -ne 'Running') {
   Write-Host "Tailscale не подключён (состояние: $($statusJson.BackendState)). Откройте приложение Tailscale и войдите." -ForegroundColor Red
   exit 1
 }
+$dns = ([string]$statusJson.Self.DNSName).TrimEnd('.')
 
-$serveRaw = (& $ts serve status --json | Out-String).Trim()
-if ($serveRaw -and $serveRaw -ne '{}') {
-  $serve = $serveRaw | ConvertFrom-Json
-  $existing = @()
-  if ($serve.Web) {
-    foreach ($site in $serve.Web.PSObject.Properties) {
-      foreach ($h in $site.Value.Handlers.PSObject.Properties) { $existing += "$($site.Name)$($h.Name) -> $($h.Value.Proxy)" }
-    }
-  }
-  if ($existing.Count -gt 0 -and -not ($existing | Where-Object { $_ -like "*-> $target" })) {
-    Write-Host 'Для Tailscale Serve уже есть другая настройка — ничего не меняю:' -ForegroundColor Yellow
-    $existing | ForEach-Object { Write-Host "  $_" }
-    exit 1
-  }
-  if ($serve.AllowFunnel) {
-    Write-Host 'Внимание: в текущей настройке есть Funnel (публичный доступ). Скрипт его не трогает — проверьте вручную: tailscale funnel status' -ForegroundColor Yellow
-  }
+if ($foreign.Count -gt 0) {
+  Write-Host 'Для порта 443 в Tailscale Serve уже есть другая настройка — ничего не меняю:' -ForegroundColor Yellow
+  $foreign | ForEach-Object { Write-Host "  $($_.Site)$($_.Path) -> $($_.Proxy)" }
+  exit 1
+}
+if ($ours.Count -gt 0) {
+  Write-Host "Частный HTTPS-адрес уже включён: https://$dns" -ForegroundColor Green
+  exit 0
 }
 
 if (-not (Test-DashboardHealth $cfg.Port)) {
@@ -65,7 +91,6 @@ if (-not (Test-DashboardHealth $cfg.Port)) {
 & $ts serve --bg --https=443 $target
 if ($LASTEXITCODE -ne 0) { Write-Host 'Не удалось включить Tailscale Serve.' -ForegroundColor Red; exit 1 }
 
-$dns = ([string]$statusJson.Self.DNSName).TrimEnd('.')
 Write-Host ''
 Write-Host "Готово. Адрес для семьи (только в tailnet): https://$dns" -ForegroundColor Green
 & $ts serve status

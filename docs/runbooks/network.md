@@ -17,7 +17,7 @@ scripts\serve-tailnet.cmd
 scripts\serve-tailnet.cmd -Off
 ```
 
-Скрипт выполняет `tailscale serve --bg --https=443 http://127.0.0.1:8070`, а при `-Off` — `tailscale serve --https=443 off`. Он отказывается что-либо менять, если для порта 443 уже есть другая настройка. Funnel не включается. Проверка:
+Скрипт выполняет `tailscale serve --bg --https=443 http://127.0.0.1:8070`, а при `-Off` — `tailscale serve --https=443 --set-path / off`, то есть удаляет **только** адрес дашборда. Он отказывается что-либо менять, если на порту 443 есть чужие настройки Serve, и никогда не трогает Funnel. Проверка:
 
 ```bat
 "C:\Program Files\Tailscale\tailscale.exe" serve status

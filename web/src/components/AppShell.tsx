@@ -16,7 +16,7 @@ import { useEffect, useId, useRef, useState } from 'preact/hooks';
 import type { SessionUser } from '../../../shared/api.ts';
 import { ROLE_LABEL } from '../lib/labels.ts';
 import { isActivePath, isAdminOnly, matchRoute } from '../lib/routes.ts';
-import { useSession } from '../state.tsx';
+import { useData, useSession } from '../state.tsx';
 import { ConnectionBanner, DemoBanner } from './Banners.tsx';
 import type { IconComponent } from './icons.ts';
 
@@ -159,7 +159,13 @@ function TabBar(props: {
 /** Landmarks, skip link, side navigation (wide) / tab bar (narrow), banners and the page. */
 export function AppShell(props: { path: string; notice?: string | null; children: ComponentChildren }) {
   const { session, logout } = useSession();
+  const { services, system } = useData();
   const isAdmin = session.user.role === 'admin';
+  // The session is read once at start-up; the polled data tells when the server switched to demo later.
+  const demo =
+    session.demo ||
+    system.data?.demo === true ||
+    services.data?.services.some((service) => service.demo) === true;
   const secondary = SECONDARY.filter((item) => isAdmin || !isAdminOnly(matchRoute(item.path)));
   const onLogout = () => void logout();
 
@@ -187,7 +193,7 @@ export function AppShell(props: { path: string; notice?: string | null; children
         </header>
         <main id="main" class="shell__main" tabIndex={-1}>
           <div class="shell__banners">
-            {session.demo ? <DemoBanner /> : null}
+            {demo ? <DemoBanner /> : null}
             {props.notice ? (
               <p class="banner banner--warn" role="alert">
                 {props.notice}

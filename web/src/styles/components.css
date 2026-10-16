@@ -827,7 +827,7 @@
   width: 100%;
   min-height: 3rem;
   padding: var(--sp-3) var(--sp-4);
-  border: 1px solid var(--c-border-strong);
+  border: 1px solid var(--c-input-border);
   border-radius: var(--r-md);
   background: var(--c-bg);
   font-size: var(--fs-md);
@@ -903,4 +903,13 @@
 /* A quiet button next to a section title: its label lines up with the edges of the text column. */
 .section-head > .button--quiet {
   margin-inline: calc(-1 * var(--sp-4));
+}
+
+/* --- Technical detail (administrators only) ------------------------------------- */
+
+/* E.g. «HTTP 503» under a service message: small and secondary; long codes may wrap anywhere. */
+.tech-detail {
+  color: var(--c-text-subtle);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
 }

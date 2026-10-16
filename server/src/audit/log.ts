@@ -60,8 +60,22 @@ function isAuditEntry(value: unknown): value is AuditEntry {
   );
 }
 
-/** Reads up to `max` complete lines from the end of a file, newest first. */
-async function readLinesFromEnd(file: string, max: number): Promise<string[]> {
+/** Parses one log line; a torn or foreign line gives null. */
+function parseEntry(line: string): AuditEntry | null {
+  if (line === '') return null;
+  try {
+    const parsed: unknown = JSON.parse(line);
+    return isAuditEntry(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads up to `max` VALID entries from the end of a file, newest first. Torn or foreign lines are
+ * skipped and do not count, so they never hide newer valid entries of the same file.
+ */
+async function readEntriesFromEnd(file: string, max: number): Promise<AuditEntry[]> {
   let handle: FileHandle;
   try {
     handle = await fsp.open(file, 'r');
@@ -71,10 +85,10 @@ async function readLinesFromEnd(file: string, max: number): Promise<string[]> {
   }
   try {
     const { size } = await handle.stat();
-    const lines: string[] = [];
+    const entries: AuditEntry[] = [];
     let position = size;
     let carry = Buffer.alloc(0);
-    while (position > 0 && lines.length < max) {
+    while (position > 0 && entries.length < max) {
       const length = Math.min(CHUNK_SIZE, position);
       position -= length;
       const chunk = Buffer.alloc(length);
@@ -82,24 +96,40 @@ async function readLinesFromEnd(file: string, max: number): Promise<string[]> {
       let buffer = Buffer.concat([chunk, carry]);
       // Split on '\n' bytes: 0x0A never occurs inside a multi-byte UTF-8 sequence.
       let end = buffer.length;
-      for (let i = buffer.length - 1; i >= 0 && lines.length < max; i -= 1) {
+      for (let i = buffer.length - 1; i >= 0 && entries.length < max; i -= 1) {
         if (buffer[i] === 0x0a) {
-          const line = buffer
-            .subarray(i + 1, end)
-            .toString('utf8')
-            .trim();
-          if (line) lines.push(line);
+          const entry = parseEntry(
+            buffer
+              .subarray(i + 1, end)
+              .toString('utf8')
+              .trim(),
+          );
+          if (entry) entries.push(entry);
           end = i;
         }
       }
       buffer = buffer.subarray(0, end);
       carry = Buffer.from(buffer);
     }
-    if (position === 0 && carry.length > 0 && lines.length < max) {
-      const line = carry.toString('utf8').trim();
-      if (line) lines.push(line);
+    if (position === 0 && carry.length > 0 && entries.length < max) {
+      const entry = parseEntry(carry.toString('utf8').trim());
+      if (entry) entries.push(entry);
     }
-    return lines;
+    return entries;
+  } finally {
+    await handle.close();
+  }
+}
+
+const NEWLINE = Buffer.from('\n', 'utf8');
+
+/** Whether the last byte of a non-empty file of `size` bytes is '\n'. */
+async function endsWithNewline(file: string, size: number): Promise<boolean> {
+  const handle = await fsp.open(file, 'r');
+  try {
+    const last = Buffer.alloc(1);
+    const { bytesRead } = await handle.read(last, 0, 1, size - 1);
+    return bytesRead === 1 && last[0] === 0x0a;
   } finally {
     await handle.close();
   }
@@ -112,6 +142,8 @@ export function createAuditLog(dataDir: string, options: AuditLogOptions): Audit
   const rotated = (n: number) => path.join(dataDir, `audit.${n}.jsonl`);
   const queue = createSerialQueue();
   let size: number | null = null;
+  /** Whether the end of audit.jsonl was checked for a torn line since startup. */
+  let tailChecked = false;
 
   async function currentSize(): Promise<number> {
     if (size !== null) return size;
@@ -150,8 +182,16 @@ export function createAuditLog(dataDir: string, options: AuditLogOptions): Audit
           await fsp.mkdir(dataDir, { recursive: true });
           const before = await currentSize();
           if (before > 0 && before + line.length > maxBytes) await rotate();
-          await fsp.appendFile(current, line, { mode: 0o600 });
-          size = (size ?? 0) + line.length;
+          let data = line;
+          if (!tailChecked) {
+            // A crash in the middle of an append leaves a last line without '\n'; start a new
+            // line so the first entry of this run is not glued onto (and lost with) the torn one.
+            const at = size ?? 0;
+            if (at > 0 && !(await endsWithNewline(current, at))) data = Buffer.concat([NEWLINE, line]);
+          }
+          await fsp.appendFile(current, data, { mode: 0o600 });
+          size = (size ?? 0) + data.length;
+          tailChecked = true;
         })
         .catch((error: unknown) => {
           size = null;
@@ -165,14 +205,7 @@ export function createAuditLog(dataDir: string, options: AuditLogOptions): Audit
       const entries: AuditEntry[] = [];
       for (const file of [current, ...Array.from({ length: keep }, (_, i) => rotated(i + 1))]) {
         if (entries.length >= max) break;
-        for (const line of await readLinesFromEnd(file, max - entries.length)) {
-          try {
-            const parsed: unknown = JSON.parse(line);
-            if (isAuditEntry(parsed)) entries.push(parsed);
-          } catch {
-            // A torn or foreign line is skipped, never fatal.
-          }
-        }
+        entries.push(...(await readEntriesFromEnd(file, max - entries.length)));
       }
       return entries.slice(0, max);
     },

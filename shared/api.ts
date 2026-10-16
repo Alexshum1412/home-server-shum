@@ -89,6 +89,11 @@ export interface ServiceStatus {
   message: string;
   /** What to do next (Russian), e.g. how to install/configure. Null when online. */
   hint: string | null;
+  /**
+   * Technical detail for admins only, e.g. "HTTP 503" or "ECONNREFUSED 127.0.0.1:8096".
+   * Always null/absent for family users, whose `message` stays in plain words.
+   */
+  detail?: string | null;
   demo: boolean;
 }
 
