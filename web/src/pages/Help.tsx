@@ -82,20 +82,20 @@ function InstallSteps() {
 }
 
 function LanAddress(props: { data: ConnectionResponse; isAdmin: boolean }) {
-  const { lanUrl, localUrl } = props.data;
+  const { lanUrl, localUrl, lanProblem } = props.data;
   return (
     <section class="prose-block">
       <h2 class="section-title">
         <House class="section-title__icon" size={20} aria-hidden="true" />
-        Дома, без Tailscale
+        Дома, если пропал интернет
       </h2>
       {lanUrl ? (
         <>
           <CopyField label="Адрес в домашней сети" value={lanUrl} />
           <p>
-            Запасной адрес работает только в домашнем Wi‑Fi. Он открывается по обычному HTTP, без шифрования,
-            поэтому установить портал как приложение по нему нельзя. Пользуйтесь им, только если основной
-            адрес почему-то не открывается.
+            Запасной адрес работает только в домашнем Wi‑Fi или по кабелю, и интернет для него не нужен. Он
+            открывается по обычному HTTP, без шифрования, поэтому установить портал как приложение по нему
+            нельзя. Пользуйтесь им, только если основной адрес почему-то не открывается.
           </p>
         </>
       ) : (
@@ -104,6 +104,19 @@ function LanAddress(props: { data: ConnectionResponse; isAdmin: boolean }) {
           Если запасной адрес нужен, попросите администратора его включить.
         </p>
       )}
+      {props.isAdmin && lanProblem ? (
+        <p class="banner banner--warn" role="status">
+          Запасной адрес включён в настройках, но портал его не слушает: {lanProblem}. Проверьте IP компьютера
+          в домашней сети (команда <code>scriptslan-mode.cmd status</code>).
+        </p>
+      ) : null}
+      {props.isAdmin && !lanUrl ? (
+        <p class="meta">
+          Администратору: включить запасной адрес можно командой <code>scriptslan-mode.cmd on</code> на
+          домашнем компьютере (она сама создаёт правило брандмауэра только для домашней сети и спрашивает
+          подтверждение).
+        </p>
+      ) : null}
       {/* The local address works only in a browser on the server itself: useless on a phone. */}
       {props.isAdmin ? (
         <>

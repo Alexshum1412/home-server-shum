@@ -60,13 +60,17 @@ describe('admin API access', () => {
     }
   });
 
-  it('exposes only read-only endpoints (no write methods on /api/admin)', async () => {
+  it('has no write methods except account management (admin-users.test.ts)', async () => {
     const cookie = await cookieFor(t.app, ADMIN);
     for (const url of ADMIN_URLS) {
-      for (const method of ['POST', 'PUT', 'DELETE'] as const) {
+      for (const method of ['PUT', 'DELETE'] as const) {
         const res = await t.app.inject({ method, url, headers: { cookie }, payload: {} });
         expect(res.statusCode, `${method} ${url}`).toBe(404);
       }
+    }
+    for (const url of ['/api/admin/audit', '/api/admin/diagnostics']) {
+      const res = await t.app.inject({ method: 'POST', url, headers: { cookie }, payload: {} });
+      expect(res.statusCode, `POST ${url}`).toBe(404);
     }
   });
 });

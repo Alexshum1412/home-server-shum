@@ -6,6 +6,16 @@ import { STATUS_ICONS } from './icons.ts';
 /** Texts longer than this get collapsed to two lines on phones (compact lists only). */
 const CLAMP_FROM_CHARS = 110;
 
+/**
+ * The last sentence of an alert is the next step («Не форматируйте…», «Сообщите администратору»).
+ * It is never collapsed: a clamp must not cut off exactly the part that says what to do.
+ */
+export function splitNextStep(text: string): { lead: string; step: string } {
+  const sentences = text.split(/(?<=[.!?…])s+/).filter((part) => part.trim() !== '');
+  if (sentences.length < 2) return { lead: text, step: '' };
+  return { lead: sentences.slice(0, -1).join(' '), step: sentences[sentences.length - 1] ?? '' };
+}
+
 function AlertItem(props: { alert: Alert; compact: boolean }) {
   const { alert } = props;
   const level = ALERT_LEVEL[alert.level];
@@ -14,6 +24,7 @@ function AlertItem(props: { alert: Alert; compact: boolean }) {
   const [expanded, setExpanded] = useState(false);
   // Critical alerts are always shown in full; only long warnings/info may be collapsed.
   const clampable = props.compact && alert.level !== 'critical' && alert.text.length > CLAMP_FROM_CHARS;
+  const { lead, step } = clampable ? splitNextStep(alert.text) : { lead: alert.text, step: '' };
   const classes = ['alert', `alert--${level.tone}`];
   if (clampable) classes.push('alert--clampable');
   if (clampable && expanded) classes.push('alert--expanded');
@@ -26,7 +37,7 @@ function AlertItem(props: { alert: Alert; compact: boolean }) {
           {alert.title}
         </p>
         <p class="alert__text" id={textId}>
-          {alert.text}
+          {lead}
         </p>
         {clampable ? (
           <button
@@ -39,6 +50,7 @@ function AlertItem(props: { alert: Alert; compact: boolean }) {
             {expanded ? 'Свернуть' : 'Подробнее'}
           </button>
         ) : null}
+        {step ? <p class="alert__step">{step}</p> : null}
       </div>
     </li>
   );

@@ -1,4 +1,4 @@
-import { CircleCheck, Download, Link2, Pause, Play, Trash2, X } from 'lucide-preact';
+import { CircleCheck, Download, FolderOpen, Link2, Pause, Play, Trash2, X } from 'lucide-preact';
 import { useEffect, useId, useRef, useState } from 'preact/hooks';
 import type {
   DownloadCheckResponse,
@@ -12,7 +12,8 @@ import { PageHeader } from '../components/PageHeader.tsx';
 import { Loading } from '../components/Skeleton.tsx';
 import { usePolling } from '../hooks/usePolling.ts';
 import { formatBytes } from '../lib/format.ts';
-import { useIsAdmin } from '../state.tsx';
+import { withQuery } from '../lib/query.ts';
+import { useIsAdmin, useSession } from '../state.tsx';
 
 const ACTIVE: ReadonlySet<DownloadState> = new Set(['queued', 'downloading']);
 
@@ -32,6 +33,9 @@ function percent(task: DownloadTaskView): number | null {
 
 function TaskRow(props: { task: DownloadTaskView; showOwner: boolean; onChanged: () => void }) {
   const { task } = props;
+  const { session } = useSession();
+  // Personal folders are private: a finished file can be opened only by the one who downloaded it.
+  const mine = task.owner === session.user.username;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const p = percent(task);
@@ -88,6 +92,22 @@ function TaskRow(props: { task: DownloadTaskView; showOwner: boolean; onChanged:
         </p>
       ) : null}
       <div class="download__actions">
+        {task.state === 'completed' && mine ? (
+          <>
+            <a
+              class="button button--secondary"
+              href={`/api/storage/files/file?${new URLSearchParams({ space: 'personal', path: `Загрузки/${task.fileName}` }).toString()}`}
+              download={task.fileName}
+            >
+              <Download size={18} aria-hidden="true" />
+              Скачать на это устройство<span class="visually-hidden"> «{task.fileName}»</span>
+            </a>
+            <a class="button button--quiet" href={withQuery('/files', { path: 'Загрузки' })}>
+              <FolderOpen size={18} aria-hidden="true" />
+              Открыть в «Файлах»
+            </a>
+          </>
+        ) : null}
         {task.state === 'downloading' || task.state === 'queued' ? (
           <button
             type="button"

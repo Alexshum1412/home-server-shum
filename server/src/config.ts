@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import { isAbsoluteTargetPath, parseTargetSpec, splitList } from './backup/spec.ts';
+import { isPrivateLanAddress } from './lan.ts';
 import { REPO_ROOT } from './lib/version.ts';
 
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
@@ -22,6 +23,11 @@ export interface Config {
   readonly tailscaleExe: string;
   readonly publicUrl: string | null;
   readonly lanUrl: string | null;
+  /**
+   * Extra addresses of the home network the portal listens on besides HOST (LAN_BIND). Empty by
+   * default: the portal is then reachable only from this PC and through Tailscale.
+   */
+  readonly lanBind: readonly string[];
   readonly cookieSecure: CookieSecureMode;
   /** Backup target specs (absolute paths or `label:<Label>\<subdir>`), see backup/spec.ts. */
   readonly backupTargets: readonly string[];
@@ -38,6 +44,8 @@ export interface Config {
   readonly filesDir: string;
   /** Root of the family photo library. */
   readonly photosDir: string;
+  /** Media library (films, series, music, audiobooks), read by Jellyfin and by the fallback player. */
+  readonly mediaDir: string;
   readonly downloadMaxFileBytes: number;
   /** One file uploaded through the portal (files and photos). */
   readonly uploadMaxFileBytes: number;
@@ -84,6 +92,7 @@ const schema = z.object({
   TAILSCALE_EXE: z.string().min(1),
   PUBLIC_URL: httpUrlOrEmpty('PUBLIC_URL'),
   LAN_URL: httpUrlOrEmpty('LAN_URL'),
+  LAN_BIND: z.string(),
   COOKIE_SECURE: z.enum(['auto', 'always', 'never']),
   BACKUP_TARGETS: z.string(),
   BACKUP_KEEP: z.coerce.number().int().min(1).max(365),
@@ -93,6 +102,7 @@ const schema = z.object({
   BACKUP_GIT_PUSH: z.string(),
   FAMILY_FILES_DIR: z.string().min(1),
   FAMILY_PHOTOS_DIR: z.string().min(1),
+  MEDIA_DIR: z.string().min(1),
   DOWNLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
   UPLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
   MIN_FREE_GB: z.coerce.number().min(0).max(10_000),
@@ -115,7 +125,7 @@ function defaultDataDir(env: Env, platform: NodeJS.Platform): string {
     : path.join(os.homedir(), '.family-dashboard');
 }
 
-function defaultFamilyDir(env: Env, platform: NodeJS.Platform, name: 'Files' | 'Photos'): string {
+function defaultFamilyDir(env: Env, platform: NodeJS.Platform, name: 'Files' | 'Photos' | 'Media'): string {
   if (platform === 'win32') return `${systemDrive(env)}\\FamilyData\\${name}`;
   return path.join(os.homedir(), '.family-data', name.toLowerCase());
 }
@@ -181,6 +191,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     TAILSCALE_EXE: pick('TAILSCALE_EXE', DEFAULT_TAILSCALE_EXE),
     PUBLIC_URL: env.PUBLIC_URL === undefined ? DEFAULT_PUBLIC_URL : env.PUBLIC_URL.trim(),
     LAN_URL: env.LAN_URL?.trim() ?? '',
+    LAN_BIND: env.LAN_BIND?.trim() ?? '',
     COOKIE_SECURE: pick('COOKIE_SECURE', 'auto').toLowerCase(),
     BACKUP_TARGETS: pick('BACKUP_TARGETS', defaultBackupTargets(env, platform)),
     BACKUP_KEEP: pick('BACKUP_KEEP', '14'),
@@ -190,6 +201,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     BACKUP_GIT_PUSH: env.BACKUP_GIT_PUSH?.trim() ?? '',
     FAMILY_FILES_DIR: pick('FAMILY_FILES_DIR', defaultFamilyDir(env, platform, 'Files')),
     FAMILY_PHOTOS_DIR: pick('FAMILY_PHOTOS_DIR', defaultFamilyDir(env, platform, 'Photos')),
+    MEDIA_DIR: pick('MEDIA_DIR', defaultFamilyDir(env, platform, 'Media')),
     DOWNLOAD_MAX_FILE_GB: pick('DOWNLOAD_MAX_FILE_GB', '50'),
     UPLOAD_MAX_FILE_GB: pick('UPLOAD_MAX_FILE_GB', '20'),
     MIN_FREE_GB: pick('MIN_FREE_GB', '50'),
@@ -216,6 +228,9 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
   const backupTargets = parseBackupTargets(v.BACKUP_TARGETS);
   const backupExtraFiles = parseExtraFiles(v.BACKUP_EXTRA_FILES);
   const backupGitPush = parseGitPush(v.BACKUP_GIT_PUSH);
+  const lanBind = parseLanBind(v.LAN_BIND);
+  // A bound home-network address implies its own URL, unless the owner gave another one (a name).
+  const lanUrl = trimUrl(v.LAN_URL) ?? (lanBind[0] ? `http://${lanBind[0]}:${v.PORT}` : null);
 
   return Object.freeze({
     host: v.HOST,
@@ -230,7 +245,8 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     printerName: v.PRINTER_NAME === '' ? null : v.PRINTER_NAME,
     tailscaleExe: v.TAILSCALE_EXE,
     publicUrl: trimUrl(v.PUBLIC_URL),
-    lanUrl: trimUrl(v.LAN_URL),
+    lanUrl,
+    lanBind: Object.freeze(lanBind),
     cookieSecure: v.COOKIE_SECURE,
     backupTargets: Object.freeze(backupTargets),
     backupKeep: v.BACKUP_KEEP,
@@ -240,6 +256,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     backupGitPush: backupGitPush === null ? null : Object.freeze(backupGitPush),
     filesDir: path.resolve(v.FAMILY_FILES_DIR),
     photosDir: path.resolve(v.FAMILY_PHOTOS_DIR),
+    mediaDir: path.resolve(v.MEDIA_DIR),
     downloadMaxFileBytes: Math.round(v.DOWNLOAD_MAX_FILE_GB * 1024 ** 3),
     uploadMaxFileBytes: Math.round(v.UPLOAD_MAX_FILE_GB * 1024 ** 3),
     minFreeBytes: Math.round(v.MIN_FREE_GB * 1024 ** 3),
@@ -247,6 +264,23 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     printerIppUrl: v.PRINTER_IPP_URL === '' ? null : v.PRINTER_IPP_URL,
     printMaxBytes: Math.round(v.PRINT_MAX_MB * 1024 ** 2),
   });
+}
+
+/** LAN_BIND: private IPv4 addresses of the home network separated by «,» or «;»; never a public address or 0.0.0.0. */
+function parseLanBind(value: string): string[] {
+  if (value === '' || value.toLowerCase() === 'none') return [];
+  const addresses = value
+    .split(/[\s,;]+/)
+    .map((item) => item.trim())
+    .filter((item) => item !== '');
+  for (const address of addresses) {
+    if (!isPrivateLanAddress(address)) {
+      throw new Error(
+        `${CONFIG_ERROR}: LAN_BIND: «${address}» — нужен адрес домашней сети (192.168.x.x, 10.x.x.x или 172.16–31.x.x); «0.0.0.0» и публичные адреса не допускаются`,
+      );
+    }
+  }
+  return [...new Set(addresses)];
 }
 
 /** "origin/main" → {remote, branch}; "" or "none" → null. Plain git names only (no options, no spaces). */

@@ -1,13 +1,4 @@
-import {
-  FileDown,
-  Lock,
-  RefreshCw,
-  ScrollText,
-  ShieldCheck,
-  Sparkles,
-  TriangleAlert,
-  Users,
-} from 'lucide-preact';
+import { FileDown, Lock, RefreshCw, ScrollText, ShieldCheck, Sparkles, TriangleAlert } from 'lucide-preact';
 import { useState } from 'preact/hooks';
 import type {
   AuditResponse,
@@ -16,7 +7,6 @@ import type {
   OliviaActionView,
   OliviaResponse,
   RefreshResponse,
-  UsersResponse,
 } from '../../../shared/api.ts';
 import { apiDownload, apiPost, toFailure } from '../api.ts';
 import { TableWrap } from '../components/DataTable.tsx';
@@ -26,9 +16,11 @@ import { PageHeader } from '../components/PageHeader.tsx';
 import { RelativeTime } from '../components/RelativeTime.tsx';
 import { Loading } from '../components/Skeleton.tsx';
 import { StatusBadge } from '../components/StatusBadge.tsx';
+import { type ToastApi, ToastRegion, useToast } from '../components/Toast.tsx';
+import { UsersBlock } from '../components/UserAdmin.tsx';
 import { useResource } from '../hooks/useResource.ts';
 import { formatDateTime } from '../lib/format.ts';
-import { auditActionLabel, HEALTH_LEVEL, ROLE_LABEL } from '../lib/labels.ts';
+import { auditActionLabel, HEALTH_LEVEL } from '../lib/labels.ts';
 import { useData, useIsAdmin } from '../state.tsx';
 
 type ActionState =
@@ -101,69 +93,6 @@ function ServicesBlock() {
   );
 }
 
-function UsersBlock() {
-  const users = useResource<UsersResponse>('/api/admin/users');
-  let content = null;
-  if (users.data) {
-    content =
-      users.data.users.length === 0 ? (
-        <p class="section-lead">Пользователей нет.</p>
-      ) : (
-        <TableWrap labelledBy="users-title">
-          <table class="table">
-            <thead>
-              <tr>
-                <th scope="col">Имя</th>
-                <th scope="col">Логин</th>
-                <th scope="col">Роль</th>
-                <th scope="col">Создан</th>
-                <th scope="col">Последний вход</th>
-                <th scope="col">Пароль</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.data.users.map((user) => (
-                <tr key={user.id}>
-                  <th scope="row">{user.displayName}</th>
-                  <td class="table__nowrap">{user.username}</td>
-                  <td>{ROLE_LABEL[user.role]}</td>
-                  <td class="table__nowrap">{formatDateTime(user.createdAt)}</td>
-                  <td class="table__nowrap">
-                    {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Входов не было'}
-                  </td>
-                  <td class="table__nowrap">
-                    {user.temporaryPassword
-                      ? `временный, до ${user.passwordExpiresAt ? formatDateTime(user.passwordExpiresAt) : '—'}`
-                      : 'свой'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableWrap>
-      );
-  } else if (users.error) {
-    content = <ErrorState failure={users.error} onRetry={users.reload} busy={users.loading} level={3} />;
-  } else {
-    content = <Loading label="Загружаем пользователей…" />;
-  }
-  return (
-    <section class="page-section">
-      <h2 id="users-title" class="section-title">
-        <Users class="section-title__icon" size={20} aria-hidden="true" />
-        Пользователи
-      </h2>
-      <p class="section-lead">
-        Только просмотр. Добавлять и удалять пользователей и менять пароли можно на домашнем компьютере
-        командой <code>scripts\user.cmd</code> (действия add, list, passwd, role, remove). С параметром{' '}
-        <code>--generate-password</code> выдаётся временный пароль: при первом входе человек сам задаёт свой.
-        Свой пароль каждый может сменить в разделе «Мой профиль».
-      </p>
-      {content}
-    </section>
-  );
-}
-
 function AuditBlock() {
   const audit = useResource<AuditResponse>('/api/admin/audit?limit=100');
   let content = null;
@@ -174,7 +103,7 @@ function AuditBlock() {
         <p class="section-lead">Записей пока нет.</p>
       ) : (
         <TableWrap labelledBy="audit-title">
-          <table class="table">
+          <table class="table table--stack">
             <thead>
               <tr>
                 <th scope="col">Время</th>
@@ -188,10 +117,16 @@ function AuditBlock() {
               {entries.map((entry, index) => (
                 <tr key={`${entry.time}-${entry.action}-${index}`}>
                   <td class="table__nowrap">{formatDateTime(entry.time)}</td>
-                  <td>{auditActionLabel(entry.action)}</td>
-                  <td class="table__nowrap">{entry.actor ?? 'Без входа'}</td>
-                  <td class="table__nowrap">{entry.ip ?? 'Нет данных'}</td>
-                  <td class="table__note">{entry.detail ?? ''}</td>
+                  <td data-label="Действие">{auditActionLabel(entry.action)}</td>
+                  <td class="table__nowrap" data-label="Кто">
+                    {entry.actor ?? 'Без входа'}
+                  </td>
+                  <td class="table__nowrap" data-label="Адрес">
+                    {entry.ip ?? 'Нет данных'}
+                  </td>
+                  <td class="table__note" data-label="Подробности">
+                    {entry.detail ?? ''}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -277,21 +212,24 @@ function DiagnosticsBlock() {
   );
 }
 
-function OliviaBlock() {
+function OliviaBlock(props: { toast: ToastApi }) {
   const data = useResource<OliviaResponse>('/api/admin/olivia');
-  const [state, setState] = useState<ActionState>({ kind: 'idle' });
+  const [running, setRunning] = useState<string | null>(null);
 
   async function run(action: OliviaActionView) {
     if (!window.confirm(action.confirmText)) return;
-    setState({ kind: 'busy' });
+    setRunning(action.id);
     try {
       const result = await apiPost<OliviaActionResult>(`/api/admin/olivia/actions/${action.id}`, {
         confirm: true,
       });
-      setState({ kind: result.ok ? 'done' : 'error', text: result.message });
+      if (result.ok) props.toast.showOk(result.message);
+      else props.toast.showError(result.message);
       data.reload();
     } catch (error) {
-      setState({ kind: 'error', text: toFailure(error).message });
+      props.toast.showError(toFailure(error).message);
+    } finally {
+      setRunning(null);
     }
   }
 
@@ -315,10 +253,10 @@ function OliviaBlock() {
                 <button
                   type="button"
                   class="button button--secondary"
-                  disabled={state.kind === 'busy'}
+                  disabled={running !== null}
                   onClick={() => void run(action)}
                 >
-                  {action.title}
+                  {running === action.id ? 'Выполняю…' : action.title}
                 </button>
               ) : null}
             </li>
@@ -342,13 +280,13 @@ function OliviaBlock() {
         только несколько безопасных действий — и только после вашего подтверждения; каждое попадает в журнал.
       </p>
       {content}
-      <ActionMessage state={state} />
     </section>
   );
 }
 
 export function AdminPage() {
   const isAdmin = useIsAdmin();
+  const toast = useToast();
   if (!isAdmin) {
     return (
       <div class="page">
@@ -364,13 +302,14 @@ export function AdminPage() {
       <PageHeader
         title="Администрирование"
         icon={ShieldCheck}
-        lead="Наблюдение и диагностика. Команды на компьютере отсюда не выполняются."
+        lead="Состояние сервера, учётные записи и журнал. Произвольные команды на компьютере отсюда выполнить нельзя."
       />
-      <OliviaBlock />
+      <OliviaBlock toast={toast} />
       <ServicesBlock />
-      <UsersBlock />
+      <UsersBlock toast={toast} />
       <AuditBlock />
       <DiagnosticsBlock />
+      <ToastRegion toast={toast} />
     </div>
   );
 }

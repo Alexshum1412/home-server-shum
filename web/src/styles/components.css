@@ -32,6 +32,21 @@
   opacity: 0.55;
 }
 
+/* A label that opens a file picker: the real input is hidden, so the ring is drawn on the label. */
+.button:has(+ input:focus-visible) {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+.button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.button svg {
+  flex: none;
+}
+
 .button--primary {
   background: var(--c-accent);
   color: var(--c-on-accent);
@@ -263,6 +278,12 @@
   font-size: var(--fs-sm);
 }
 
+.alert__step {
+  color: var(--c-text);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+
 /* «Подробнее» exists only for collapsible alerts and only matters on phones. */
 .alert__more {
   display: none;
@@ -322,7 +343,10 @@
 }
 
 .page-header__title {
+  min-width: 0;
   font-size: var(--fs-2xl);
+  hyphens: auto;
+  overflow-wrap: anywhere;
 }
 
 .page-header__lead {
@@ -997,4 +1021,193 @@
 
 .field__input--short {
   max-width: 8rem;
+}
+
+/* --- Toast: the result of an action, fixed above the tab bar ------------------ */
+
+.toast-region {
+  position: fixed;
+  right: max(var(--sp-4), env(safe-area-inset-right));
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--sp-3));
+  left: max(var(--sp-4), env(safe-area-inset-left));
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  pointer-events: none;
+}
+
+/* Present in the page even when empty (screen readers announce the text when it appears). */
+.toast {
+  height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+}
+
+.toast--on {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  height: auto;
+  padding: var(--sp-3) var(--sp-4);
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, var(--toast-fg) 55%, transparent);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-overlay);
+  color: var(--c-text);
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+
+.toast--ok {
+  --toast-fg: var(--c-ok);
+}
+
+.toast--error {
+  --toast-fg: var(--c-bad);
+}
+
+.toast__close {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  margin: calc(var(--sp-3) * -1) calc(var(--sp-4) * -1) calc(var(--sp-3) * -1) 0;
+  border: 0;
+  background: none;
+  color: var(--c-text-muted);
+}
+
+@media (min-width: 769px) {
+  .toast-region {
+    right: var(--sp-6);
+    bottom: var(--sp-6);
+    left: auto;
+    width: min(28rem, calc(100vw - var(--sidebar-w) - var(--sp-8)));
+  }
+}
+
+/* --- Wide tables turn into cards on phones: nothing hides off-screen -------------- */
+
+@media (max-width: 768px) {
+  .table--stack thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .table--stack,
+  .table--stack tbody,
+  .table--stack tr,
+  .table--stack th,
+  .table--stack td {
+    display: block;
+    width: 100%;
+  }
+
+  .table--stack tr {
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--c-border);
+  }
+
+  .table--stack tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .table--stack th,
+  .table--stack td {
+    padding: var(--sp-1) 0;
+    border: 0;
+  }
+
+  .table--stack td[data-label]::before {
+    display: block;
+    color: var(--c-text-muted);
+    font-size: var(--fs-xs);
+    content: attr(data-label);
+  }
+
+  .table--stack .table__note {
+    min-width: 0;
+  }
+
+  .table--stack .table__nowrap,
+  .table--stack .table__num,
+  .table--stack .badge {
+    white-space: normal;
+  }
+}
+
+/* --- Disclosure rows, the one-time password panel and the account forms ------------- */
+
+.disclosure {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
+
+.disclosure--row {
+  border: 0;
+  background: none;
+}
+
+.disclosure__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--tap-min);
+  padding: 0 var(--sp-4);
+  color: var(--c-text);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.disclosure--row > .disclosure__summary {
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.user-form,
+.user-manage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4) var(--sp-4);
+}
+
+.disclosure--row > .user-manage {
+  padding-inline: 0;
+}
+
+.user-form__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.secret {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--c-warn);
+  border-radius: var(--r-md);
+  background: var(--c-warn-bg);
+}
+
+.secret__title {
+  font-size: var(--fs-md);
 }

@@ -425,6 +425,7 @@ describe('access control', () => {
     expect(res.json()).toEqual({
       tailnetUrl: 'https://server-home.tail89d77e.ts.net',
       lanUrl: null,
+      lanProblem: null,
       localUrl: 'http://127.0.0.1:8070',
     });
   });

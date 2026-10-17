@@ -12,7 +12,7 @@ export function AccountPage(props: { onSessionChanged: (session: SessionResponse
   const { user } = session;
   const [changed, setChanged] = useState(false);
   return (
-    <>
+    <div class="page page--narrow">
       <PageHeader
         title="Мой профиль"
         icon={UserRound}
@@ -63,6 +63,6 @@ export function AccountPage(props: { onSessionChanged: (session: SessionResponse
           }}
         />
       </section>
-    </>
+    </div>
   );
 }

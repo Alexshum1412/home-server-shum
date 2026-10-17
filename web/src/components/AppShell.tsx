@@ -107,17 +107,18 @@ function TabBar(props: {
     const onPointer = (event: PointerEvent) => {
       if (!inside(event.target)) close(false);
     };
-    const onFocusOut = (event: FocusEvent) => {
-      if (event.relatedTarget && !inside(event.relatedTarget)) close(false);
+    // Focus landing anywhere outside the sheet and its button closes the sheet (a keyboard user
+    // tabbing past «Выйти» would otherwise walk onto page elements hidden behind the scrim).
+    const onFocusIn = (event: FocusEvent) => {
+      if (!inside(event.target)) close(false);
     };
     document.addEventListener('keydown', onKey);
     document.addEventListener('pointerdown', onPointer);
-    sheetRef.current?.addEventListener('focusout', onFocusOut);
-    const sheet = sheetRef.current;
+    document.addEventListener('focusin', onFocusIn);
     return () => {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerdown', onPointer);
-      sheet?.removeEventListener('focusout', onFocusOut);
+      document.removeEventListener('focusin', onFocusIn);
     };
   }, [open]);
 

@@ -110,6 +110,9 @@ export function LoginPage(props: { onSignedIn: (session: SessionResponse) => voi
                 name="password"
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellcheck={false}
                 required
                 value={password}
                 onInput={(event) => setPassword(event.currentTarget.value)}
@@ -137,7 +140,7 @@ export function LoginPage(props: { onSignedIn: (session: SessionResponse) => voi
             {busy ? 'Входим…' : 'Войти'}
           </button>
         </form>
-        <p class="auth__note">Забыли пароль? Его меняет администратор на домашнем компьютере.</p>
+        <p class="auth__note">Забыли пароль? Попросите администратора выдать новый временный пароль.</p>
       </main>
     </div>
   );

@@ -609,6 +609,10 @@
   }
 }
 
+.files__name svg {
+  flex: none;
+}
+
 .files__name {
   display: inline-flex;
   align-items: center;
@@ -646,6 +650,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.photos-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(6rem, 12rem) auto;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+
+.photos-progress progress {
+  accent-color: var(--c-accent);
 }
 
 .months__item {
@@ -708,15 +724,24 @@
   white-space: nowrap;
 }
 
+/* The viewer fills the screen: the buttons never move when a photo arrives, in any orientation. */
 .viewer {
-  width: min(64rem, 100vw);
+  width: 100vw;
   max-width: 100vw;
+  height: 100dvh;
   max-height: 100dvh;
   padding: var(--sp-3);
+  overflow: hidden;
+  overscroll-behavior: contain;
   border: 0;
-  border-radius: var(--r-lg);
   background: var(--c-bg);
   color: var(--c-text);
+}
+
+.viewer[open] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
 }
 
 .viewer::backdrop {
@@ -726,26 +751,64 @@
 .viewer__bar,
 .viewer__nav {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-3);
 }
 
+.viewer__bar .button {
+  flex: none;
+}
+
 .viewer__title {
+  flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .viewer__stage {
+  position: relative;
   display: grid;
+  flex: 1;
   place-items: center;
-  margin: var(--sp-3) 0;
+  min-height: 0;
+  /* Swipe sideways to change the photo; vertical scrolling and pinch-zoom stay with the browser. */
+  touch-action: pan-y pinch-zoom;
 }
 
-.viewer__media {
+.viewer__media,
+.viewer__thumb {
   max-width: 100%;
-  max-height: 70dvh;
+  max-height: 100%;
   border-radius: var(--r-md);
+  object-fit: contain;
+}
+
+.viewer__thumb {
+  filter: blur(2px);
+  opacity: 0.7;
+}
+
+/* The full-size file is loading: it is invisible, the preview (if any) stays on screen. */
+.viewer__media--pending {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.viewer__status {
+  position: absolute;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+}
+
+.viewer__status--error {
+  position: static;
+  max-width: 32rem;
+  color: var(--c-text);
 }
 
 fieldset.segmented {
@@ -798,4 +861,17 @@ fieldset.segmented {
 
 .olivia__title {
   font-size: var(--fs-md);
+}
+
+/* --- Fallback player on the cinema page ------------------------------------------- */
+
+.fallback {
+  margin-top: var(--sp-6);
+}
+
+.fallback__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4) var(--sp-4);
 }

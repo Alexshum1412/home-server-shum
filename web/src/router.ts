@@ -31,17 +31,28 @@ export function navigate(to: string, options: { replace?: boolean } = {}): void 
 
 export interface LocationState {
   path: string;
+  /** Query string with the leading «?» (or ''): the folder, space and month live there. */
+  search: string;
   route: RouteId;
 }
 
 function readLocation(): LocationState {
-  return { path: window.location.pathname, route: matchRoute(window.location.pathname) };
+  return {
+    path: window.location.pathname,
+    search: window.location.search,
+    route: matchRoute(window.location.pathname),
+  };
 }
 
 export function useLocation(): LocationState {
   const [state, setState] = useState(readLocation);
   useEffect(() => {
-    const update = () => setState((prev) => (prev.path === window.location.pathname ? prev : readLocation()));
+    const update = () =>
+      setState((prev) =>
+        prev.path === window.location.pathname && prev.search === window.location.search
+          ? prev
+          : readLocation(),
+      );
     listeners.add(update);
     update();
     return () => {

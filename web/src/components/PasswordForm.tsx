@@ -13,9 +13,13 @@ function PasswordInput(props: {
   autoComplete: 'current-password' | 'new-password';
   visible: boolean;
   describedBy?: string;
+  /** Problem with this very field: shown right under it, so it is seen next to the keyboard. */
+  error?: string;
   inputRef?: { current: HTMLInputElement | null };
   onInput: (value: string) => void;
 }) {
+  const errorId = `${props.id}-error`;
+  const describedBy = [props.describedBy, props.error ? errorId : undefined].filter(Boolean).join(' ');
   return (
     <div class="field">
       <label class="field__label" htmlFor={props.id}>
@@ -31,13 +35,21 @@ function PasswordInput(props: {
         autoCorrect="off"
         spellcheck={false}
         required
-        aria-describedby={props.describedBy}
+        aria-invalid={props.error ? 'true' : undefined}
+        aria-describedby={describedBy || undefined}
         value={props.value}
         onInput={(event) => props.onInput(event.currentTarget.value)}
       />
+      {props.error ? (
+        <p id={errorId} class="form-error" role="alert">
+          {props.error}
+        </p>
+      ) : null}
     </div>
   );
 }
+
+type FieldName = 'current' | 'next' | 'repeat';
 
 /**
  * Change of the signed-in user's own password (POST /api/password). The server ends every other
@@ -56,29 +68,35 @@ export function PasswordForm(props: {
   const [repeat, setRepeat] = useState('');
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<{ field: FieldName; message: string } | null>(null);
   const currentRef = useRef<HTMLInputElement>(null);
   const nextRef = useRef<HTMLInputElement>(null);
   const repeatRef = useRef<HTMLInputElement>(null);
 
-  function fail(message: string, focus: { current: HTMLInputElement | null }) {
-    setError(message);
-    focus.current?.focus();
+  const refs: Record<FieldName, { current: HTMLInputElement | null }> = {
+    current: currentRef,
+    next: nextRef,
+    repeat: repeatRef,
+  };
+
+  function fail(message: string, field: FieldName) {
+    setError({ field, message });
+    refs[field].current?.focus();
   }
 
   async function submit(event: Event) {
     event.preventDefault();
     if (busy) return;
-    if (!current) return fail('Введите текущий пароль.', currentRef);
+    if (!current) return fail('Введите текущий пароль.', 'current');
     if (Array.from(next).length < MIN_PASSWORD_LENGTH) {
-      return fail(`Новый пароль слишком короткий: нужно не меньше ${MIN_PASSWORD_LENGTH} символов.`, nextRef);
+      return fail(`Новый пароль слишком короткий: нужно не меньше ${MIN_PASSWORD_LENGTH} символов.`, 'next');
     }
     if (next.trim().toLowerCase() === props.username.toLowerCase()) {
-      return fail('Пароль не должен совпадать с логином.', nextRef);
+      return fail('Пароль не должен совпадать с логином.', 'next');
     }
-    if (next !== repeat) return fail('Пароли не совпадают. Введите новый пароль ещё раз.', repeatRef);
+    if (next !== repeat) return fail('Пароли не совпадают. Введите новый пароль ещё раз.', 'repeat');
     setBusy(true);
-    setError('');
+    setError(null);
     try {
       const body: ChangePasswordRequest = { currentPassword: current, newPassword: next };
       const session = await apiPost<SessionResponse>('/api/password', body);
@@ -88,9 +106,9 @@ export function PasswordForm(props: {
       setBusy(false);
       if (failure.code === 'wrong_password') {
         setCurrent('');
-        return fail(failure.message, currentRef);
+        return fail(failure.message, 'current');
       }
-      fail(failure.unreachable ? NO_CONNECTION : failure.message, nextRef);
+      fail(failure.unreachable ? NO_CONNECTION : failure.message, 'next');
     }
   }
 
@@ -105,6 +123,7 @@ export function PasswordForm(props: {
         value={current}
         autoComplete="current-password"
         visible={visible}
+        error={error?.field === 'current' ? error.message : undefined}
         inputRef={currentRef}
         onInput={setCurrent}
       />
@@ -115,12 +134,13 @@ export function PasswordForm(props: {
         autoComplete="new-password"
         visible={visible}
         describedBy={hintId}
+        error={error?.field === 'next' ? error.message : undefined}
         inputRef={nextRef}
         onInput={setNext}
       />
       <p id={hintId} class="field__hint">
-        Не меньше {MIN_PASSWORD_LENGTH} символов. Удобно взять 3–4 случайных слова, например
-        «сосна-чайник-маяк-42».
+        Не меньше {MIN_PASSWORD_LENGTH} символов. Удобно взять 3–4 своих слова через дефис и пару цифр — так
+        пароль легко запомнить и трудно угадать.
       </p>
       <PasswordInput
         id={`${ids}-repeat`}
@@ -128,6 +148,7 @@ export function PasswordForm(props: {
         value={repeat}
         autoComplete="new-password"
         visible={visible}
+        error={error?.field === 'repeat' ? error.message : undefined}
         inputRef={repeatRef}
         onInput={setRepeat}
       />
@@ -139,9 +160,6 @@ export function PasswordForm(props: {
         />
         Показать пароли
       </label>
-      <p class="form-error" role="alert">
-        {error}
-      </p>
       <button type="submit" class="button button--primary button--large button--block" disabled={busy}>
         <KeyRound size={20} aria-hidden="true" />
         {busy ? 'Сохраняем…' : props.submitLabel}

@@ -1,6 +1,7 @@
 import { promises as fsp } from 'node:fs';
 import { buildApp } from './app.ts';
 import { type Config, loadConfig } from './config.ts';
+import { type LanListeners, listenOnLan } from './lan.ts';
 import { errorCode } from './lib/json-store.ts';
 
 async function main(): Promise<void> {
@@ -16,6 +17,7 @@ async function main(): Promise<void> {
   const app = await buildApp({ config, startBackground: true });
 
   let closing = false;
+  let lan: LanListeners | null = null;
   const shutdown = (reason: string) => {
     if (closing) return;
     closing = true;
@@ -25,7 +27,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }, 10_000);
     force.unref();
-    app.close().then(
+    Promise.all([app.close(), lan?.close()]).then(
       () => process.exit(0),
       (error: unknown) => {
         app.log.error({ err: error }, 'Ошибка при остановке');
@@ -56,6 +58,19 @@ async function main(): Promise<void> {
     }
     await app.close().catch(() => undefined);
     process.exit(1);
+  }
+
+  // Optional fallback for a home without internet: also listen on the PC's own home-network address.
+  if (config.lanBind.length > 0) {
+    lan = await listenOnLan(app, config.lanBind, config.port);
+    app.dashboard.lan.bound = lan.bound;
+    app.dashboard.lan.failed = lan.failed;
+    for (const address of lan.bound) {
+      app.log.info(`Запасной адрес в домашней сети включён: http://${address}:${config.port}`);
+    }
+    for (const item of lan.failed) {
+      app.log.warn(`Запасной адрес в домашней сети не включён (${item.address}): ${item.reason}`);
+    }
   }
 
   const shownHost = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;

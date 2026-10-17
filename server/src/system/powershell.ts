@@ -60,6 +60,21 @@ ConvertTo-Json -Compress -Depth 3 -InputObject @($items)
 })
 ConvertTo-Json -Compress -Depth 3 -InputObject @($items)
 `,
+  /** Read-only facts about Windows for the independent diagnosis (scripts\doctor.cmd); not used by the portal. */
+  doctorHost: `${HEADER}$tasks = @(Get-ScheduledTask -TaskName 'FamilyServer','FamilyServerBackup' -ErrorAction SilentlyContinue | ForEach-Object {
+  $info = $_ | Get-ScheduledTaskInfo
+  [pscustomobject]@{ name = [string]$_.TaskName; state = [string]$_.State; lastResult = [int64]$info.LastTaskResult }
+})
+$firewall = @(Get-NetFirewallProfile | ForEach-Object { [pscustomobject]@{ name = [string]$_.Name; enabled = [bool]$_.Enabled } })
+$lanRule = [bool](Get-NetFirewallRule -DisplayName 'Family Dashboard (LAN, *)' -ErrorAction SilentlyContinue)
+$uac = (Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name EnableLUA -ErrorAction SilentlyContinue).EnableLUA
+ConvertTo-Json -Compress -Depth 4 -InputObject ([pscustomobject]@{
+  tasks = @($tasks)
+  firewall = @($firewall)
+  lanRule = $lanRule
+  uacEnabled = if ($null -eq $uac) { $null } else { [bool]$uac }
+})
+`,
   osVersion: `${HEADER}$p = Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion'
 ConvertTo-Json -Compress -InputObject ([pscustomobject]@{
   product = [string]$p.ProductName

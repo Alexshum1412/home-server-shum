@@ -282,7 +282,7 @@ function DisksSection({ data }: { data: SystemResponse }) {
         <p class="tile__text">Windows не сообщила ни об одном диске.</p>
       ) : (
         <TableWrap labelledBy="disks-title">
-          <table class="table">
+          <table class="table table--stack">
             <thead>
               <tr>
                 <th scope="col">Модель</th>
@@ -296,17 +296,21 @@ function DisksSection({ data }: { data: SystemResponse }) {
               {disks.value.map((disk: PhysicalDiskInfo, index) => (
                 <tr key={`${disk.model}-${index}`}>
                   <th scope="row">{disk.model}</th>
-                  <td class="table__num">{formatBytes(disk.sizeBytes)}</td>
-                  <td>
+                  <td class="table__num" data-label="Объём">
+                    {formatBytes(disk.sizeBytes)}
+                  </td>
+                  <td data-label="Тип">
                     {disk.mediaType}, {disk.busType}
                   </td>
-                  <td>
+                  <td data-label="Состояние">
                     <StatusBadge status={DISK_HEALTH[disk.health]} />
                     <span class="table__sub">
                       Windows: {disk.rawHealth || NO_DATA}, {disk.rawOperational || NO_DATA}
                     </span>
                   </td>
-                  <td class="table__note">{disk.note ?? 'Нет'}</td>
+                  <td class="table__note" data-label="Примечание">
+                    {disk.note ?? 'Нет'}
+                  </td>
                 </tr>
               ))}
             </tbody>

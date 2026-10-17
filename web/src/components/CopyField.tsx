@@ -23,7 +23,7 @@ function legacyCopy(element: HTMLElement | null): boolean {
 }
 
 /** A value shown as selectable text with a «Копировать» button. */
-export function CopyField(props: { label: string; value: string }) {
+export function CopyField(props: { label: string; value: string; copiedText?: string }) {
   const [state, setState] = useState<CopyState>('idle');
   const valueRef = useRef<HTMLElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -67,9 +67,9 @@ export function CopyField(props: { label: string; value: string }) {
         </button>
       </div>
       <p class="copy-field__status" aria-live="polite">
-        {state === 'copied' ? 'Адрес скопирован.' : null}
+        {state === 'copied' ? (props.copiedText ?? 'Адрес скопирован.') : null}
         {state === 'manual'
-          ? 'Скопировать автоматически не получилось: адрес выделен, скопируйте его вручную.'
+          ? 'Скопировать автоматически не получилось: текст выделен, скопируйте его вручную.'
           : null}
       </p>
     </div>

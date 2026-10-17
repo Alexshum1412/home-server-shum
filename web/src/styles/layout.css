@@ -62,6 +62,10 @@
     color var(--dur-fast) var(--ease);
 }
 
+.sidenav__link svg {
+  flex: none;
+}
+
 .sidenav__link:hover {
   background: var(--c-surface-2);
   color: var(--c-text);
@@ -169,6 +173,14 @@
   line-height: 1.2;
   text-decoration: none;
   touch-action: manipulation;
+}
+
+.tabbar__link span {
+  max-width: 100%;
+  padding-inline: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tabbar__link svg {

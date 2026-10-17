@@ -36,6 +36,7 @@ const NO_LAN: ConnectionResponse = {
   tailnetUrl: 'https://server-home.example.ts.net',
   lanUrl: null,
   localUrl: LOCAL_URL,
+  lanProblem: null,
 };
 const WITH_LAN: ConnectionResponse = { ...NO_LAN, lanUrl: 'http://192.168.1.10:8071' };
 

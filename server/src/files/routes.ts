@@ -4,6 +4,7 @@ import type { FileListResponse, StorageRoot, StorageSpace, UploadResponse } from
 import type { AuditLog } from '../audit/log.ts';
 import { currentUser, type Guards } from '../auth/guards.ts';
 import { sendError } from '../lib/http.ts';
+import { parseByteRange } from '../lib/range.ts';
 import { contentTypeFor, type Location, type Storage, StorageError } from './storage.ts';
 
 declare module 'fastify' {
@@ -104,19 +105,15 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
       reply.header('Content-Security-Policy', FILE_CSP);
       reply.header('Accept-Ranges', 'bytes');
       reply.header('Cache-Control', 'private, no-store');
-      const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range ?? '');
-      if (range && stat.size > 0) {
-        let start = range[1] === '' ? stat.size - Number(range[2]) : Number(range[1]);
-        let end = range[1] === '' || range[2] === '' ? stat.size - 1 : Number(range[2]);
-        start = Math.max(0, start);
-        end = Math.min(end, stat.size - 1);
-        if (!Number.isFinite(start) || start > end) {
-          reply.header('Content-Range', `bytes */${stat.size}`);
-          return reply.code(416).send();
-        }
-        reply.code(206).header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
-        reply.header('Content-Length', String(end - start + 1));
-        return reply.send(storage.stream(file, { start, end }));
+      const range = parseByteRange(request.headers.range, stat.size);
+      if (range === 'invalid') {
+        reply.header('Content-Range', `bytes */${stat.size}`);
+        return reply.code(416).send();
+      }
+      if (range) {
+        reply.code(206).header('Content-Range', `bytes ${range.start}-${range.end}/${stat.size}`);
+        reply.header('Content-Length', String(range.end - range.start + 1));
+        return reply.send(storage.stream(file, { start: range.start, end: range.end }));
       }
       reply.header('Content-Length', String(stat.size));
       return reply.send(storage.stream(file));

@@ -3,6 +3,7 @@ import type { ServiceStatus } from '../../../shared/api.ts';
 import { EmptyState } from '../components/EmptyState.tsx';
 import { ErrorState } from '../components/ErrorState.tsx';
 import type { IconComponent } from '../components/icons.ts';
+import { MediaFallback } from '../components/MediaFallback.tsx';
 import { PageHeader } from '../components/PageHeader.tsx';
 import { RelativeTime } from '../components/RelativeTime.tsx';
 import { Loading } from '../components/Skeleton.tsx';
@@ -142,6 +143,9 @@ export function ServicePage(props: { kind: ServicePageKind }) {
     <div class="page">
       <PageHeader title={service?.name ?? copy.name} icon={Icon} />
       {body}
+      {props.kind === 'media' && loaded ? (
+        <MediaFallback jellyfinOnline={service?.state === 'online'} />
+      ) : null}
       {props.kind === 'photos' ? <PhotoBackupNote /> : null}
     </div>
   );

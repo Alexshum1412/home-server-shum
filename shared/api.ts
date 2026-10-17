@@ -146,6 +146,8 @@ export interface ConnectionResponse {
   lanUrl: string | null;
   /** Address that works on the server itself. */
   localUrl: string;
+  /** Admin only: why the home-network address is switched on but not listening; null otherwise. */
+  lanProblem: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,6 +342,39 @@ export interface UsersResponse {
   >;
 }
 
+/**
+ * POST /api/admin/users (admin only) — creates an account. The password is always generated: the
+ * admin never types or sees a password of someone else, only the temporary one handed out once.
+ * Errors: 400 bad_request / bad_username, 409 exists.
+ */
+export interface CreateUserRequest {
+  username: string;
+  displayName: string;
+  role: Role;
+  /** Extra rights for a family member (admins have all of them). */
+  permissions?: Permission[];
+}
+
+/**
+ * Answer of "create user" and "reset password": the temporary password is shown ONCE (it is stored
+ * only as a hash). It works for the first sign-in until `expiresAt`; the person then chooses their own.
+ */
+export interface TemporaryPasswordResponse {
+  username: string;
+  displayName: string;
+  temporaryPassword: string;
+  expiresAt: string;
+}
+
+/**
+ * POST /api/admin/users/:username/access (admin only) — changes the role and/or the extra rights.
+ * Errors: 400 bad_request / self, 404 not_found, 409 last_admin.
+ */
+export interface UpdateAccessRequest {
+  role?: Role;
+  permissions?: Permission[];
+}
+
 /** GET /api/admin/diagnostics (admin only) — downloadable JSON, no secrets. */
 export interface DiagnosticsResponse {
   generatedAt: string;
@@ -442,6 +477,31 @@ export interface UploadResponse {
   sizeBytes: number;
   /** For photos: what the content turned out to be. */
   media: 'image' | 'video' | null;
+}
+
+// ---------------------------------------------------------------------------
+// Media library fallback (P2): the portal itself plays the library files when Jellyfin is down
+// ---------------------------------------------------------------------------
+
+export type MediaKind = 'video' | 'audio';
+
+export interface MediaEntry {
+  name: string;
+  type: 'dir' | 'file';
+  /** Files only: what the browser will play. */
+  kind: MediaKind | null;
+  sizeBytes: number | null;
+  modifiedAt: string;
+}
+
+/** GET /api/media/list?path= — the folder of the media library (read-only; every signed-in user). */
+export interface MediaListResponse {
+  /** False when the library folder is missing; `reason` says so. */
+  available: boolean;
+  reason: string | null;
+  /** Relative path, forward slashes ('' = top). */
+  path: string;
+  entries: MediaEntry[];
 }
 
 // ---------------------------------------------------------------------------

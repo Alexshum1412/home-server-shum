@@ -10,7 +10,7 @@ import Fastify, {
 import type { ConnectionResponse, HealthResponse } from '../../shared/api.ts';
 import { registerAdminRoutes } from './admin/routes.ts';
 import { type AuditLog, createAuditLog } from './audit/log.ts';
-import { createGuards, type Guards } from './auth/guards.ts';
+import { createGuards, currentUser, type Guards } from './auth/guards.ts';
 import { createLoginTimes, type LoginTimes } from './auth/logins.ts';
 import { createLoginLimiter, type LoginLimiter } from './auth/rate-limit.ts';
 import { registerAuthRoutes } from './auth/routes.ts';
@@ -25,6 +25,8 @@ import { isApiPath, sendError, urlPath } from './lib/http.ts';
 import { removeStaleTempFiles } from './lib/json-store.ts';
 import { type Clock, isoNow, systemClock } from './lib/time.ts';
 import { readAppVersion } from './lib/version.ts';
+import { createMediaLibrary } from './media/library.ts';
+import { registerMediaRoutes } from './media/routes.ts';
 import type { ActionDeps } from './olivia/actions.ts';
 import { registerOliviaRoutes } from './olivia/routes.ts';
 import type { IppTransport } from './print/ipp.ts';
@@ -90,6 +92,8 @@ export interface AppContext {
   collector: SystemCollector;
   guards: Guards;
   downloads: DownloadManager;
+  /** What the extra home-network listeners (LAN_BIND) actually did; filled in by index.ts. */
+  lan: { bound: string[]; failed: Array<{ address: string; reason: string }> };
 }
 
 export type DashboardApp = FastifyInstance & { dashboard: AppContext };
@@ -158,6 +162,8 @@ function portalUrls(config: Config): URL[] {
   for (const url of [config.publicUrl, config.lanUrl]) {
     if (url) urls.push(new URL(url));
   }
+  // Every address the portal is bound to in the home network answers under its own name.
+  for (const address of config.lanBind) urls.push(new URL(`http://${address}:${config.port}`));
   return urls;
 }
 
@@ -309,6 +315,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     collector,
     guards,
     downloads,
+    lan: { bound: [], failed: [] },
   };
   app.decorate('dashboard', context);
 
@@ -434,11 +441,17 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     return body;
   });
 
-  app.get('/api/connection', { preHandler: guards.requireUser }, async () => {
+  app.get('/api/connection', { preHandler: guards.requireUser }, async (request) => {
+    // With LAN_BIND the address is shown only while the portal really listens on it.
+    const lanWanted = config.lanBind.length > 0;
+    const lanListening = !lanWanted || context.lan.bound.length > 0;
+    const isAdmin = currentUser(request).role === 'admin';
+    const problem = context.lan.failed.map((item) => `${item.address}: ${item.reason}`).join('; ');
     const body: ConnectionResponse = {
       tailnetUrl: config.publicUrl,
-      lanUrl: config.lanUrl,
+      lanUrl: lanListening ? config.lanUrl : null,
       localUrl: `http://127.0.0.1:${config.port}`,
+      lanProblem: isAdmin && lanWanted && problem !== '' ? problem : null,
     };
     return body;
   });
@@ -446,7 +459,18 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   registerAuthRoutes(app, { config, clock, users, logins, sessions, audit, limiter, guards });
   registerServiceRoutes(app, { registry, guards, audit, clock });
   registerSystemRoutes(app, { collector, guards });
-  registerAdminRoutes(app, { config, clock, version, guards, audit, users, logins, registry, collector });
+  registerAdminRoutes(app, {
+    config,
+    clock,
+    version,
+    guards,
+    audit,
+    users,
+    logins,
+    registry,
+    collector,
+    limiter,
+  });
   registerDownloadRoutes(app, { config, clock, guards, downloads });
   const freeBytes = options.freeBytes ?? statfsFree;
   const storage = createStorage({
@@ -457,6 +481,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     freeBytes,
   });
   registerFileRoutes(app, { storage, guards, audit, freeBytes, maxUploadBytes: config.uploadMaxFileBytes });
+  registerMediaRoutes(app, { library: createMediaLibrary(config.mediaDir), guards });
   const printQueue = createPrintQueue({
     dataDir: config.dataDir,
     printerUrl: config.printerIppUrl,
