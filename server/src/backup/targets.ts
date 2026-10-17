@@ -146,7 +146,8 @@ export async function checkFreeSpace(
   const required = neededBytes + FREE_SPACE_MARGIN_BYTES;
   if (freeBytes < required) {
     throw new BackupError(
-      `Недостаточно места: свободно ${formatBytes(freeBytes)}, нужно не меньше ${formatBytes(required)}`,
+      `Недостаточно места: свободно ${formatBytes(freeBytes)}, нужно не меньше ${formatBytes(required)}. ` +
+        'Удалите старые копии (backup.cmd prune) или подключите носитель большего объёма.',
     );
   }
 }

@@ -8,7 +8,15 @@ import { createBundle } from './git.ts';
 
 /** One file of a future snapshot: copied from disk or generated in memory. */
 export type SourceEntry =
-  | { readonly path: string; readonly kind: 'file'; readonly absPath: string; readonly size: number }
+  | {
+      readonly path: string;
+      readonly kind: 'file';
+      readonly absPath: string;
+      readonly size: number;
+      /** Modification time; with `linkable` an unchanged file is hard-linked to the previous snapshot. */
+      readonly mtimeMs?: number;
+      readonly linkable?: boolean;
+    }
   | { readonly path: string; readonly kind: 'buffer'; readonly data: Buffer; readonly size: number };
 
 export interface RepoInfo {
@@ -41,6 +49,13 @@ export interface SourceSettings {
   /** null → the code is not bundled. */
   readonly repoDir: string | null;
   readonly gitExe: string;
+  /**
+   * Family data (files, photos, home videos): copied as trees under `prefix`; unchanged files are
+   * hard-linked to the previous snapshot of the same target, so only new data takes space.
+   */
+  readonly familyTrees?: readonly { readonly prefix: string; readonly dir: string }[];
+  /** Jellyfin's data root (config + database); copied while Jellyfin is paused. */
+  readonly jellyfinDataRoot?: string | null;
 }
 
 export interface SourceDeps {
@@ -50,6 +65,11 @@ export interface SourceDeps {
   readonly tailscaleServe: () => Promise<unknown>;
   /** Parent folder for the staging area. */
   readonly tempDir: string;
+  /**
+   * Stops a supervised program for a consistent copy of its database; resolves with a function
+   * that starts it again, or null when it was not running under the supervisor.
+   */
+  readonly pauseService?: (name: string) => Promise<(() => Promise<void>) | null>;
 }
 
 export const BUNDLE_PATH = 'repo.bundle';
@@ -80,6 +100,55 @@ export async function listDataFiles(dataDir: string): Promise<string[]> {
     .filter((entry) => entry.isFile() && isDataFileName(entry.name))
     .map((entry) => entry.name)
     .sort();
+}
+
+/** Names that never go into a copy: trash, unfinished uploads and downloads, temp files. */
+function skipFamilyName(name: string, depth: number): boolean {
+  if (name.startsWith('.')) return !(depth === 0 && name === '.thumbs');
+  const lower = name.toLowerCase();
+  return lower.endsWith('.tmp') || lower.endsWith('.part');
+}
+
+interface TreeFile {
+  rel: string;
+  abs: string;
+  size: number;
+  mtimeMs: number;
+}
+
+/** All regular files below `dir` (links and junctions are skipped, never followed). */
+export async function walkFamilyTree(dir: string): Promise<TreeFile[]> {
+  const out: TreeFile[] = [];
+  async function walk(abs: string, rel: string, depth: number): Promise<void> {
+    let items: Dirent[];
+    try {
+      items = await fsp.readdir(abs, { withFileTypes: true });
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT' && depth === 0) return;
+      throw error;
+    }
+    for (const item of items) {
+      if (skipFamilyName(item.name, depth)) continue;
+      const childAbs = path.join(abs, item.name);
+      const childRel = rel ? `${rel}/${item.name}` : item.name;
+      if (item.isSymbolicLink()) continue;
+      if (item.isDirectory()) await walk(childAbs, childRel, depth + 1);
+      else if (item.isFile()) {
+        const stats = await fsp.lstat(childAbs);
+        out.push({ rel: childRel, abs: childAbs, size: stats.size, mtimeMs: Math.round(stats.mtimeMs) });
+      }
+    }
+  }
+  await walk(dir, '', 0);
+  return out;
+}
+
+/** Jellyfin parts worth keeping: config and database; not metadata images, transcodes or cache. */
+function jellyfinWanted(rel: string): boolean {
+  const lower = rel.toLowerCase();
+  if (!(lower.startsWith('config/') || lower.startsWith('data/'))) return false;
+  if (lower.startsWith('data/metadata/') || lower.startsWith('data/transcodes/')) return false;
+  return !lower.endsWith('.tmp');
 }
 
 function uniqueName(name: string, used: Set<string>): string {
@@ -150,6 +219,50 @@ export async function collectSources(settings: SourceSettings, deps: SourceDeps)
         const reason = describeError(error);
         repo = { ok: false, reason };
         warnings.push(`Копия кода не создана: ${reason}`);
+      }
+    }
+
+    for (const tree of settings.familyTrees ?? []) {
+      try {
+        for (const file of await walkFamilyTree(tree.dir)) {
+          entries.push({
+            path: `${tree.prefix}/${file.rel}`,
+            kind: 'file',
+            absPath: file.abs,
+            size: file.size,
+            mtimeMs: file.mtimeMs,
+            linkable: true,
+          });
+        }
+      } catch (error) {
+        warnings.push(`Семейные данные (${tree.prefix}) не прочитаны полностью: ${describeError(error)}`);
+      }
+    }
+
+    if (
+      settings.jellyfinDataRoot &&
+      (await fsp.stat(settings.jellyfinDataRoot).catch(() => null))?.isDirectory()
+    ) {
+      staging ??= await fsp.mkdtemp(path.join(deps.tempDir, 'family-backup-stage-'));
+      const resume = await deps.pauseService?.('jellyfin').catch((error: unknown) => {
+        warnings.push(`Jellyfin не остановлен на время копии: ${describeError(error)}`);
+        return null;
+      });
+      if (!resume) warnings.push('Jellyfin не был остановлен на время копии: база скопирована «на ходу».');
+      try {
+        const files = (await walkFamilyTree(settings.jellyfinDataRoot)).filter((f) => jellyfinWanted(f.rel));
+        for (const file of files) {
+          const staged = path.join(staging, 'jellyfin', ...file.rel.split('/'));
+          await fsp.mkdir(path.dirname(staged), { recursive: true });
+          await fsp.copyFile(file.abs, staged);
+          entries.push({ path: `jellyfin/${file.rel}`, kind: 'file', absPath: staged, size: file.size });
+        }
+      } catch (error) {
+        warnings.push(`Настройки Jellyfin скопированы не полностью: ${describeError(error)}`);
+      } finally {
+        await resume?.().catch((error: unknown) => {
+          warnings.push(`Jellyfin после копии не запустился: ${describeError(error)}`);
+        });
       }
     }
 

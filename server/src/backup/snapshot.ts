@@ -55,6 +55,8 @@ const manifestSchema = z.object({
       path: z.string().refine(isSafeSnapshotPath, 'недопустимый путь'),
       size: z.number().int().nonnegative(),
       sha256: z.string().regex(/^[0-9a-f]{64}$/),
+      /** Source modification time of family files: unchanged files are linked in the next snapshot. */
+      mtimeMs: z.number().int().nonnegative().optional(),
     }),
   ),
   repo: z.object({
@@ -86,6 +88,11 @@ export interface VerifyOptions {
   gitExe: string;
   /** Scratch space for `git bundle verify`. */
   tempDir: string;
+  /**
+   * Files hard-linked to an already verified snapshot during this run: the same data on disk, so
+   * only the size is checked (re-reading gigabytes of photos every night would take hours).
+   */
+  trustLinked?: ReadonlySet<string>;
 }
 
 export interface VerifyResult {
@@ -171,6 +178,11 @@ export async function verifySnapshot(snapshotDir: string, options: VerifyOptions
       result.problems.push(`Нет файла ${file.path}`);
       continue;
     }
+    if (options.trustLinked?.has(file.path)) {
+      const size = (await fsp.stat(path.join(dir, toNative(file.path))).catch(() => null))?.size;
+      if (size !== file.size) result.problems.push(`Размер файла ${file.path} не совпадает`);
+      continue;
+    }
     let digest: FileDigest;
     try {
       digest = await hashFile(path.join(dir, toNative(file.path)));
@@ -217,11 +229,52 @@ export interface SnapshotOptions extends VerifyOptions {
 }
 
 export interface SnapshotResult {
+  /** Family files hard-linked to the previous snapshot (unchanged since then). */
+  linkedCount?: number;
   name: string;
   dir: string;
   sizeBytes: number;
   fileCount: number;
   manifest: Manifest;
+}
+
+/** The newest complete snapshot in `root` with a readable manifest (for hard-linking unchanged files). */
+export async function latestSnapshot(
+  root: string,
+): Promise<{ dir: string; files: Map<string, ManifestFile> } | null> {
+  const names = (await fsp.readdir(root).catch(() => [] as string[]))
+    .filter((n) => SNAPSHOT_RE.test(n))
+    .sort();
+  for (const name of names.reverse()) {
+    const dir = path.join(root, name);
+    const { manifest } = await readManifest(dir);
+    if (manifest) return { dir, files: new Map(manifest.files.map((f) => [f.path, f])) };
+  }
+  return null;
+}
+
+function unchanged(
+  entry: CollectedSources['entries'][number],
+  prev: ManifestFile | undefined,
+): prev is ManifestFile {
+  return (
+    entry.kind === 'file' &&
+    entry.linkable === true &&
+    prev !== undefined &&
+    prev.size === entry.size &&
+    prev.mtimeMs !== undefined &&
+    prev.mtimeMs === entry.mtimeMs
+  );
+}
+
+/** Bytes this target really needs: unchanged family files will be hard links, not copies. */
+export async function estimateNewBytes(root: string, sources: CollectedSources): Promise<number> {
+  const prev = await latestSnapshot(root);
+  let total = 0;
+  for (const entry of sources.entries) {
+    if (!unchanged(entry, prev?.files.get(entry.path))) total += entry.size;
+  }
+  return total;
 }
 
 /** Reserves "<name>.partial" (mkdir is atomic), adding -2, -3 … when the name is taken. */
@@ -253,16 +306,35 @@ export async function createSnapshot(
   const root = path.resolve(targetRoot);
   await fsp.mkdir(root, { recursive: true });
   const now = options.clock();
+  const previous = await latestSnapshot(root);
   const { name, partial } = await reservePartial(root, snapshotBaseName(now));
+  const linked = new Set<string>();
   try {
     const files: ManifestFile[] = [];
     for (const entry of sources.entries) {
       const dst = path.join(partial, toNative(entry.path));
+      const prev = previous?.files.get(entry.path);
+      if (previous && unchanged(entry, prev)) {
+        try {
+          await fsp.mkdir(path.dirname(dst), { recursive: true });
+          await fsp.link(path.join(previous.dir, toNative(entry.path)), dst);
+          linked.add(entry.path);
+          files.push({ path: entry.path, size: prev.size, sha256: prev.sha256, mtimeMs: prev.mtimeMs });
+          continue;
+        } catch {
+          // no hard links here (or the old file is gone): fall back to a full copy
+        }
+      }
       const digest =
         entry.kind === 'file'
           ? await copyFileHashed(entry.absPath, dst)
           : await writeFileSynced(dst, entry.data);
-      files.push({ path: entry.path, size: digest.size, sha256: digest.sha256 });
+      files.push({
+        path: entry.path,
+        size: digest.size,
+        sha256: digest.sha256,
+        ...(entry.kind === 'file' && entry.mtimeMs !== undefined ? { mtimeMs: entry.mtimeMs } : {}),
+      });
     }
     const manifest: Manifest = {
       formatVersion: MANIFEST_FORMAT_VERSION,
@@ -280,7 +352,7 @@ export async function createSnapshot(
     );
 
     await options.beforeVerify?.(partial);
-    const check = await verifySnapshot(partial, options);
+    const check = await verifySnapshot(partial, { ...options, trustLinked: linked });
     if (!check.ok) {
       throw new BackupError(`Копия не прошла проверку целостности: ${check.problems.join('; ')}`);
     }
@@ -292,6 +364,7 @@ export async function createSnapshot(
       sizeBytes: files.reduce((sum, file) => sum + file.size, 0),
       fileCount: files.length,
       manifest,
+      linkedCount: linked.size,
     };
   } catch (error) {
     await removeTree(partial, root).catch(() => undefined);

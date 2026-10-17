@@ -1,0 +1,3 @@
+# Design
+
+Hard links instead of a deduplicating backup tool (restic/Kopia are not installed and would add a repository format the family cannot browse): a snapshot is still a plain folder, readable without any tool; NTFS hard links share data between snapshots; pruning an old snapshot only drops a link. Unchanged = same relative path, size and modification time as in the previous manifest. Linked files are size-checked at write time (same inode as an already verified file); `backup.cmd verify` re-hashes everything. Jellyfin's SQLite database is copied into the staging folder while the supervisor has Jellyfin stopped, so the copy is consistent and the downtime is the copy time of a few MB.

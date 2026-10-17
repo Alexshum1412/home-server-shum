@@ -5,12 +5,14 @@ import type { Config } from '../config.ts';
 import type { Clock } from '../lib/time.ts';
 import { systemClock } from '../lib/time.ts';
 import { readAppVersion } from '../lib/version.ts';
+import { jellyfinPaths } from '../supervisor/apps.ts';
+import { pipeNameFor, type SupervisorState, sendCommand } from '../supervisor/main.ts';
 import { runTailscaleServeStatus } from '../system/tailscale.ts';
 import { statVolume } from '../system/volumes.ts';
 import { describeError } from './files.ts';
 import { pushBranch } from './git.ts';
 import { applyRetention, assertSafeTargetRoot } from './retention.ts';
-import { createSnapshot } from './snapshot.ts';
+import { createSnapshot, estimateNewBytes } from './snapshot.ts';
 import { type CollectedSources, collectSources, type SourceDeps, type SourceSettings } from './sources.ts';
 import { type BackupTargetStatus, recordBackupRun } from './status.ts';
 import {
@@ -54,9 +56,21 @@ export interface BackupRunResult {
 }
 
 /** Settings from the validated config; the project .env is included by default when it exists. */
-export function backupSettingsFromConfig(config: Config): BackupSettings {
+export function backupSettingsFromConfig(
+  config: Config,
+  env: NodeJS.ProcessEnv = process.env,
+): BackupSettings {
   const defaultEnv = path.join(config.backupRepoDir, '.env');
+  const drive = env.SystemDrive ?? env.SYSTEMDRIVE ?? 'C:';
+  const mediaRoot = env.MEDIA_ROOT?.trim() || path.join(`${drive}${path.sep}`, 'FamilyData', 'Media');
   return {
+    familyTrees: [
+      { prefix: 'family/files', dir: config.filesDir },
+      { prefix: 'family/photos', dir: config.photosDir },
+      // Films and series can be found again; home videos cannot.
+      { prefix: 'family/home-video', dir: path.join(mediaRoot, 'Домашнее видео') },
+    ],
+    jellyfinDataRoot: jellyfinPaths(env, config).dataRoot,
     dataDir: config.dataDir,
     targets: config.backupTargets,
     keep: config.backupKeep,
@@ -76,6 +90,19 @@ export function defaultBackupDeps(config: Config, env: NodeJS.ProcessEnv = proce
     statfs: statVolume,
     tailscaleServe: () => runTailscaleServeStatus(config.tailscaleExe),
     tempDir: os.tmpdir(),
+    pauseService: async (name) => {
+      const pipe = pipeNameFor(config.dataDir);
+      const status = (await sendCommand(pipe, { cmd: 'status' }, 5000).catch(() => null)) as {
+        state?: SupervisorState;
+      } | null;
+      const app = status?.state?.apps.find((a) => a.name === name);
+      if (app?.state !== 'running') return null;
+      const stopped = (await sendCommand(pipe, { cmd: 'stop', app: name }, 90_000)) as { ok?: boolean };
+      if (!stopped.ok) throw new Error('супервизор не остановил программу');
+      return async () => {
+        await sendCommand(pipe, { cmd: 'start', app: name }, 60_000);
+      };
+    },
     systemDrive: /^[a-zA-Z]:$/.test(drive) ? drive.toUpperCase() : 'C:',
   };
 }
@@ -124,7 +151,7 @@ export async function runBackup(settings: BackupSettings, deps: BackupDeps): Pro
         await fsp.mkdir(target.root, { recursive: true });
         // Again with the folder in place: its real path (junctions) is known only now.
         await assertSafeTargetRoot(target.root, settings.dataDir);
-        await checkFreeSpace(target.root, sources.totalBytes, deps.statfs);
+        await checkFreeSpace(target.root, await estimateNewBytes(target.root, sources), deps.statfs);
         const snapshot = await createSnapshot(target.root, sources, {
           clock: runClock,
           appVersion: deps.appVersion,
