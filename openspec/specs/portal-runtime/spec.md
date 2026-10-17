@@ -35,7 +35,7 @@ Non-API GET requests for unknown paths SHALL return the app shell so deep links 
 - **THEN** the app shell is returned with status 200
 
 ### Requirement: Graceful start and stop on Windows
-The project SHALL provide documented commands to build, start in the background, check status and stop the server. Stopping SHALL terminate the server process and release the port. Every data change SHALL be written to disk atomically when it happens, so a forced stop loses at most the last-activity time of sessions from the last minute.
+The project SHALL provide documented commands to build, start in the background, check status and stop the server. Start and stop SHALL go through the supervisor when it is in use; stopping SHALL end the server cleanly and release the port. Every data change SHALL be written to disk atomically when it happens, so a forced stop loses at most the last-activity time of sessions from the last minute.
 
 #### Scenario: Stop
 - **WHEN** the owner runs the stop command
@@ -50,9 +50,32 @@ The project SHALL provide documented commands to build, start in the background,
 - **WHEN** the developer presses Ctrl+C in the terminal where the server runs in the foreground (`npm.cmd start`, `npm.cmd run dev:server`)
 - **THEN** the server closes gracefully: pending writes are flushed and the port is released
 
+#### Scenario: Clean stop under the supervisor
+- **WHEN** the owner runs `scripts\stop.cmd` while the supervisor runs the portal
+- **THEN** the portal receives the IPC shutdown message, exits with code 0 and the supervisor exits too
+
 ### Requirement: Private remote access only
 Remote access SHALL be provided only through the private tailnet (Tailscale Serve HTTPS to the loopback port). The project SHALL NOT enable Tailscale Funnel, router port forwarding or firewall changes.
 
 #### Scenario: Tailnet access
 - **WHEN** a family device on the tailnet opens `https://server-home.tail89d77e.ts.net`
 - **THEN** it reaches the portal over HTTPS, while the address is not reachable from the public internet
+
+### Requirement: Autostart and crash recovery
+The family server SHALL start by itself after Windows starts, without a stored Windows password and without a visible window, and SHALL restart its programs after a crash or a hang. Exactly one supervisor SHALL run per data directory. A stop by the owner SHALL hold until the next start command or reboot. Autostart SHALL be removable with one command.
+
+#### Scenario: Crash
+- **WHEN** the portal process exits unexpectedly
+- **THEN** the supervisor logs the exit and starts it again after a back-off of at most 60 s
+
+#### Scenario: Hang
+- **WHEN** a running program fails its health check 3 times in a row after the start-up grace period
+- **THEN** the supervisor restarts it
+
+#### Scenario: Second instance
+- **WHEN** another supervisor is started for the same data directory (e.g. by the 5-minute watchdog trigger)
+- **THEN** it exits at once without starting programs
+
+#### Scenario: Stopped by the owner
+- **WHEN** the watchdog trigger fires after `scripts\stop.cmd` and before a reboot or `scripts\start.cmd`
+- **THEN** nothing is started

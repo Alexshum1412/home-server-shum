@@ -10,6 +10,7 @@ import {
   Printer,
   ShieldCheck,
   Smartphone,
+  UserRound,
 } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useId, useRef, useState } from 'preact/hooks';
@@ -41,6 +42,7 @@ const SECONDARY: readonly NavItem[] = [
   { path: '/system', label: 'Состояние', icon: Activity },
   { path: '/help', label: 'Подключение', icon: Smartphone },
   { path: '/admin', label: 'Администрирование', icon: ShieldCheck },
+  { path: '/account', label: 'Мой профиль', icon: UserRound },
 ];
 
 function NavLink(props: { item: NavItem; path: string; class: string; onClick?: () => void }) {

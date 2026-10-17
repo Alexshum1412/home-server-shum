@@ -2,7 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Config } from '../config.ts';
 import { sendError } from '../lib/http.ts';
 import { SESSION_COOKIE, SESSION_TTL_MS, type SessionStore } from './sessions.ts';
-import type { StoredUser, UserStore } from './users.ts';
+import { needsPasswordChange, type StoredUser, type UserStore } from './users.ts';
 
 export interface AuthDeps {
   config: Config;
@@ -83,16 +83,34 @@ export function currentUser(request: FastifyRequest): StoredUser {
   return user;
 }
 
+export const PASSWORD_CHANGE_REQUIRED_MESSAGE =
+  'Сначала придумайте свой пароль: временный пароль действует только для первого входа.';
+
 export function createGuards(deps: AuthDeps) {
   return {
+    /**
+     * Any signed-in user, including one who still has to replace a generated password. Only for
+     * the session probe and the password change itself.
+     */
+    async requireSignedIn(request: FastifyRequest, reply: FastifyReply): Promise<unknown> {
+      const user = await resolveUser(deps, request, reply);
+      if (!user) return sendError(reply, 401, 'unauthorized', 'Войдите в портал, чтобы продолжить.');
+      return undefined;
+    },
     async requireUser(request: FastifyRequest, reply: FastifyReply): Promise<unknown> {
       const user = await resolveUser(deps, request, reply);
       if (!user) return sendError(reply, 401, 'unauthorized', 'Войдите в портал, чтобы продолжить.');
+      if (needsPasswordChange(user)) {
+        return sendError(reply, 403, 'password_change_required', PASSWORD_CHANGE_REQUIRED_MESSAGE);
+      }
       return undefined;
     },
     async requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<unknown> {
       const user = await resolveUser(deps, request, reply);
       if (!user) return sendError(reply, 401, 'unauthorized', 'Войдите в портал, чтобы продолжить.');
+      if (needsPasswordChange(user)) {
+        return sendError(reply, 403, 'password_change_required', PASSWORD_CHANGE_REQUIRED_MESSAGE);
+      }
       if (user.role !== 'admin') {
         return sendError(reply, 403, 'forbidden', 'Этот раздел доступен только администратору.');
       }

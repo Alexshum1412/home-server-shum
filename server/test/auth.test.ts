@@ -129,6 +129,7 @@ describe('login', () => {
     expect(body).toEqual({
       user: { id: expect.any(String), username: 'mama', displayName: 'Мама', role: 'family' },
       demo: false,
+      mustChangePassword: false,
     });
     expect(res.body).not.toContain('scrypt');
     expect(cookie).toBeDefined();

@@ -3,7 +3,18 @@ import { expect, test } from '@playwright/test';
 import { VIEWPORTS } from './fixtures.ts';
 import { expectNoHorizontalOverflow, mainNav, signIn } from './helpers.ts';
 
-const PAGES = ['/', '/cinema', '/photos', '/files', '/downloads', '/print', '/system', '/help', '/admin'];
+const PAGES = [
+  '/',
+  '/cinema',
+  '/photos',
+  '/files',
+  '/downloads',
+  '/print',
+  '/system',
+  '/help',
+  '/admin',
+  '/account',
+];
 
 test.describe('responsive layout', () => {
   for (const width of VIEWPORTS) {
@@ -45,7 +56,7 @@ test.describe('accessibility', () => {
     expect(bad.map((v) => `${v.id}: ${v.help} (${v.nodes.length})`)).toEqual([]);
   });
 
-  for (const path of ['/', '/system', '/help', '/admin', '/photos']) {
+  for (const path of ['/', '/system', '/help', '/admin', '/photos', '/account']) {
     test(`${path} has no serious or critical axe violations`, async ({ page }) => {
       await signIn(page, 'admin', path);
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible();

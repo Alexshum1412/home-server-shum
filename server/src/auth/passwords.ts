@@ -1,4 +1,4 @@
-import { randomBytes, type ScryptOptions, scrypt, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomInt, type ScryptOptions, scrypt, timingSafeEqual } from 'node:crypto';
 
 const SCRYPT_N = 32768;
 const SCRYPT_R = 8;
@@ -10,6 +10,30 @@ const MAX_MEM = 128 * 1024 * 1024;
 
 export const PASSWORD_MIN_LENGTH = 10;
 export const PASSWORD_MAX_LENGTH = 256;
+
+/** A generated password works only for the first sign-in, and only for this long. */
+export const TEMPORARY_PASSWORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** No look-alike characters (0/O, 1/l/I), so the password can be typed from a phone screen. */
+const GENERATED_ALPHABET = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const GENERATED_GROUPS = 4;
+const GENERATED_GROUP_LENGTH = 5;
+
+/**
+ * Random password from the OS CSPRNG: 4 groups of 5 characters separated by "-",
+ * 20 × log2(56) ≈ 116 bits. Never stored anywhere except as a scrypt hash.
+ */
+export function generatePassword(): string {
+  const groups: string[] = [];
+  for (let g = 0; g < GENERATED_GROUPS; g += 1) {
+    let group = '';
+    for (let i = 0; i < GENERATED_GROUP_LENGTH; i += 1) {
+      group += GENERATED_ALPHABET[randomInt(GENERATED_ALPHABET.length)];
+    }
+    groups.push(group);
+  }
+  return groups.join('-');
+}
 
 function scryptAsync(
   password: string,

@@ -2,6 +2,10 @@ import { defineConfig, devices } from '@playwright/test';
 
 // Uses the installed Google Chrome (channel 'chrome'): no browser downloads.
 // Two isolated servers with throwaway data dirs: real mode (8071) and demo mode (8072).
+// They run on the same node.exe as Playwright itself: a `node` found on PATH may be another,
+// stale copy (seen on this PC: an old AppData copy that crashed with an access violation).
+const NODE = `"${process.execPath}"`;
+
 export default defineConfig({
   testDir: 'tests/e2e',
   outputDir: 'test-results',
@@ -24,13 +28,13 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'node tests/e2e/start-server.mjs real 8071',
+      command: `${NODE} tests/e2e/start-server.mjs real 8071`,
       url: 'http://127.0.0.1:8071/api/health',
       reuseExistingServer: false,
       timeout: 60_000,
     },
     {
-      command: 'node tests/e2e/start-server.mjs demo 8072',
+      command: `${NODE} tests/e2e/start-server.mjs demo 8072`,
       url: 'http://127.0.0.1:8072/api/health',
       reuseExistingServer: false,
       timeout: 60_000,

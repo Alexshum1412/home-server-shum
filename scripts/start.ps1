@@ -1,10 +1,12 @@
 ﻿<#
 .SYNOPSIS
-  Запускает семейный дашборд в фоне (права администратора не нужны).
+  Запускает семейный портал в фоне под наблюдением супервизора.
 .DESCRIPTION
-  Проверяет Node.js и зависимости, при необходимости собирает интерфейс,
-  запускает сервер скрытым процессом, пишет PID и ждёт ответа /api/health.
-  Логи: <каталог данных>\logs\dashboard.out.log и dashboard.err.log
+  Проверяет Node.js и зависимости, при необходимости собирает интерфейс и запускает супервизор
+  (server\src\supervisor\main.ts): через задачу планировщика «FamilyServer», если автозапуск включён,
+  иначе скрытым процессом в этом сеансе. Супервизор держит портал (и Jellyfin, если установлен),
+  перезапускает их после сбоя и зависания. Скрипт ждёт ответа /api/health.
+  Логи: <каталог данных>\logs\supervisor.log, dashboard.out.log, dashboard.err.log
 #>
 [CmdletBinding()]
 param()
@@ -30,23 +32,6 @@ if (-not (Test-Path -LiteralPath (Join-Path $cfg.RepoRoot 'node_modules'))) {
   exit 1
 }
 
-$running = @(Get-DashboardProcess $cfg)
-if ($running.Count -gt 0) {
-  if (Test-DashboardHealth $cfg.Port) {
-    Write-Host "Дашборд уже запущен (PID $($running[0].ProcessId)): http://127.0.0.1:$($cfg.Port)" -ForegroundColor Green
-    exit 0
-  }
-  Write-Host "Найден процесс дашборда (PID $($running[0].ProcessId)), но он не отвечает. Выполните scripts\stop.cmd и повторите." -ForegroundColor Yellow
-  exit 1
-}
-
-$busy = Get-NetTCPConnection -State Listen -LocalPort $cfg.Port -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($busy) {
-  $owner = (Get-Process -Id $busy.OwningProcess -ErrorAction SilentlyContinue).ProcessName
-  Write-Host "Порт $($cfg.Port) уже занят процессом '$owner' (PID $($busy.OwningProcess)). Укажите другой PORT в .env." -ForegroundColor Red
-  exit 1
-}
-
 if (-not (Test-Path -LiteralPath (Join-Path $cfg.RepoRoot 'dist\web\index.html'))) {
   Write-Host 'Интерфейс ещё не собран — собираю (npm.cmd run build)...'
   $npm = Join-Path (Split-Path -Parent $node) 'npm.cmd'
@@ -55,52 +40,65 @@ if (-not (Test-Path -LiteralPath (Join-Path $cfg.RepoRoot 'dist\web\index.html')
 }
 
 New-Item -ItemType Directory -Force -Path $cfg.LogDir, $cfg.RunDir | Out-Null
-$out = Join-Path $cfg.LogDir 'dashboard.out.log'
-$err = Join-Path $cfg.LogDir 'dashboard.err.log'
-foreach ($f in $out, $err) {
-  if (Test-Path -LiteralPath $f) { Move-Item -LiteralPath $f -Destination "$f.1" -Force }
+# start.cmd cancels an earlier stop.cmd: the scheduler watchdog may start the supervisor again.
+Remove-Item -LiteralPath (Join-Path $cfg.RunDir 'supervisor-stopped.json') -ErrorAction SilentlyContinue
+
+$status = Invoke-Supervisor @('status')
+if ($status -and $status.ok) {
+  if (-not (Test-DashboardHealth $cfg.Port)) {
+    Write-Host 'Супервизор работает — прошу его запустить портал...'
+    Invoke-Supervisor @('start', 'dashboard') | Out-Null
+  }
+} elseif (Test-DashboardHealth $cfg.Port) {
+  $running = @(Get-DashboardProcess $cfg)
+  $who = if ($running.Count -gt 0) { " (PID $($running[0].ProcessId))" } else { '' }
+  Write-Host "Портал уже запущен без супервизора$who`: http://127.0.0.1:$($cfg.Port)" -ForegroundColor Green
+  Write-Host 'Чтобы портал перезапускался после сбоя, выполните scripts\stop.cmd и затем scripts\start.cmd.'
+  exit 0
+} else {
+  $busy = Get-NetTCPConnection -State Listen -LocalPort $cfg.Port -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($busy) {
+    $owner = (Get-Process -Id $busy.OwningProcess -ErrorAction SilentlyContinue).ProcessName
+    Write-Host "Порт $($cfg.Port) уже занят процессом '$owner' (PID $($busy.OwningProcess)). Укажите другой PORT в .env." -ForegroundColor Red
+    exit 1
+  }
+  if (Get-SupervisorTask) {
+    Write-Host "Запускаю задачу планировщика «$script:SupervisorTask» (супервизор портала)..."
+    Start-ScheduledTask -TaskName $script:SupervisorTask
+  } else {
+    # Without the autostart task: the supervisor runs hidden in this user's session. cmd.exe via
+    # ShellExecute (no -Redirect*) so the background process does not inherit this window's handles:
+    # a caller capturing the output of start.cmd would otherwise hang until the server stops.
+    $console = Join-Path $cfg.LogDir 'supervisor.console.log'
+    $cmdExe = Join-Path $env:SystemRoot 'System32\cmd.exe'
+    $cmdArgs = "/d /s /c `"`"$node`" --env-file-if-exists=.env server/src/supervisor/main.ts 1>>`"$console`" 2>&1`""
+    Start-Process -FilePath $cmdExe -ArgumentList $cmdArgs -WorkingDirectory $cfg.RepoRoot -WindowStyle Hidden | Out-Null
+  }
 }
 
-# cmd.exe writes the server output to the log files. Start-Process WITHOUT -Redirect* goes through
-# ShellExecute, so the background server does not inherit this window's handles: a caller that
-# captures the output of start.cmd (scripts, agents, CI) would otherwise hang until the server stops.
-$cmdExe = Join-Path $env:SystemRoot 'System32\cmd.exe'
-$cmdArgs = "/d /s /c `"`"$node`" --env-file-if-exists=.env server/src/index.ts 1>`"$out`" 2>`"$err`"`""
-$launcher = Start-Process -FilePath $cmdExe -ArgumentList $cmdArgs -WorkingDirectory $cfg.RepoRoot `
-  -WindowStyle Hidden -PassThru
-
-$deadline = (Get-Date).AddSeconds(25)
+$deadline = (Get-Date).AddSeconds(40)
 while ((Get-Date) -lt $deadline) {
   if (Test-DashboardHealth $cfg.Port) {
     $server = @(Get-DashboardProcess $cfg) | Select-Object -First 1
     $serverPid = if ($server) { [int]$server.ProcessId } else { $null }
     @{ pid = $serverPid; port = $cfg.Port; startedAt = (Get-Date).ToString('o') } |
       ConvertTo-Json | Set-Content -LiteralPath $cfg.PidFile -Encoding UTF8
-    Write-Host "Дашборд запущен (PID $serverPid)." -ForegroundColor Green
+    Write-Host "Портал запущен (PID $serverPid) под наблюдением супервизора." -ForegroundColor Green
     Write-Host "  На этом компьютере: http://127.0.0.1:$($cfg.Port)"
-    Write-Host "  Логи: $($cfg.LogDir)"
+    Write-Host "  Логи: $($cfg.LogDir) (supervisor.log, dashboard.out.log, dashboard.err.log)"
     exit 0
   }
-  if ($launcher.HasExited) { break }
   Start-Sleep -Milliseconds 500
 }
 
-if ($launcher.HasExited) {
-  Write-Host 'Сервер завершился при запуске. Последние строки журналов:' -ForegroundColor Red
-} else {
-  Write-Host 'Сервер не ответил за 25 секунд. Последние строки журналов:' -ForegroundColor Red
-  # Stop the half-started server (the node child of the launcher) and the launcher itself.
-  Get-CimInstance Win32_Process -Filter "ParentProcessId = $($launcher.Id)" -ErrorAction SilentlyContinue |
-    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-  Stop-Process -Id $launcher.Id -Force -ErrorAction SilentlyContinue
-}
+Write-Host 'Портал не ответил за 40 секунд. Последние строки журналов:' -ForegroundColor Red
 # Fastify logs (including listen errors such as a busy or reserved port) go to stdout -> out.log;
-# configuration errors go to stderr -> err.log. Both are UTF-8.
-foreach ($f in $out, $err) {
+# configuration errors go to stderr -> err.log; the supervisor writes supervisor.log. All UTF-8.
+foreach ($name in 'supervisor.log', 'supervisor.console.log', 'dashboard.out.log', 'dashboard.err.log') {
+  $f = Join-Path $cfg.LogDir $name
   if (Test-Path -LiteralPath $f) {
     Write-Host "--- $f"
-    Get-Content -LiteralPath $f -Tail 20 -Encoding UTF8
+    Get-Content -LiteralPath $f -Tail 15 -Encoding UTF8
   }
 }
-Remove-Item -LiteralPath $cfg.PidFile -ErrorAction SilentlyContinue
 exit 1

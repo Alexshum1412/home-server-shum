@@ -92,6 +92,8 @@ const AUDIT_ACTIONS: Record<string, string> = {
   'login.rate_limited': 'Вход временно заблокирован',
   'login.ratelimit': 'Вход временно заблокирован',
   logout: 'Выход',
+  'password.change': 'Смена пароля',
+  'password.change_failed': 'Неудачная смена пароля',
   'services.refresh': 'Проверка сервисов вручную',
   'diagnostics.export': 'Выгрузка диагностики',
 };

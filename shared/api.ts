@@ -33,6 +33,21 @@ export interface SessionResponse {
   user: SessionUser;
   /** True when the server runs in demo mode (fake data, clearly labelled). */
   demo: boolean;
+  /**
+   * True after signing in with a generated (temporary) password: every other API answers
+   * 403 password_change_required until POST /api/password succeeds.
+   */
+  mustChangePassword: boolean;
+}
+
+/**
+ * POST /api/password — the signed-in user changes their own password. On success all other
+ * sessions of the user end, this device gets a fresh session and the body is a SessionResponse.
+ * Errors: 400 bad_request / weak_password / wrong_password, 401 unauthorized, 429 too_many_attempts.
+ */
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
 }
 
 /** GET /api/setup-state — public: tells the login screen whether any user exists yet. */
@@ -275,7 +290,15 @@ export interface AuditResponse {
 
 /** GET /api/admin/users (admin only) */
 export interface UsersResponse {
-  users: Array<SessionUser & { createdAt: string; lastLoginAt: string | null }>;
+  users: Array<
+    SessionUser & {
+      createdAt: string;
+      lastLoginAt: string | null;
+      /** Still has the generated first-sign-in password (expires at passwordExpiresAt). */
+      temporaryPassword: boolean;
+      passwordExpiresAt: string | null;
+    }
+  >;
 }
 
 /** GET /api/admin/diagnostics (admin only) — downloadable JSON, no secrets. */

@@ -23,6 +23,7 @@ const EXPECTED: Array<[string, RouteId]> = [
   ['/system', 'system'],
   ['/help', 'help'],
   ['/admin', 'admin'],
+  ['/account', 'account'],
   ['/login', 'login'],
 ];
 

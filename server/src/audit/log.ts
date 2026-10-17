@@ -10,6 +10,8 @@ export type AuditAction =
   | 'login.failure'
   | 'login.blocked'
   | 'logout'
+  | 'password.change'
+  | 'password.change_failed'
   | 'services.refresh'
   | 'diagnostics.export';
 

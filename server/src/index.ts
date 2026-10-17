@@ -16,10 +16,10 @@ async function main(): Promise<void> {
   const app = await buildApp({ config, startBackground: true });
 
   let closing = false;
-  const shutdown = (signal: string) => {
+  const shutdown = (reason: string) => {
     if (closing) return;
     closing = true;
-    app.log.info(`Получен ${signal}, сервер останавливается…`);
+    app.log.info(`Сервер останавливается (${reason})…`);
     const force = setTimeout(() => {
       app.log.error('Сервер не остановился за 10 с, выход принудительно');
       process.exit(1);
@@ -36,6 +36,12 @@ async function main(): Promise<void> {
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGBREAK'] as const) {
     process.on(signal, () => shutdown(signal));
   }
+  // Under the supervisor (server/src/supervisor) a clean stop arrives over IPC: Windows has no
+  // SIGTERM, and killing the process would skip flushing sessions and the audit log.
+  process.on('message', (message: unknown) => {
+    if ((message as { type?: unknown } | null)?.type === 'shutdown') shutdown('команда супервизора');
+  });
+  process.on('disconnect', () => shutdown('отключение от супервизора'));
 
   try {
     await app.listen({ host: config.host, port: config.port });

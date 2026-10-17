@@ -102,3 +102,42 @@ function Test-DashboardHealth([int]$Port, [int]$TimeoutSec = 2) {
     return $false
   }
 }
+
+# --- Supervisor (server/src/supervisor/main.ts) ------------------------------------------------
+# The scheduler task that starts the supervisor at boot (S4U: no password stored, no window).
+$script:SupervisorTask = 'FamilyServer'
+
+function Test-IsSupervisorCommandLine($proc) {
+  return ($proc -and $proc.Name -eq 'node.exe' -and $proc.CommandLine -and
+    $proc.CommandLine -match 'server[\\/]src[\\/]supervisor[\\/]main\.ts')
+}
+
+function Get-SupervisorProcess {
+  return @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { Test-IsSupervisorCommandLine $_ })
+}
+
+# Runs `node server/src/supervisor/main.ts <args>` and returns the parsed JSON answer, or $null
+# when the supervisor is not running (exit code 3) or answered nothing useful.
+function Invoke-Supervisor([string[]]$Arguments) {
+  $node = Get-NodeExe
+  if (-not $node) { return $null }
+  Push-Location -LiteralPath $script:RepoRoot
+  # Node prints UTF-8; without this Windows PowerShell decodes it with the OEM code page.
+  $previousEncoding = [Console]::OutputEncoding
+  [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
+  try {
+    $out = & $node --env-file-if-exists=.env server/src/supervisor/main.ts @Arguments 2>$null
+    if ($LASTEXITCODE -eq 3 -or -not $out) { return $null }
+    return (($out -join "`n") | ConvertFrom-Json)
+  } catch {
+    return $null
+  } finally {
+    [Console]::OutputEncoding = $previousEncoding
+    Pop-Location
+  }
+}
+
+function Get-SupervisorTask {
+  return Get-ScheduledTask -TaskName $script:SupervisorTask -ErrorAction SilentlyContinue
+}

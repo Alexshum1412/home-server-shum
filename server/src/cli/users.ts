@@ -7,12 +7,19 @@
 import { promises as fsp } from 'node:fs';
 import type { Role } from '../../../shared/api.ts';
 import { lastLoginOf, readLoginTimes } from '../auth/logins.ts';
-import { checkPasswordPolicy, hashPassword } from '../auth/passwords.ts';
+import {
+  checkPasswordPolicy,
+  generatePassword,
+  hashPassword,
+  TEMPORARY_PASSWORD_TTL_MS,
+} from '../auth/passwords.ts';
 import {
   createUserStore,
   DISPLAY_NAME_MAX,
+  needsPasswordChange,
   normaliseUsername,
   type StoredUser,
+  temporaryPasswordExpired,
   USERNAME_RE,
   type UserStore,
 } from '../auth/users.ts';
@@ -35,15 +42,17 @@ function usage(dataDir: string): string {
     'Управление пользователями семейного портала.',
     '',
     'Команды (из папки проекта):',
-    '  scripts\\user.cmd add <логин> --name "<Имя>" --role family|admin',
+    '  scripts\\user.cmd add <логин> --name "<Имя>" --role family|admin [--generate-password]',
     '  scripts\\user.cmd list',
-    '  scripts\\user.cmd passwd <логин>',
+    '  scripts\\user.cmd passwd <логин> [--generate-password]',
     '  scripts\\user.cmd role <логин> family|admin',
     '  scripts\\user.cmd remove <логин> --yes',
     '',
     'Логин: латиница в нижнем регистре, цифры, «.», «_», «-» (2–32 символа), например mama.',
     'Пароль вводится дважды и не отображается на экране; не меньше 10 символов.',
     'Для скриптов: --password-stdin — прочитать пароль одной строкой из стандартного ввода.',
+    '--generate-password — создать случайный временный пароль: он показывается один раз, действует',
+    '  7 дней и только для первого входа — сразу после входа портал попросит придумать свой.',
     `Каталог данных: ${dataDir} (переменная DASHBOARD_DATA_DIR).`,
   ].join('\n');
 }
@@ -54,7 +63,7 @@ interface ParsedArgs {
 }
 
 const VALUE_FLAGS = new Set(['name', 'role']);
-const BOOLEAN_FLAGS = new Set(['yes', 'password-stdin', 'help']);
+const BOOLEAN_FLAGS = new Set(['yes', 'password-stdin', 'generate-password', 'help']);
 
 function parseArgs(argv: string[]): ParsedArgs {
   const positional: string[] = [];
@@ -176,7 +185,36 @@ function promptHidden(question: string): Promise<string> {
   });
 }
 
-async function obtainPassword(username: string, args: ParsedArgs): Promise<string> {
+interface ObtainedPassword {
+  password: string;
+  /** Generated: shown once, must be replaced at the first sign-in, expires at this time. */
+  temporaryUntil?: string;
+}
+
+function printTemporaryPassword(username: string, password: string, until: string): void {
+  const date = new Date(until).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+  console.log('');
+  console.log(`  Логин:            ${username}`);
+  console.log(`  Временный пароль: ${password}`);
+  console.log('');
+  console.log(`Пароль показан один раз и нигде не сохранён. Он действует до ${date} и только для`);
+  console.log('первого входа: сразу после входа портал попросит придумать свой пароль.');
+}
+
+async function obtainPassword(username: string, args: ParsedArgs): Promise<ObtainedPassword> {
+  if (args.flags.has('generate-password')) {
+    if (args.flags.has('password-stdin')) {
+      throw new CliError('Укажите что-то одно: --generate-password или --password-stdin.', 2);
+    }
+    return {
+      password: generatePassword(),
+      temporaryUntil: new Date(Date.now() + TEMPORARY_PASSWORD_TTL_MS).toISOString(),
+    };
+  }
+  return { password: await obtainOwnPassword(username, args) };
+}
+
+async function obtainOwnPassword(username: string, args: ParsedArgs): Promise<string> {
   if (args.flags.has('password-stdin')) {
     const password = await readLineFromStdin();
     const problem = checkPasswordPolicy(password, username);
@@ -217,6 +255,12 @@ function adminCount(users: readonly StoredUser[]): number {
   return users.filter((user) => user.role === 'admin').length;
 }
 
+function passwordState(user: StoredUser): string {
+  if (!needsPasswordChange(user)) return 'свой';
+  if (temporaryPasswordExpired(user, Date.now())) return 'временный, срок истёк';
+  return `временный, до ${(user.passwordExpiresAt ?? '').slice(0, 10)}`;
+}
+
 function describeUser(user: Pick<StoredUser, 'username' | 'displayName' | 'role'>): string {
   return `«${user.username}» (${user.displayName}, роль: ${ROLE_LABEL[user.role]})`;
 }
@@ -250,14 +294,16 @@ async function run(argv: string[]): Promise<void> {
         throw new CliError(`Имя для приветствия должно быть от 1 до ${DISPLAY_NAME_MAX} символов.`, 2);
       }
       const role = parseRole(stringFlag(args, 'role'), 'family');
-      const password = await obtainPassword(username, args);
+      const { password, temporaryUntil } = await obtainPassword(username, args);
       const user = await store.add({
         username,
         displayName,
         role,
         passwordHash: await hashPassword(password),
+        ...(temporaryUntil ? { temporaryUntil } : {}),
       });
       console.log(`Пользователь ${describeUser(user)} создан. Теперь он может войти в портал.`);
+      if (temporaryUntil) printTemporaryPassword(user.username, password, temporaryUntil);
       return;
     }
     case 'list': {
@@ -278,9 +324,10 @@ async function run(argv: string[]): Promise<void> {
           ROLE_LABEL[user.role],
           user.createdAt.slice(0, 10),
           lastLoginAt ? lastLoginAt.replace('T', ' ').slice(0, 16) : 'не входил',
+          passwordState(user),
         ];
       });
-      const header = ['Логин', 'Имя', 'Роль', 'Создан', 'Последний вход'];
+      const header = ['Логин', 'Имя', 'Роль', 'Создан', 'Последний вход', 'Пароль'];
       const widths = header.map((title, col) =>
         Math.max(title.length, ...rows.map((row) => (row[col] ?? '').length)),
       );
@@ -291,12 +338,15 @@ async function run(argv: string[]): Promise<void> {
     }
     case 'passwd': {
       const user = await requireUser(store, target);
-      const password = await obtainPassword(user.username, args);
+      const { password, temporaryUntil } = await obtainPassword(user.username, args);
       await store.update(user.id, {
         passwordHash: await hashPassword(password),
         passwordChangedAt: new Date().toISOString(),
+        mustChangePassword: temporaryUntil !== undefined,
+        passwordExpiresAt: temporaryUntil ?? null,
       });
       console.log(`Пароль пользователя «${user.username}» изменён. Все его открытые сеансы завершены.`);
+      if (temporaryUntil) printTemporaryPassword(user.username, password, temporaryUntil);
       return;
     }
     case 'role': {

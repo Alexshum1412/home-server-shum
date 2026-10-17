@@ -137,6 +137,7 @@ export function withProviders(children: ComponentChildren, options: ProvidersOpt
   const session: SessionResponse = {
     user: { id: role, username: role, displayName: role === 'admin' ? 'Админ' : 'Мама', role },
     demo: options.demo ?? false,
+    mustChangePassword: false,
   };
   const data: DataContextValue = {
     services: options.services ?? polling(servicesResponse([])),

@@ -1,7 +1,7 @@
 // Starts an isolated dashboard server for Playwright: fresh temp data dir, seeded test users,
 // real system probes, built UI from dist/web. Usage: node tests/e2e/start-server.mjs <real|demo> <port>
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +29,8 @@ const env = {
 const users = [
   ['e2e-admin', 'Тестовый админ', 'admin', 'e2e-admin-password-1'],
   ['e2e-family', 'Тестовая семья', 'family', 'e2e-family-password-1'],
+  ['e2e-temp', 'Новичок', 'family', 'e2e-temp-password-1'],
+  ['e2e-change', 'Меняющий', 'family', 'e2e-change-password-1'],
 ];
 for (const [username, name, role, password] of users) {
   const r = spawnSync(
@@ -41,6 +43,17 @@ for (const [username, name, role, password] of users) {
     process.exit(1);
   }
 }
+
+// e2e-temp behaves like an account made with --generate-password: it must pick an own password.
+const usersFile = join(dataDir, 'users.json');
+const stored = JSON.parse(readFileSync(usersFile, 'utf8'));
+for (const user of stored.users) {
+  if (user.username === 'e2e-temp') {
+    user.mustChangePassword = true;
+    user.passwordExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  }
+}
+writeFileSync(usersFile, JSON.stringify(stored, null, 2));
 
 const server = spawn(process.execPath, ['server/src/index.ts'], { cwd: root, env, stdio: 'inherit' });
 

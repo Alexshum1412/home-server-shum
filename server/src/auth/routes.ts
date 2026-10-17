@@ -7,12 +7,28 @@ import { sendError } from '../lib/http.ts';
 import { type Clock, ceilMinutes, isoNow } from '../lib/time.ts';
 import { clearSessionCookie, currentUser, type Guards, setSessionCookie } from './guards.ts';
 import type { LoginTimes } from './logins.ts';
-import { dummyVerify, PASSWORD_MAX_LENGTH, verifyPassword } from './passwords.ts';
+import {
+  checkPasswordPolicy,
+  dummyVerify,
+  hashPassword,
+  PASSWORD_MAX_LENGTH,
+  verifyPassword,
+} from './passwords.ts';
 import { LOGIN_WINDOW_MS, type LoginLimiter } from './rate-limit.ts';
 import { SESSION_COOKIE, type SessionStore } from './sessions.ts';
-import { normaliseUsername, toSessionUser, USERNAME_RE, type UserStore } from './users.ts';
+import {
+  needsPasswordChange,
+  normaliseUsername,
+  type StoredUser,
+  temporaryPasswordExpired,
+  toSessionUser,
+  USERNAME_RE,
+  type UserStore,
+} from './users.ts';
 
 export const CREATE_ADMIN_COMMAND = 'scripts\\user.cmd add <логин> --name "<Имя>" --role admin';
+export const TEMPORARY_EXPIRED_MESSAGE =
+  'Срок временного пароля истёк. Попросите администратора выдать новый на домашнем компьютере.';
 export const INVALID_CREDENTIALS_MESSAGE = 'Неверное имя пользователя или пароль';
 export const USERS_UNAVAILABLE_MESSAGE =
   'Не удаётся прочитать список пользователей на сервере. Сообщите администратору.';
@@ -33,12 +49,22 @@ const loginSchema = z.object({
   password: z.string().max(PASSWORD_MAX_LENGTH),
 });
 
+const changePasswordSchema = z.object({
+  currentPassword: z.string().max(PASSWORD_MAX_LENGTH),
+  // Longer values reach the policy check, which explains the limit instead of a generic 400.
+  newPassword: z.string().max(PASSWORD_MAX_LENGTH * 4),
+});
+
 /** Upper bound on remembered blocked keys, so random names cannot grow the map without limit. */
 const MAX_AUDITED_BLOCKS = 10_000;
 const BLOCK_AUDIT_MINUTES = ceilMinutes(LOGIN_WINDOW_MS / 1000);
 
 export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): void {
   const { config, users, logins, sessions, audit, limiter, guards } = deps;
+
+  function sessionBody(user: StoredUser): SessionResponse {
+    return { user: toSessionUser(user), demo: config.demo, mustChangePassword: needsPasswordChange(user) };
+  }
 
   // A blocked login is audited at most once per key (login name or address) per limiter window,
   // so a peer hammering a blocked login cannot flood audit.jsonl and push real entries out of
@@ -124,15 +150,24 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
 
     limiter.byUser.reset(username);
     limiter.byIp.release(ip);
+    if (temporaryPasswordExpired(user, deps.clock().getTime())) {
+      // Told only after the password matched: an outsider learns nothing about the account.
+      await audit.write({ action: 'login.failure', actor, ip, detail: 'временный пароль истёк' });
+      return sendError(reply, 403, 'temporary_password_expired', TEMPORARY_EXPIRED_MESSAGE);
+    }
     const { token } = await sessions.create(user.id);
     // logins.json, not users.json: the server never rewrites the file the CLI edits.
     await logins.record(user.id, isoNow(deps.clock)).catch((error: unknown) => {
       request.log.warn({ err: error }, 'Не удалось сохранить время входа');
     });
     setSessionCookie(reply, request, config, token);
-    await audit.write({ action: 'login.success', actor: user.username, ip, detail: null });
-    const body: SessionResponse = { user: toSessionUser(user), demo: config.demo };
-    return body;
+    await audit.write({
+      action: 'login.success',
+      actor: user.username,
+      ip,
+      detail: needsPasswordChange(user) ? 'временный пароль: нужно сменить' : null,
+    });
+    return sessionBody(user);
   });
 
   app.post('/api/logout', async (request, reply) => {
@@ -149,9 +184,72 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     return reply.code(204).send();
   });
 
-  app.get('/api/session', { preHandler: guards.requireUser }, async (request) => {
-    const body: SessionResponse = { user: toSessionUser(currentUser(request)), demo: config.demo };
-    return body;
+  app.get('/api/session', { preHandler: guards.requireSignedIn }, async (request) =>
+    sessionBody(currentUser(request)),
+  );
+
+  app.post('/api/password', { preHandler: guards.requireSignedIn }, async (request, reply) => {
+    const user = currentUser(request);
+    const parsed = changePasswordSchema.safeParse(request.body);
+    if (!parsed.success || parsed.data.currentPassword === '' || parsed.data.newPassword === '') {
+      return sendError(reply, 400, 'bad_request', 'Введите текущий и новый пароль.');
+    }
+    const { currentPassword, newPassword } = parsed.data;
+    const ip = request.ip;
+    // Guessing the current password through this form counts like failed sign-ins of the account.
+    const byUser = limiter.byUser.check(user.username);
+    const byIp = limiter.byIp.check(ip);
+    if (!byUser.allowed || !byIp.allowed) {
+      const retryAfterSec = Math.max(byIp.retryAfterSec, byUser.retryAfterSec);
+      reply.header('Retry-After', String(retryAfterSec));
+      return sendError(
+        reply,
+        429,
+        'too_many_attempts',
+        `Слишком много неудачных попыток. Попробуйте снова через ${ceilMinutes(retryAfterSec)} мин.`,
+      );
+    }
+    limiter.byUser.hit(user.username);
+    limiter.byIp.hit(ip);
+    if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+      await audit.write({
+        action: 'password.change_failed',
+        actor: user.username,
+        ip,
+        detail: 'неверный текущий пароль',
+      });
+      // 400, not 401: the session is fine, and a 401 would sign the browser out.
+      return sendError(reply, 400, 'wrong_password', 'Текущий пароль указан неверно.');
+    }
+    limiter.byUser.release(user.username);
+    limiter.byIp.release(ip);
+    const problem =
+      checkPasswordPolicy(newPassword, user.username) ??
+      (newPassword.normalize('NFC') === currentPassword.normalize('NFC')
+        ? 'Новый пароль должен отличаться от текущего.'
+        : null);
+    if (problem) return sendError(reply, 400, 'weak_password', problem);
+
+    const updated = await users.update(user.id, {
+      passwordHash: await hashPassword(newPassword),
+      passwordChangedAt: isoNow(deps.clock),
+      mustChangePassword: false,
+      passwordExpiresAt: null,
+    });
+    if (!updated) return sendError(reply, 401, 'unauthorized', 'Войдите в портал, чтобы продолжить.');
+    // The changed password ends every session of the user (guards compare passwordChangedAt);
+    // this device continues with a fresh one.
+    const oldToken = request.cookies[SESSION_COOKIE];
+    if (oldToken) await sessions.delete(oldToken);
+    const { token } = await sessions.create(updated.id);
+    setSessionCookie(reply, request, config, token);
+    await audit.write({
+      action: 'password.change',
+      actor: updated.username,
+      ip,
+      detail: needsPasswordChange(user) ? 'временный пароль заменён своим' : null,
+    });
+    return sessionBody(updated);
   });
 
   app.get('/api/setup-state', async () => {

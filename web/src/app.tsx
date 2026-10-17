@@ -4,7 +4,9 @@ import type { SessionResponse } from '../../shared/api.ts';
 import { type ApiFailure, apiGet, apiPost, NO_CONNECTION, onUnauthorized, toFailure } from './api.ts';
 import { AppShell } from './components/AppShell.tsx';
 import { documentTitle, type RouteId } from './lib/routes.ts';
+import { AccountPage } from './pages/Account.tsx';
 import { AdminPage } from './pages/Admin.tsx';
+import { ForcedPasswordPage } from './pages/ForcedPassword.tsx';
 import { HelpPage } from './pages/Help.tsx';
 import { HomePage } from './pages/Home.tsx';
 import { LoginPage } from './pages/Login.tsx';
@@ -21,7 +23,7 @@ type Boot =
   | { status: 'authed'; session: SessionResponse }
   | { status: 'error'; failure: ApiFailure };
 
-function Page(props: { route: RouteId }) {
+function Page(props: { route: RouteId; onSessionChanged: (session: SessionResponse) => void }) {
   switch (props.route) {
     case 'home':
       return <HomePage />;
@@ -41,6 +43,8 @@ function Page(props: { route: RouteId }) {
       return <HelpPage />;
     case 'admin':
       return <AdminPage />;
+    case 'account':
+      return <AccountPage onSessionChanged={props.onSessionChanged} />;
     case 'login':
       return null;
     default:
@@ -153,11 +157,21 @@ export function App() {
   if (boot.status === 'anon' || !sessionValue) {
     return <LoginPage onSignedIn={(session) => setBoot({ status: 'authed', session })} />;
   }
+  if (boot.status === 'authed' && boot.session.mustChangePassword) {
+    // A generated first-sign-in password: nothing else works until the user picks an own one.
+    return (
+      <ForcedPasswordPage
+        session={boot.session}
+        onChanged={(session) => setBoot({ status: 'authed', session })}
+        onLogout={() => void logout()}
+      />
+    );
+  }
   return (
     <SessionProvider value={sessionValue}>
       <DataProvider>
         <AppShell path={path} notice={notice}>
-          <Page route={route} />
+          <Page route={route} onSessionChanged={(session) => setBoot({ status: 'authed', session })} />
         </AppShell>
       </DataProvider>
     </SessionProvider>

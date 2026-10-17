@@ -13,6 +13,20 @@ export const E2E_USERS = {
     displayName: 'Тестовая семья',
     role: 'family',
   },
+  /** Seeded with mustChangePassword: true, like an account made with --generate-password. */
+  temporary: {
+    username: 'e2e-temp',
+    password: 'e2e-temp-password-1',
+    displayName: 'Новичок',
+    role: 'family',
+  },
+  /** Changes its own password in «Мой профиль» (used by exactly one test). */
+  changer: {
+    username: 'e2e-change',
+    password: 'e2e-change-password-1',
+    displayName: 'Меняющий',
+    role: 'family',
+  },
 } as const;
 
 export type E2EUserKey = keyof typeof E2E_USERS;

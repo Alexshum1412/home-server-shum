@@ -100,6 +100,7 @@ function UsersBlock() {
                 <th scope="col">Роль</th>
                 <th scope="col">Создан</th>
                 <th scope="col">Последний вход</th>
+                <th scope="col">Пароль</th>
               </tr>
             </thead>
             <tbody>
@@ -111,6 +112,11 @@ function UsersBlock() {
                   <td class="table__nowrap">{formatDateTime(user.createdAt)}</td>
                   <td class="table__nowrap">
                     {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'Входов не было'}
+                  </td>
+                  <td class="table__nowrap">
+                    {user.temporaryPassword
+                      ? `временный, до ${user.passwordExpiresAt ? formatDateTime(user.passwordExpiresAt) : '—'}`
+                      : 'свой'}
                   </td>
                 </tr>
               ))}
@@ -131,7 +137,9 @@ function UsersBlock() {
       </h2>
       <p class="section-lead">
         Только просмотр. Добавлять и удалять пользователей и менять пароли можно на домашнем компьютере
-        командой <code>scripts\user.cmd</code> (действия add, list, passwd, role, remove).
+        командой <code>scripts\user.cmd</code> (действия add, list, passwd, role, remove). С параметром{' '}
+        <code>--generate-password</code> выдаётся временный пароль: при первом входе человек сам задаёт свой.
+        Свой пароль каждый может сменить в разделе «Мой профиль».
       </p>
       {content}
     </section>

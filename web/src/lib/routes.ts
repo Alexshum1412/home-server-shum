@@ -10,6 +10,7 @@ export type RouteId =
   | 'system'
   | 'help'
   | 'admin'
+  | 'account'
   | 'login'
   | 'notFound';
 
@@ -34,6 +35,7 @@ export const ROUTES: readonly RouteDef[] = [
   { id: 'system', path: '/system', title: 'Состояние системы' },
   { id: 'help', path: '/help', title: 'Подключение' },
   { id: 'admin', path: '/admin', title: 'Администрирование', adminOnly: true },
+  { id: 'account', path: '/account', title: 'Мой профиль' },
   { id: 'login', path: '/login', title: 'Вход' },
 ];
 

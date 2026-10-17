@@ -159,7 +159,9 @@ describe('GET /api/admin/users', () => {
         'displayName',
         'id',
         'lastLoginAt',
+        'passwordExpiresAt',
         'role',
+        'temporaryPassword',
         'username',
       ]);
     }
