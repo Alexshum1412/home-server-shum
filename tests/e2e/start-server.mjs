@@ -23,6 +23,10 @@ const env = {
   DASHBOARD_DEMO: mode === 'demo' ? '1' : '0',
   LOG_LEVEL: 'warn',
   LAN_URL: '',
+  // Never the real family folders (C:/FamilyData): everything stays in the throwaway data dir.
+  FAMILY_FILES_DIR: join(dataDir, 'files'),
+  FAMILY_PHOTOS_DIR: join(dataDir, 'photos'),
+  MIN_FREE_GB: '1',
 };
 
 // Same values as tests/e2e/fixtures.ts (kept in sync manually; plain JS cannot import the .ts file here).

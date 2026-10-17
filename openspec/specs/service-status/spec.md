@@ -58,4 +58,4 @@ A service entry marked `builtin` is a feature of the portal itself and SHALL be 
 
 #### Scenario: Downloads on a fresh install
 - **WHEN** services.json is created from the defaults
-- **THEN** «Загрузки» is `online` with the message «Работает (часть портала)» while other services are `not_configured`
+- **THEN** «Загрузки», «Файлы» and «Фото» are `online` with the message «Встроено в портал» while services that need a separate program are `not_configured`

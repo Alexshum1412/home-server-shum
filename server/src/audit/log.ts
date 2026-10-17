@@ -16,6 +16,10 @@ export type AuditAction =
   | 'download.done'
   | 'download.fail'
   | 'download.cancel'
+  | 'file.upload'
+  | 'file.trash'
+  | 'file.rename'
+  | 'file.mkdir'
   | 'services.refresh'
   | 'diagnostics.export';
 

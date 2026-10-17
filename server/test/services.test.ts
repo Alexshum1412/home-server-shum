@@ -117,12 +117,12 @@ describe('service registry', () => {
     ]);
     const body = await getServices(t);
     expect(body.configError).toBeNull();
-    // Downloads are part of the portal itself; everything else needs a separate program.
-    expect(byId(body.services, 'downloads')).toMatchObject({
-      state: 'online',
-      message: 'Работает (часть портала)',
-    });
-    for (const s of body.services.filter((x) => x.id !== 'downloads')) {
+    // Downloads, files and photos are part of the portal itself; the rest needs a separate program.
+    const builtIn = ['downloads', 'files', 'photos'];
+    for (const id of builtIn) {
+      expect(byId(body.services, id)).toMatchObject({ state: 'online', message: 'Встроено в портал' });
+    }
+    for (const s of body.services.filter((x) => !builtIn.includes(x.id))) {
       expect(s.state).toBe('not_configured');
       expect(s.openUrl).toBeNull();
       expect(s.checkedAt).toBeNull();

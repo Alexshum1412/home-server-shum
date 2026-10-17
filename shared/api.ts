@@ -376,3 +376,42 @@ export interface DownloadCheckResponse {
   /** The site supports pause/resume. */
   resumable: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Family files and photos (P4)
+// ---------------------------------------------------------------------------
+
+/** `files` — documents and any files; `photos` — the photo and video library. */
+export type StorageRoot = 'files' | 'photos';
+/** `personal` — only the signed-in user (nobody else, not even an admin); `shared` — the family. */
+export type StorageSpace = 'personal' | 'shared';
+
+export interface FileEntry {
+  name: string;
+  type: 'dir' | 'file';
+  sizeBytes: number | null;
+  modifiedAt: string;
+  /** Content type the server will send (application/octet-stream when not shown inline). */
+  mime: string | null;
+  /** Photos: a thumbnail exists. */
+  hasThumb: boolean;
+}
+
+/** GET /api/storage/:root/list?space=&path= */
+export interface FileListResponse {
+  root: StorageRoot;
+  space: StorageSpace;
+  /** Relative path inside the space ('' = top), forward slashes. */
+  path: string;
+  entries: FileEntry[];
+  freeBytes: number | null;
+  maxUploadBytes: number;
+}
+
+/** PUT /api/storage/:root/upload?space=&path=&name=&size= (raw body, header X-Upload: 1). */
+export interface UploadResponse {
+  name: string;
+  sizeBytes: number;
+  /** For photos: what the content turned out to be. */
+  media: 'image' | 'video' | null;
+}

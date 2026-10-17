@@ -98,6 +98,10 @@ const AUDIT_ACTIONS: Record<string, string> = {
   'download.done': 'Загрузка завершена',
   'download.fail': 'Загрузка не удалась',
   'download.cancel': 'Загрузка отменена',
+  'file.upload': 'Файл добавлен',
+  'file.trash': 'Файл перемещён в корзину',
+  'file.rename': 'Файл переименован',
+  'file.mkdir': 'Создана папка',
   'services.refresh': 'Проверка сервисов вручную',
   'diagnostics.export': 'Выгрузка диагностики',
 };

@@ -17,8 +17,10 @@ import { registerAuthRoutes } from './auth/routes.ts';
 import { createSessionStore, type SessionStore } from './auth/sessions.ts';
 import { createUserStore, type UserStore } from './auth/users.ts';
 import type { Config } from './config.ts';
-import { createDownloadManager, type DownloadManager } from './downloads/manager.ts';
+import { createDownloadManager, type DownloadManager, statfsFree } from './downloads/manager.ts';
 import { registerDownloadRoutes } from './downloads/routes.ts';
+import { registerFileRoutes } from './files/routes.ts';
+import { createStorage } from './files/storage.ts';
 import { isApiPath, sendError, urlPath } from './lib/http.ts';
 import { removeStaleTempFiles } from './lib/json-store.ts';
 import { type Clock, isoNow, systemClock } from './lib/time.ts';
@@ -198,6 +200,18 @@ function isAllowedOrigin(origin: string, request: FastifyRequest, fixed: Set<str
   }
 }
 
+/**
+ * File uploads are the only non-JSON writes: a PUT with a raw application/octet-stream body to a
+ * route marked `rawUpload`, carrying the custom header X-Upload: 1. A cross-site page cannot send
+ * that header without a CORS preflight (which the portal never allows), and the Origin and
+ * Sec-Fetch-Site checks above still apply.
+ */
+function isRawUpload(request: FastifyRequest): boolean {
+  if (request.method !== 'PUT' || request.routeOptions.config?.rawUpload !== true) return false;
+  const type = request.headers['content-type']?.split(';')[0]?.trim().toLowerCase();
+  return type === 'application/octet-stream' && request.headers['x-upload'] === '1';
+}
+
 function badJsonError(): Error {
   return Object.assign(new Error('Invalid JSON body'), { statusCode: 400, code: 'DASHBOARD_BAD_JSON' });
 }
@@ -292,6 +306,9 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   // --- HTTP plumbing ------------------------------------------------------------------------
   await app.register(fastifyCookie);
 
+  // Raw uploads: the body stays a stream; the route enforces its own size limit while writing.
+  app.addContentTypeParser('application/octet-stream', (_request, payload, done) => done(null, payload));
+
   // Own JSON parser: an empty body is accepted as {} (logout/refresh send no payload).
   app.removeContentTypeParser('application/json');
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (_request, body, done) => {
@@ -337,7 +354,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     ) {
       return sendError(reply, 403, 'forbidden_origin', 'Запрос отклонён: он отправлен с другого сайта.');
     }
-    if (!isJsonContentType(request.headers['content-type'])) {
+    if (!isJsonContentType(request.headers['content-type']) && !isRawUpload(request)) {
       return sendError(
         reply,
         415,
@@ -348,7 +365,10 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   });
 
   app.addHook('onSend', async (request, reply, payload) => {
-    for (const [name, value] of Object.entries(SECURITY_HEADERS)) reply.header(name, value);
+    // A route may set a stricter header itself (e.g. the sandbox CSP of served family files).
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+      if (!reply.hasHeader(name)) reply.header(name, value);
+    }
     if (isApiRequest(request)) reply.header('Cache-Control', 'no-store');
     return payload;
   });
@@ -419,6 +439,15 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   registerSystemRoutes(app, { collector, guards });
   registerAdminRoutes(app, { config, clock, version, guards, audit, users, logins, registry, collector });
   registerDownloadRoutes(app, { config, clock, guards, downloads });
+  const freeBytes = options.freeBytes ?? statfsFree;
+  const storage = createStorage({
+    filesRoot: config.filesDir,
+    photosRoot: config.photosDir,
+    minFreeBytes: config.minFreeBytes,
+    maxUploadBytes: config.uploadMaxFileBytes,
+    freeBytes,
+  });
+  registerFileRoutes(app, { storage, guards, audit, freeBytes, maxUploadBytes: config.uploadMaxFileBytes });
   await registerStatic(app, webRoot);
 
   // --- lifecycle ----------------------------------------------------------------------------

@@ -66,12 +66,13 @@ export const DEFAULT_SERVICES: readonly ServiceDefinition[] = Object.freeze([
   {
     id: 'photos',
     kind: 'photos',
-    name: 'Фотографии',
-    description: 'Семейные фото и видео (Immich)',
+    name: 'Фото',
+    description: 'Фото и видео семьи: мои и общий альбом',
     openUrl: null,
     healthUrl: null,
     enabled: true,
-    hint: 'Фотоальбом пока не подключён. Попросите администратора установить Immich.',
+    hint: null,
+    builtin: true,
   },
   {
     id: 'files',
@@ -81,7 +82,8 @@ export const DEFAULT_SERVICES: readonly ServiceDefinition[] = Object.freeze([
     openUrl: null,
     healthUrl: null,
     enabled: true,
-    hint: 'Общие папки пока не подключены. Попросите администратора настроить файловый сервис.',
+    hint: null,
+    builtin: true,
   },
   {
     id: 'downloads',

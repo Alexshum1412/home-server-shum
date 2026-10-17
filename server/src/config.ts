@@ -39,6 +39,8 @@ export interface Config {
   /** Root of the family photo library. */
   readonly photosDir: string;
   readonly downloadMaxFileBytes: number;
+  /** One file uploaded through the portal (files and photos). */
+  readonly uploadMaxFileBytes: number;
   /** Downloads and uploads stop when the volume would have less than this free. */
   readonly minFreeBytes: number;
 }
@@ -87,6 +89,7 @@ const schema = z.object({
   FAMILY_FILES_DIR: z.string().min(1),
   FAMILY_PHOTOS_DIR: z.string().min(1),
   DOWNLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
+  UPLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
   MIN_FREE_GB: z.coerce.number().min(0).max(10_000),
 });
 
@@ -180,6 +183,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     FAMILY_FILES_DIR: pick('FAMILY_FILES_DIR', defaultFamilyDir(env, platform, 'Files')),
     FAMILY_PHOTOS_DIR: pick('FAMILY_PHOTOS_DIR', defaultFamilyDir(env, platform, 'Photos')),
     DOWNLOAD_MAX_FILE_GB: pick('DOWNLOAD_MAX_FILE_GB', '50'),
+    UPLOAD_MAX_FILE_GB: pick('UPLOAD_MAX_FILE_GB', '20'),
     MIN_FREE_GB: pick('MIN_FREE_GB', '50'),
   };
 
@@ -226,6 +230,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     filesDir: path.resolve(v.FAMILY_FILES_DIR),
     photosDir: path.resolve(v.FAMILY_PHOTOS_DIR),
     downloadMaxFileBytes: Math.round(v.DOWNLOAD_MAX_FILE_GB * 1024 ** 3),
+    uploadMaxFileBytes: Math.round(v.UPLOAD_MAX_FILE_GB * 1024 ** 3),
     minFreeBytes: Math.round(v.MIN_FREE_GB * 1024 ** 3),
   });
 }
