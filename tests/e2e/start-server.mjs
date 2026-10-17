@@ -1,7 +1,7 @@
 // Starts an isolated dashboard server for Playwright: fresh temp data dir, seeded test users,
 // real system probes, built UI from dist/web. Usage: node tests/e2e/start-server.mjs <real|demo> <port>
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,10 +29,40 @@ const env = {
   FAMILY_FILES_DIR: join(dataDir, 'files'),
   FAMILY_PHOTOS_DIR: join(dataDir, 'photos'),
   MIN_FREE_GB: '1',
+  // The media library of the fallback player is a throwaway folder as well (see below).
+  MEDIA_DIR: join(dataDir, 'media'),
+  // No home-network listener, no language model in tests.
+  LAN_BIND: '',
+  OLIVIA_LLM_URL: '',
   // Never the real backup places either: a test snapshot would count against their retention.
   BACKUP_TARGETS: join(dataDir, 'backups'),
   BACKUP_GIT_PUSH: 'none',
 };
+
+// A tiny media library: one valid one-second WAV (every browser plays it) as an audiobook chapter,
+// and a file the browser cannot decode (to see the honest message).
+function silentWav(seconds) {
+  const rate = 8000;
+  const data = Buffer.alloc(rate * seconds);
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write('WAVEfmt ', 8);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(rate, 28);
+  header.writeUInt16LE(1, 32);
+  header.writeUInt16LE(8, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(data.length, 40);
+  return Buffer.concat([header, Buffer.alloc(0), Buffer.alloc(data.length, 128)]);
+}
+mkdirSync(join(dataDir, 'media', 'Аудиокниги', 'Тестовая книга'), { recursive: true });
+writeFileSync(join(dataDir, 'media', 'Аудиокниги', 'Тестовая книга', 'Глава 01.wav'), silentWav(1));
+mkdirSync(join(dataDir, 'media', 'Фильмы'), { recursive: true });
+writeFileSync(join(dataDir, 'media', 'Фильмы', 'сломанный.mp4'), 'not really a video');
 
 // Same values as tests/e2e/fixtures.ts (kept in sync manually; plain JS cannot import the .ts file here).
 const users = [

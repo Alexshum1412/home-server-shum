@@ -3,6 +3,10 @@
  * (Validate-Job, nothing is printed), the user confirms, the file goes to the printer
  * (Print-Job) and its state is followed until it is done. The server never opens, renders or
  * runs the document: it only forwards the bytes to the printer.
+ *
+ * When the printer is switched off the document is kept («held») and the user may choose to put it
+ * in the waiting queue («queued»): it is sent by itself when the printer answers again, within a
+ * day. Nothing waits in the queue without that explicit choice.
  */
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, promises as fsp } from 'node:fs';
@@ -62,6 +66,8 @@ export interface PrintQueueOptions {
   transport?: IppTransport;
   /** How often a sent job is polled (ms). */
   pollMs?: number;
+  /** How often waiting jobs look for the printer (ms), 30 s by default. */
+  deferredPollMs?: number;
   /** Tests: the first status request waits for the printer instead of answering «checking». */
   waitForFirstProbe?: boolean;
   onEvent?: (event: {
@@ -72,6 +78,10 @@ export interface PrintQueueOptions {
 }
 
 const CHECKED_TTL_MS = 60 * 60_000;
+/** A document kept because the printer was off, until the user decides. */
+const HELD_TTL_MS = 6 * 60 * 60_000;
+/** A document the user queued for later; after this it is dropped, not printed at a surprising time. */
+const QUEUED_TTL_MS = 24 * 60 * 60_000;
 const FINAL: ReadonlySet<PrintJobState> = new Set(['completed', 'canceled', 'failed', 'expired']);
 const TIMEOUT_MS = 20_000;
 
@@ -89,6 +99,9 @@ export function createPrintQueue(options: PrintQueueOptions) {
   const spool = path.join(options.dataDir, 'print-spool');
   const transport = options.transport ?? httpTransport;
   const pollMs = options.pollMs ?? 5000;
+  const deferredPollMs = options.deferredPollMs ?? 30_000;
+  let deferredTimer: NodeJS.Timeout | null = null;
+  let deferredRunning = false;
   let jobs: StoredJob[] = [];
   let requestId = 1;
   const polling = new Map<string, NodeJS.Timeout>();
@@ -192,6 +205,101 @@ export function createPrintQueue(options: PrintQueueOptions) {
     if (now() - Date.parse(job.createdAt) < 6 * 60 * 60_000) schedulePoll(job);
   }
 
+  /** How long a job in this state may wait; null — it does not expire by itself. */
+  function ttlOf(job: StoredJob): number | null {
+    if (job.state === 'checked') return CHECKED_TTL_MS;
+    if (job.state === 'held') return HELD_TTL_MS;
+    if (job.state === 'queued') return QUEUED_TTL_MS;
+    return null;
+  }
+
+  function expireOld(): void {
+    const t = now();
+    for (const job of jobs) {
+      const ttl = ttlOf(job);
+      if (ttl !== null && t - Date.parse(job.createdAt) > ttl) {
+        const message =
+          job.state === 'queued'
+            ? 'Принтер так и не появился за сутки — документ удалён с сервера'
+            : 'Не подтверждено вовремя — загрузите файл ещё раз';
+        // Marked at once (the list answers with it); the document is removed right behind.
+        update(job, { state: 'expired', message });
+        void finish(job, 'expired', message);
+      }
+    }
+  }
+
+  /** Sends the stored document to the printer and starts following the job. */
+  async function dispatch(job: StoredJob, actor: string, viaQueue: boolean): Promise<void> {
+    const document = await fsp.readFile(spoolFile(job.id));
+    const res = await call(
+      OP.printJob,
+      [
+        attr.name('requesting-user-name', job.owner),
+        attr.name('job-name', job.fileName),
+        attr.mime('document-format', MIME[job.format]),
+      ],
+      jobAttributes(job),
+      document,
+    );
+    if (res.status >= 0x0100) {
+      await finish(job, 'failed', statusMessage(res.status));
+      options.onEvent?.({ action: 'print.fail', actor, detail: statusMessage(res.status) });
+      throw new PrintError(422, 'rejected', statusMessage(res.status));
+    }
+    const printerJobId = Number(res.attrs.get('job-id')?.[0]);
+    update(job, {
+      state: 'sent',
+      message: viaQueue ? 'Принтер появился: отправлено из очереди' : 'Отправлено на принтер',
+      printerJobId: Number.isFinite(printerJobId) ? printerJobId : null,
+    });
+    await save();
+    options.onEvent?.({
+      action: 'print.submit',
+      actor,
+      detail: `${job.format.toUpperCase()}, ${Math.max(1, Math.round(job.sizeBytes / 1024))} КБ, копий: ${job.copies}${
+        viaQueue ? ' (из очереди ожидания)' : ''
+      }`,
+    });
+    if (job.printerJobId !== null) schedulePoll(job);
+  }
+
+  /** Looks at the waiting jobs: the printer answers again → they go out, oldest first. */
+  async function runDeferred(): Promise<void> {
+    if (deferredRunning || stopped) return;
+    expireOld();
+    const waiting = jobs.filter((j) => j.state === 'queued');
+    if (waiting.length === 0) {
+      if (deferredTimer) clearInterval(deferredTimer);
+      deferredTimer = null;
+      return;
+    }
+    deferredRunning = true;
+    try {
+      const status = await probePrinter();
+      if (status.reachable !== true || status.acceptingJobs === false || status.state === 'stopped') return;
+      for (const job of waiting) {
+        if (stopped || job.state !== 'queued') continue;
+        try {
+          await dispatch(job, job.owner, true);
+        } catch (error) {
+          if (error instanceof PrintError && error.code === 'printer_unreachable') return; // asleep again
+          if (!(error instanceof PrintError)) throw error;
+        }
+      }
+    } catch {
+      // the printer is still away: try again at the next tick
+    } finally {
+      deferredRunning = false;
+    }
+  }
+
+  function ensureDeferredTimer(): void {
+    if (deferredTimer || stopped) return;
+    deferredTimer = setInterval(() => void runDeferred(), deferredPollMs);
+    deferredTimer.unref?.();
+  }
+
   return {
     configured: () => options.printerUrl !== null,
 
@@ -201,15 +309,11 @@ export function createPrintQueue(options: PrintQueueOptions) {
       for (const job of jobs) {
         if (job.state === 'sent' || job.state === 'printing') schedulePoll(job);
       }
+      if (jobs.some((job) => job.state === 'queued')) ensureDeferredTimer();
     },
 
     list(owner: string | null): PrintJobView[] {
-      const t = now();
-      for (const job of jobs) {
-        if (job.state === 'checked' && t - Date.parse(job.createdAt) > CHECKED_TTL_MS) {
-          void finish(job, 'expired', 'Не подтверждено вовремя — загрузите файл ещё раз');
-        }
-      }
+      expireOld();
       return jobs
         .filter((j) => owner === null || j.owner === owner)
         .map(view)
@@ -280,6 +384,7 @@ export function createPrintQueue(options: PrintQueueOptions) {
         await fsp.rm(target, { force: true });
         throw new PrintError(400, 'incomplete', 'Файл передан не полностью. Попробуйте ещё раз.');
       }
+      let printerAway = false;
       const validation = await call(
         OP.validateJob,
         [
@@ -289,10 +394,14 @@ export function createPrintQueue(options: PrintQueueOptions) {
         ],
         jobAttributes(o),
       ).catch(async (error: unknown) => {
+        if (error instanceof PrintError && error.code === 'printer_unreachable') {
+          printerAway = true; // the document stays; the user decides what to do
+          return null;
+        }
         await fsp.rm(target, { force: true });
         throw error;
       });
-      if (validation.status >= 0x0100) {
+      if (validation && validation.status >= 0x0100) {
         await fsp.rm(target, { force: true });
         throw new PrintError(422, 'rejected', statusMessage(validation.status));
       }
@@ -306,8 +415,10 @@ export function createPrintQueue(options: PrintQueueOptions) {
         copies: o.copies,
         sides: o.sides,
         colorMode: o.colorMode,
-        state: 'checked',
-        message: 'Принтер проверил задание. Нажмите «Напечатать».',
+        state: printerAway ? 'held' : 'checked',
+        message: printerAway
+          ? 'Принтер сейчас не отвечает (выключен или нет связи). Документ сохранён: поставьте его в очередь — он напечатается сам, когда принтер включат.'
+          : 'Принтер проверил задание. Нажмите «Напечатать».',
         createdAt: at,
         updatedAt: at,
         printerJobId: null,
@@ -320,41 +431,47 @@ export function createPrintQueue(options: PrintQueueOptions) {
     async print(id: string, actor: { username: string; isAdmin: boolean }): Promise<PrintJobView> {
       const job = jobs.find((j) => j.id === id && (j.owner === actor.username || actor.isAdmin));
       if (!job) throw new PrintError(404, 'not_found', 'Такого задания нет.');
+      if (job.state === 'held') {
+        throw new PrintError(
+          409,
+          'printer_away',
+          'Принтер не отвечает. Поставьте документ в очередь ожидания или отмените печать.',
+        );
+      }
       if (job.state !== 'checked')
         throw new PrintError(409, 'not_checked', 'Это задание уже отправлено или закрыто.');
       if (now() - Date.parse(job.createdAt) > CHECKED_TTL_MS) {
         await finish(job, 'expired', 'Не подтверждено вовремя — загрузите файл ещё раз');
         throw new PrintError(409, 'expired', 'Подтверждение устарело — загрузите файл ещё раз.');
       }
-      const document = await fsp.readFile(spoolFile(job.id));
-      const res = await call(
-        OP.printJob,
-        [
-          attr.name('requesting-user-name', job.owner),
-          attr.name('job-name', job.fileName),
-          attr.mime('document-format', MIME[job.format]),
-        ],
-        jobAttributes(job),
-        document,
-      );
-      if (res.status >= 0x0100) {
-        await finish(job, 'failed', statusMessage(res.status));
-        options.onEvent?.({ action: 'print.fail', actor: actor.username, detail: statusMessage(res.status) });
-        throw new PrintError(422, 'rejected', statusMessage(res.status));
+      await dispatch(job, actor.username, false);
+      return view(job);
+    },
+
+    /** «Напечатать, когда принтер включат»: the held document waits for the printer for up to a day. */
+    async defer(id: string, actor: { username: string; isAdmin: boolean }): Promise<PrintJobView> {
+      const job = jobs.find((j) => j.id === id && (j.owner === actor.username || actor.isAdmin));
+      if (!job) throw new PrintError(404, 'not_found', 'Такого задания нет.');
+      if (job.state !== 'held') {
+        throw new PrintError(
+          409,
+          'not_held',
+          'В очередь ожидания можно поставить только документ, который не удалось проверить на принтере.',
+        );
       }
-      const printerJobId = Number(res.attrs.get('job-id')?.[0]);
       update(job, {
-        state: 'sent',
-        message: 'Отправлено на принтер',
-        printerJobId: Number.isFinite(printerJobId) ? printerJobId : null,
+        state: 'queued',
+        message: 'В очереди ожидания: напечатается сам, когда принтер включат (не позже чем через сутки)',
+        createdAt: isoNow(options.clock),
       });
       await save();
       options.onEvent?.({
         action: 'print.submit',
         actor: actor.username,
-        detail: `${job.format.toUpperCase()}, ${Math.max(1, Math.round(job.sizeBytes / 1024))} КБ, копий: ${job.copies}`,
+        detail: `${job.format.toUpperCase()}: в очередь ожидания (принтер не отвечает)`,
       });
-      if (job.printerJobId !== null) schedulePoll(job);
+      ensureDeferredTimer();
+      void runDeferred();
       return view(job);
     },
 
@@ -416,6 +533,8 @@ export function createPrintQueue(options: PrintQueueOptions) {
 
     async stop(): Promise<void> {
       stopped = true;
+      if (deferredTimer) clearInterval(deferredTimer);
+      deferredTimer = null;
       for (const timer of polling.values()) clearTimeout(timer);
       polling.clear();
       await refreshPrinter?.catch(() => undefined);

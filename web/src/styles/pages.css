@@ -875,3 +875,207 @@ fieldset.segmented {
   gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-4) var(--sp-4);
 }
+
+.olivia__ai {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+}
+
+.olivia__ai-text {
+  padding: var(--sp-3);
+  border-left: 3px solid var(--c-info);
+  background: var(--c-info-bg);
+  color: var(--c-text);
+  overflow-wrap: anywhere;
+}
+
+/* --- Calendar and notes ------------------------------------------------------------ */
+
+.cal__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.cal__month {
+  flex: 1;
+  min-width: 8rem;
+  text-align: center;
+  text-transform: capitalize;
+}
+
+.cal {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.cal__weekday {
+  padding: var(--sp-1) 0;
+  color: var(--c-text-muted);
+  font-size: var(--fs-xs);
+  text-align: center;
+}
+
+.cal__day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  min-height: 3.25rem;
+  padding: var(--sp-1);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-surface);
+  color: var(--c-text);
+}
+
+.cal__day--other {
+  color: var(--c-text-subtle);
+  background: transparent;
+}
+
+.cal__day--today .cal__num {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--r-pill);
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  font-weight: var(--fw-semibold);
+}
+
+.cal__day--selected {
+  border-color: var(--c-text);
+  box-shadow: inset 0 0 0 1px var(--c-text);
+}
+
+.cal__dots {
+  display: flex;
+  gap: 3px;
+}
+
+.cal__dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: var(--r-pill);
+  background: var(--c-info);
+}
+
+.cal__dot--private {
+  background: var(--c-warn);
+}
+
+.agenda {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: 0;
+  list-style: none;
+}
+
+.agenda__item {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+  align-items: start;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
+
+@media (max-width: 40rem) {
+  .agenda__item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .agenda__time {
+    grid-column: 1 / -1;
+  }
+}
+
+.agenda__time {
+  color: var(--c-text-muted);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.agenda__title {
+  font-weight: var(--fw-semibold);
+  overflow-wrap: anywhere;
+}
+
+.agenda__private {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-left: var(--sp-2);
+  color: var(--c-warn);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+}
+
+.agenda__note {
+  color: var(--c-text-muted);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.sheet-dialog {
+  width: min(34rem, 100vw);
+  max-width: 100vw;
+  max-height: 100dvh;
+  padding: var(--sp-4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  background: var(--c-bg);
+  color: var(--c-text);
+}
+
+.sheet-dialog::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+.sheet-dialog .user-form {
+  padding: 0;
+}
+
+.sheet-dialog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.user-form__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
+
+.notes__text {
+  min-height: 14rem;
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.agenda__item--compact {
+  grid-template-columns: 8rem minmax(0, 1fr);
+  padding: var(--sp-2) var(--sp-4);
+}
+
+@media (max-width: 40rem) {
+  .agenda__item--compact {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-1);
+  }
+}

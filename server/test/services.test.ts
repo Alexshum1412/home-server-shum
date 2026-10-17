@@ -118,7 +118,7 @@ describe('service registry', () => {
     const body = await getServices(t);
     expect(body.configError).toBeNull();
     // Downloads, files and photos are part of the portal itself; the rest needs a separate program.
-    const builtIn = ['downloads', 'files', 'photos'];
+    const builtIn = ['downloads', 'files', 'photos', 'calendar'];
     for (const id of builtIn) {
       expect(byId(body.services, id)).toMatchObject({ state: 'online', message: 'Встроено в портал' });
     }

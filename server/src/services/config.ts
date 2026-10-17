@@ -100,11 +100,12 @@ export const DEFAULT_SERVICES: readonly ServiceDefinition[] = Object.freeze([
     id: 'calendar',
     kind: 'calendar',
     name: 'Календарь',
-    description: 'Семейный календарь и заметки',
+    description: 'Семейный календарь и общие заметки',
     openUrl: null,
     healthUrl: null,
     enabled: true,
-    hint: 'Семейный календарь появится в одной из следующих версий портала.',
+    hint: null,
+    builtin: true,
   },
 ]);
 

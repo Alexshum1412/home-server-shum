@@ -75,13 +75,13 @@ export function registerPrintRoutes(app: FastifyInstance, deps: PrintRouteDeps):
     },
   );
 
-  for (const action of ['print', 'cancel'] as const) {
+  for (const action of ['print', 'defer', 'cancel'] as const) {
     app.post(`/api/print/jobs/:id/${action}`, { preHandler: guards.requireUser }, async (request, reply) => {
       const user = currentUser(request);
       if (!hasPermission(user, 'print')) return sendError(reply, 403, 'forbidden', NO_RIGHT);
       const { id } = request.params as { id: string };
       if (!ID_RE.test(id)) return sendError(reply, 404, 'not_found', 'Такого задания нет.');
-      if (action === 'print' && !confirmSchema.safeParse(request.body).success) {
+      if ((action === 'print' || action === 'defer') && !confirmSchema.safeParse(request.body).success) {
         return sendError(reply, 400, 'confirm_required', 'Печать нужно подтвердить.');
       }
       try {

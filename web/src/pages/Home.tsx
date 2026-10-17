@@ -12,7 +12,7 @@ import {
   Server,
 } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
-import type { ServiceStatus, SystemResponse } from '../../../shared/api.ts';
+import type { CalendarResponse, ServiceStatus, SystemResponse } from '../../../shared/api.ts';
 import { AlertList } from '../components/AlertList.tsx';
 import type { IconComponent } from '../components/icons.ts';
 import { RelativeTime } from '../components/RelativeTime.tsx';
@@ -22,6 +22,8 @@ import { StatusBadge } from '../components/StatusBadge.tsx';
 import { TechDetail } from '../components/TechDetail.tsx';
 import { useNow } from '../hooks/useNow.ts';
 import type { PollingResult } from '../hooks/usePolling.ts';
+import { useResource } from '../hooks/useResource.ts';
+import { addDays, shortDayLabel, todayLocal } from '../lib/dates.ts';
 import { summarizeVolumes } from '../lib/disks.ts';
 import { formatDuration, formatLongDate } from '../lib/format.ts';
 import { greetingLine } from '../lib/greeting.ts';
@@ -131,7 +133,6 @@ function ServiceTiles(props: {
   isAdmin: boolean;
 }) {
   const calendar = findService(props.services, 'calendar');
-  const calendarUrl = openableUrl(calendar);
   const printer = props.system?.printer;
   return (
     <ul class="card-grid">
@@ -161,10 +162,9 @@ function ServiceTiles(props: {
         name={calendar?.name ?? 'Календарь'}
         icon={CalendarDays}
         status={serviceStatus(calendar, props.loaded, props.servicesFailed)}
-        text={calendar?.message ?? (props.loaded ? 'Семейный календарь пока не подключён.' : null)}
+        text={props.loaded ? 'Планы семьи и заметки' : null}
         detail={adminDetail(calendar, props.isAdmin)}
-        href={calendarUrl}
-        external
+        href="/calendar"
       />
     </ul>
   );
@@ -261,6 +261,40 @@ function HouseStatus(props: { system: PollingResult<SystemResponse> }) {
   );
 }
 
+/**
+ * Today and tomorrow from the family calendar. Shown only when there is something to show: a
+ * calendar that cannot be read must never get in the way of the rest of the home page.
+ */
+function TodayEvents(props: { now: number }) {
+  const today = todayLocal(new Date(props.now));
+  const tomorrow = addDays(today, 1);
+  const data = useResource<CalendarResponse>(`/api/calendar?from=${today}&to=${tomorrow}`);
+  const list = data.data?.occurrences ?? [];
+  if (list.length === 0) return null;
+  return (
+    <section class="home-section" aria-labelledby="today-title">
+      <h2 id="today-title" class="section-title">
+        <CalendarDays class="section-title__icon" size={20} aria-hidden="true" />
+        Сегодня и завтра
+      </h2>
+      <ul class="agenda">
+        {list.slice(0, 6).map((occurrence) => (
+          <li key={`${occurrence.day}-${occurrence.event.id}`} class="agenda__item agenda__item--compact">
+            <p class="agenda__time">
+              {occurrence.day === today ? 'Сегодня' : shortDayLabel(occurrence.day)}
+              {occurrence.event.time ? `, ${occurrence.event.time}` : ''}
+            </p>
+            <p class="agenda__title">{occurrence.event.title}</p>
+          </li>
+        ))}
+      </ul>
+      <a class="text-link" href="/calendar">
+        Весь календарь
+      </a>
+    </section>
+  );
+}
+
 export function HomePage() {
   const { session } = useSession();
   const { services, system } = useData();
@@ -288,6 +322,7 @@ export function HomePage() {
         isAdmin={isAdmin}
       />
       {alertsFirst ? null : <AlertList alerts={alerts} compact />}
+      <TodayEvents now={now} />
       <section class="home-section">
         <h2 id="services-title" class="section-title">
           Сервисы

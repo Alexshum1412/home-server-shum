@@ -32,7 +32,7 @@ test.describe('honest states (real mode)', () => {
     await signIn(page, 'family');
     const body = await (await page.request.get('/api/services')).json();
     // Features of the portal itself have no separate address and are online with the portal.
-    const builtIn = new Set(['downloads', 'files', 'photos']);
+    const builtIn = new Set(['downloads', 'files', 'photos', 'calendar']);
     for (const s of body.services) {
       expect(s.demo).toBe(false);
       if (builtIn.has(s.id)) expect(s).toMatchObject({ state: 'online', message: 'Встроено в портал' });

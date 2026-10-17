@@ -21,6 +21,7 @@ export type AuditAction =
   | 'file.rename'
   | 'file.mkdir'
   | 'olivia.action'
+  | 'planner.change'
   | 'user.create'
   | 'user.reset_password'
   | 'user.access'

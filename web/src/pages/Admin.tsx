@@ -5,6 +5,7 @@ import type {
   HealthResponse,
   OliviaActionResult,
   OliviaActionView,
+  OliviaExplainResponse,
   OliviaResponse,
   RefreshResponse,
 } from '../../../shared/api.ts';
@@ -215,6 +216,21 @@ function DiagnosticsBlock() {
 function OliviaBlock(props: { toast: ToastApi }) {
   const data = useResource<OliviaResponse>('/api/admin/olivia');
   const [running, setRunning] = useState<string | null>(null);
+  /** Re-wordings made by the optional local model: finding id → text (machine-made, not saved anywhere). */
+  const [explained, setExplained] = useState<Record<string, string>>({});
+  const [asking, setAsking] = useState<string | null>(null);
+
+  async function explain(id: string) {
+    setAsking(id);
+    try {
+      const result = await apiPost<OliviaExplainResponse>('/api/admin/olivia/explain', { id });
+      setExplained((all) => ({ ...all, [id]: result.text }));
+    } catch (error) {
+      props.toast.showError(toFailure(error).message);
+    } finally {
+      setAsking(null);
+    }
+  }
 
   async function run(action: OliviaActionView) {
     if (!window.confirm(action.confirmText)) return;
@@ -249,6 +265,25 @@ function OliviaBlock(props: { toast: ToastApi }) {
               </div>
               <p>{finding.explanation}</p>
               <p class="meta">{finding.suggestion}</p>
+              {data.data?.llm.configured ? (
+                <div class="olivia__ai">
+                  <button
+                    type="button"
+                    class="button button--quiet"
+                    disabled={asking !== null}
+                    onClick={() => void explain(finding.id)}
+                  >
+                    {asking === finding.id ? 'ИИ думает…' : 'Объяснить подробнее (локальный ИИ)'}
+                    <span class="visually-hidden"> — {finding.title}</span>
+                  </button>
+                  {explained[finding.id] ? (
+                    <p class="olivia__ai-text">
+                      <strong>Пояснение локального ИИ</strong> (необязательное, может ошибаться, ничего не
+                      выполняет): {explained[finding.id]}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               {action?.allowed ? (
                 <button
                   type="button"
@@ -276,8 +311,9 @@ function OliviaBlock(props: { toast: ToastApi }) {
         Оливия — помощник администратора
       </h2>
       <p class="section-lead">
-        Объясняет состояние сервера простыми словами по готовым правилам (без нейросети). Может выполнить
-        только несколько безопасных действий — и только после вашего подтверждения; каждое попадает в журнал.
+        Объясняет состояние сервера простыми словами по готовым правилам — они работают без нейросети. Может
+        выполнить только несколько безопасных действий, и только после вашего подтверждения; каждое попадает в
+        журнал. Локальный ИИ — по желанию: если его подключить, он лишь переформулирует находки.
       </p>
       {content}
     </section>

@@ -538,6 +538,18 @@ export interface OliviaResponse {
   generatedAt: string;
   findings: OliviaFinding[];
   actions: OliviaActionView[];
+  /** A local language model is connected (OLIVIA_LLM_URL): findings can be re-worded on request. */
+  llm: { configured: boolean };
+}
+
+/**
+ * POST /api/admin/olivia/explain {id} — a local model re-words ONE finding. The answer is plain text
+ * made by a machine, shown with that label; it changes nothing and never triggers an action.
+ * Errors: 404 not_configured / not_found, 429 too_many_requests, 502 llm_failed.
+ */
+export interface OliviaExplainResponse {
+  findingId: string;
+  text: string;
 }
 
 /** POST /api/admin/olivia/actions/:id with {confirm: true}. */
@@ -554,10 +566,21 @@ export type PrintSides = 'one-sided' | 'two-sided-long-edge' | 'two-sided-short-
 export type PrintColorMode = 'auto' | 'monochrome' | 'color';
 /**
  * checked   — the printer validated the job (Validate-Job); waits for the user's «Напечатать»
+ * held      — the printer did not answer; the document is kept and the user may queue it
+ * queued    — the user chose «напечатать, когда принтер включат»: sent by itself, within a day
  * sent/printing — accepted by the printer / being printed
- * completed / canceled / failed — final; expired — not confirmed within an hour
+ * completed / canceled / failed — final; expired — not confirmed in time
  */
-export type PrintJobState = 'checked' | 'sent' | 'printing' | 'completed' | 'canceled' | 'failed' | 'expired';
+export type PrintJobState =
+  | 'checked'
+  | 'held'
+  | 'queued'
+  | 'sent'
+  | 'printing'
+  | 'completed'
+  | 'canceled'
+  | 'failed'
+  | 'expired';
 
 export interface PrintJobView {
   id: string;
@@ -596,4 +619,88 @@ export interface PrintResponse {
   printer: PrinterIppStatus;
   jobs: PrintJobView[];
   maxBytes: number;
+}
+
+// ---------------------------------------------------------------------------
+// Family planner (P10): calendar and notes built into the portal
+// ---------------------------------------------------------------------------
+
+export type CalendarRepeat = 'none' | 'weekly' | 'monthly' | 'yearly';
+
+/** What a person fills in. Dates are «YYYY-MM-DD», times «HH:MM» in the family's wall-clock time (no zones). */
+export interface CalendarEventInput {
+  title: string;
+  date: string;
+  /** Last day of a multi-day event (repeat «none» only); null — one day. */
+  endDate: string | null;
+  /** null — all day. */
+  time: string | null;
+  /** End time on the same day; needs `time`. */
+  endTime: string | null;
+  repeat: CalendarRepeat;
+  note: string;
+  /** Only the author sees a private event; everybody else sees the family ones. */
+  private: boolean;
+}
+
+export interface CalendarEventView extends CalendarEventInput {
+  id: string;
+  owner: string;
+  ownerName: string;
+  createdAt: string;
+  updatedAt: string;
+  /** The author and administrators may change or delete it. */
+  canEdit: boolean;
+}
+
+/** One appearance of an event on a particular day. */
+export interface CalendarOccurrence {
+  day: string;
+  event: CalendarEventView;
+}
+
+/** GET /api/calendar?from=&to= (at most 120 days). */
+export interface CalendarResponse {
+  from: string;
+  to: string;
+  occurrences: CalendarOccurrence[];
+}
+
+/** Notes are plain text files in the folder «Заметки» of «Личное» or «Общее» (so they are also in «Файлы» and in backups). */
+export interface NoteSummary {
+  /** Title = file name without «.txt». */
+  name: string;
+  modifiedAt: string;
+  sizeBytes: number;
+  /** First line(s) of the text. */
+  preview: string;
+}
+
+/** GET /api/notes?space= */
+export interface NotesResponse {
+  space: StorageSpace;
+  notes: NoteSummary[];
+}
+
+/** GET /api/notes/read?space=&name= */
+export interface NoteResponse {
+  space: StorageSpace;
+  name: string;
+  text: string;
+  /** Opaque value to send back when saving: a save is refused if the note changed meanwhile. */
+  revision: string;
+  modifiedAt: string;
+}
+
+/** POST /api/notes/save. `revision` null — a new note. Errors: 409 exists / conflict, 413 too_large, 400 bad_name. */
+export interface SaveNoteRequest {
+  space: StorageSpace;
+  name: string;
+  text: string;
+  revision: string | null;
+}
+export interface SaveNoteResponse {
+  name: string;
+  revision: string;
+  modifiedAt: string;
 }

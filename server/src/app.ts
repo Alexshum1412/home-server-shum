@@ -28,7 +28,11 @@ import { readAppVersion } from './lib/version.ts';
 import { createMediaLibrary } from './media/library.ts';
 import { registerMediaRoutes } from './media/routes.ts';
 import type { ActionDeps } from './olivia/actions.ts';
+import type { LlmFetch } from './olivia/llm.ts';
 import { registerOliviaRoutes } from './olivia/routes.ts';
+import { createCalendarStore } from './planner/calendar.ts';
+import { createNotes } from './planner/notes.ts';
+import { registerPlannerRoutes } from './planner/routes.ts';
 import type { IppTransport } from './print/ipp.ts';
 import { createPrintQueue } from './print/queue.ts';
 import { registerPrintRoutes } from './print/routes.ts';
@@ -119,6 +123,8 @@ export interface BuildAppOptions {
   oliviaActionDeps?: Partial<ActionDeps>;
   /** Talks to a fake printer in tests. */
   ippTransport?: IppTransport;
+  /** Replaces the call to the local language model (tests). */
+  oliviaLlmFetch?: LlmFetch;
   /** Free-space probe for downloads and uploads (tests). */
   freeBytes?: (dir: string) => Promise<number | null>;
 }
@@ -482,6 +488,13 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   });
   registerFileRoutes(app, { storage, guards, audit, freeBytes, maxUploadBytes: config.uploadMaxFileBytes });
   registerMediaRoutes(app, { library: createMediaLibrary(config.mediaDir), guards });
+  registerPlannerRoutes(app, {
+    calendar: createCalendarStore(config.dataDir, { clock }),
+    notes: createNotes(storage),
+    guards,
+    audit,
+    clock,
+  });
   const printQueue = createPrintQueue({
     dataDir: config.dataDir,
     printerUrl: config.printerIppUrl,
@@ -489,6 +502,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     clock,
     transport: options.ippTransport,
     pollMs: options.ippTransport ? 50 : undefined,
+    deferredPollMs: options.ippTransport ? 50 : undefined,
     waitForFirstProbe: options.ippTransport !== undefined,
     onEvent: (event) =>
       void audit.write({ action: event.action, actor: event.actor, ip: null, detail: event.detail }),
@@ -503,6 +517,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     registry,
     collector,
     actionDeps: options.oliviaActionDeps,
+    llmFetch: options.oliviaLlmFetch,
   });
   await registerStatic(app, webRoot);
 

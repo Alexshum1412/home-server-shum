@@ -1,4 +1,4 @@
-import { CircleCheck, FileUp, Printer, X } from 'lucide-preact';
+import { CircleCheck, Clock, FileUp, Printer, X } from 'lucide-preact';
 import { useEffect, useId, useRef, useState } from 'preact/hooks';
 import type {
   PrintColorMode,
@@ -32,6 +32,8 @@ const COLORS: Record<PrintColorMode, string> = {
 };
 const STATE: Record<PrintJobState, string> = {
   checked: 'Ждёт подтверждения',
+  held: 'Принтер не отвечает',
+  queued: 'Ждёт принтер',
   sent: 'Отправлено на принтер',
   printing: 'Печатается',
   completed: 'Напечатано',
@@ -115,6 +117,14 @@ function JobRow(props: { job: PrintJobView; showOwner: boolean; onChanged: () =>
       setError(toFailure(err).message);
     }
   }
+  async function defer() {
+    try {
+      await apiPost(`/api/print/jobs/${job.id}/defer`, { confirm: true });
+      props.onChanged();
+    } catch (err) {
+      setError(toFailure(err).message);
+    }
+  }
   return (
     <li
       class={`download download--${job.state === 'completed' ? 'completed' : job.state === 'failed' ? 'failed' : 'queued'}`}
@@ -134,7 +144,15 @@ function JobRow(props: { job: PrintJobView; showOwner: boolean; onChanged: () =>
           {error}
         </p>
       ) : null}
-      {ACTIVE.has(job.state) || job.state === 'checked' ? (
+      {job.state === 'held' ? (
+        <div class="download__actions">
+          <button type="button" class="button button--secondary" onClick={() => void defer()}>
+            <Clock size={18} aria-hidden="true" />
+            Напечатать, когда принтер включат<span class="visually-hidden"> «{job.fileName}»</span>
+          </button>
+        </div>
+      ) : null}
+      {ACTIVE.has(job.state) || job.state === 'checked' || job.state === 'held' || job.state === 'queued' ? (
         <div class="download__actions">
           <button type="button" class="button button--quiet" onClick={() => void cancel()}>
             <X size={18} aria-hidden="true" />
@@ -212,6 +230,25 @@ function PrintForm(props: { maxBytes: number; onChanged: () => void }) {
     }
   }
 
+  /** The printer was off: the document waits on the server and goes out when the printer answers. */
+  async function defer() {
+    if (!checked) return;
+    setBusy(true);
+    try {
+      await apiPost(`/api/print/jobs/${checked.id}/defer`, { confirm: true });
+      setDone(
+        `«${checked.fileName}» в очереди ожидания: напечатается сам, когда принтер включат (не позже чем через сутки). Отменить можно в списке ниже.`,
+      );
+      setChecked(null);
+      if (fileRef.current) fileRef.current.value = '';
+      props.onChanged();
+    } catch (err) {
+      setError(toFailure(err).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function dropChecked() {
     if (!checked) return;
     await apiPost(`/api/print/jobs/${checked.id}/cancel`).catch(() => undefined);
@@ -229,7 +266,30 @@ function PrintForm(props: { maxBytes: number; onChanged: () => void }) {
         PDF или JPG, до {formatBytes(props.maxBytes)}. Документ Word или Excel сохраните как PDF. Печать идёт
         на домашнем принтере: если вы не дома, листы будут ждать в лотке.
       </p>
-      {checked ? (
+      {checked?.state === 'held' ? (
+        <div class="download-confirm" role="status">
+          <p class="download-confirm__title">Принтер сейчас не отвечает</p>
+          <p>
+            Возможно, он выключен или спит. Документ «{checked.fileName}» сохранён на сервере. Можно поставить
+            его в очередь: он напечатается сам, когда принтер включат, не позже чем через сутки. Лист ляжет в
+            лоток, даже если вас не будет дома.
+          </p>
+          <div class="action-row">
+            <button type="button" class="button button--primary" disabled={busy} onClick={() => void defer()}>
+              <Clock size={20} aria-hidden="true" />
+              Напечатать, когда принтер включат
+            </button>
+            <button
+              type="button"
+              class="button button--quiet"
+              disabled={busy}
+              onClick={() => void dropChecked()}
+            >
+              Не печатать
+            </button>
+          </div>
+        </div>
+      ) : checked ? (
         <div class="download-confirm" role="status">
           <p class="download-confirm__title">Принтер проверил задание. Напечатать?</p>
           <dl class="facts">

@@ -6,6 +6,8 @@ export type RouteId =
   | 'photos'
   | 'files'
   | 'downloads'
+  | 'calendar'
+  | 'notes'
   | 'print'
   | 'system'
   | 'help'
@@ -31,6 +33,8 @@ export const ROUTES: readonly RouteDef[] = [
   { id: 'photos', path: '/photos', title: 'Фото' },
   { id: 'files', path: '/files', title: 'Файлы' },
   { id: 'downloads', path: '/downloads', title: 'Загрузки' },
+  { id: 'calendar', path: '/calendar', title: 'Календарь' },
+  { id: 'notes', path: '/notes', title: 'Заметки' },
   { id: 'print', path: '/print', title: 'Печать' },
   { id: 'system', path: '/system', title: 'Состояние системы' },
   { id: 'help', path: '/help', title: 'Подключение' },

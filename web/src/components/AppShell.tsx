@@ -1,5 +1,6 @@
 import {
   Activity,
+  CalendarDays,
   Clapperboard,
   Download,
   Ellipsis,
@@ -7,6 +8,7 @@ import {
   House,
   Images,
   LogOut,
+  NotebookPen,
   Printer,
   ShieldCheck,
   Smartphone,
@@ -37,6 +39,8 @@ const PRIMARY: readonly NavItem[] = [
 
 /** Under «Ещё» on phones. */
 const SECONDARY: readonly NavItem[] = [
+  { path: '/calendar', label: 'Календарь', icon: CalendarDays },
+  { path: '/notes', label: 'Заметки', icon: NotebookPen },
   { path: '/downloads', label: 'Загрузки', icon: Download },
   { path: '/print', label: 'Печать', icon: Printer },
   { path: '/system', label: 'Состояние', icon: Activity },

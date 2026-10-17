@@ -83,7 +83,7 @@ test.describe('family photos', () => {
     await signIn(page, 'family', '/photos');
     await expect(page.getByRole('heading', { level: 1, name: 'Фото' })).toBeVisible();
     await page.getByLabel('Добавить фото и видео').setInputFiles(PHOTO);
-    await expect(page.getByRole('status').filter({ hasText: 'Загружено 1 из 1' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Готово: 1 из 1' })).toBeVisible();
     // A month folder appears; inside it, the thumbnail made by this browser.
     await page.locator('.months__item').first().click();
     const thumb = page.locator('.gallery__item img');
@@ -91,9 +91,9 @@ test.describe('family photos', () => {
     await expect.poll(() => thumb.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
     await page.locator('.gallery__item').first().click();
     const viewer = page.getByRole('dialog');
-    await expect(viewer.locator('img')).toBeVisible();
+    await expect(viewer.locator('img.viewer__media')).toBeVisible();
     await expect
-      .poll(() => viewer.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth))
+      .poll(() => viewer.locator('img.viewer__media').evaluate((img: HTMLImageElement) => img.naturalWidth))
       .toBe(320);
     await viewer.getByRole('button', { name: 'Закрыть' }).click();
     await expect(viewer).toHaveCount(0);

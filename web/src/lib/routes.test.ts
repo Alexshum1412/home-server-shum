@@ -19,6 +19,8 @@ const EXPECTED: Array<[string, RouteId]> = [
   ['/photos', 'photos'],
   ['/files', 'files'],
   ['/downloads', 'downloads'],
+  ['/calendar', 'calendar'],
+  ['/notes', 'notes'],
   ['/print', 'print'],
   ['/system', 'system'],
   ['/help', 'help'],

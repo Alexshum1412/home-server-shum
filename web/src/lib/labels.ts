@@ -123,6 +123,7 @@ const AUDIT_ACTIONS: Record<string, string> = {
   'file.rename': 'Файл переименован',
   'file.mkdir': 'Создана папка',
   'olivia.action': 'Действие Оливии',
+  'planner.change': 'Календарь или заметки',
   'user.create': 'Создан пользователь',
   'user.reset_password': 'Выдан новый временный пароль',
   'user.access': 'Изменены права пользователя',

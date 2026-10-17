@@ -22,7 +22,7 @@ const CLIENT_HEADER =
 export interface LibrarySpec {
   name: string;
   folder: string;
-  collectionType: 'movies' | 'tvshows' | 'music' | 'homevideos';
+  collectionType: 'movies' | 'tvshows' | 'music' | 'homevideos' | 'books';
 }
 
 export const LIBRARIES: readonly LibrarySpec[] = [
@@ -31,6 +31,8 @@ export const LIBRARIES: readonly LibrarySpec[] = [
   { name: 'Мультфильмы', folder: 'Мультфильмы', collectionType: 'movies' },
   { name: 'Домашнее видео', folder: 'Домашнее видео', collectionType: 'homevideos' },
   { name: 'Музыка', folder: 'Музыка', collectionType: 'music' },
+  // Audiobooks: a folder per book, one file per chapter (the portal's fallback player reads the same folder).
+  { name: 'Аудиокниги', folder: 'Аудиокниги', collectionType: 'books' },
 ];
 
 export interface SetupOptions {

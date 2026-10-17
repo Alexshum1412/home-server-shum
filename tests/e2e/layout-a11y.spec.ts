@@ -9,6 +9,8 @@ const PAGES = [
   '/photos',
   '/files',
   '/downloads',
+  '/calendar',
+  '/notes',
   '/print',
   '/system',
   '/help',
@@ -56,7 +58,17 @@ test.describe('accessibility', () => {
     expect(bad.map((v) => `${v.id}: ${v.help} (${v.nodes.length})`)).toEqual([]);
   });
 
-  for (const path of ['/', '/system', '/help', '/admin', '/photos', '/account']) {
+  for (const path of [
+    '/',
+    '/system',
+    '/help',
+    '/admin',
+    '/photos',
+    '/account',
+    '/calendar',
+    '/notes',
+    '/cinema',
+  ]) {
     test(`${path} has no serious or critical axe violations`, async ({ page }) => {
       await signIn(page, 'admin', path);
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
