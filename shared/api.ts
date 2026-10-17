@@ -252,6 +252,30 @@ export interface Alert {
   text: string;
 }
 
+/** One summary level for the whole server: работает / предупреждение / ошибка / неизвестно. */
+export type HealthLevel = 'ok' | 'warning' | 'error' | 'unknown';
+
+export type ProgramState =
+  | 'running'
+  | 'starting'
+  | 'backoff'
+  | 'stopping'
+  | 'stopped'
+  | 'external'
+  | 'unknown';
+
+/** A program run by the supervisor (the portal itself, Jellyfin). */
+export interface ProgramStatus {
+  /** "dashboard", "jellyfin" */
+  name: string;
+  /** Russian name, e.g. "Кинотеатр (Jellyfin)". */
+  title: string;
+  state: ProgramState;
+  /** Restarts after crashes or hangs since the supervisor started. */
+  restarts: number;
+  startedAt: string | null;
+}
+
 /** GET /api/system — available to every signed-in user; some fields are admin-only. */
 export interface SystemResponse {
   generatedAt: string;
@@ -272,6 +296,10 @@ export interface SystemResponse {
   tailscale: TailscaleInfo;
   printer: PrinterInfo;
   backup: BackupInfo;
+  /** Programs under the supervisor; null with a reason when the supervisor is not running. */
+  programs: Measured<ProgramStatus[]>;
+  /** Summary of everything above for this user's view. */
+  overall: { level: HealthLevel; text: string };
   alerts: Alert[];
 }
 
@@ -414,4 +442,46 @@ export interface UploadResponse {
   sizeBytes: number;
   /** For photos: what the content turned out to be. */
   media: 'image' | 'video' | null;
+}
+
+// ---------------------------------------------------------------------------
+// «Оливия» (P6): rule-based assistant for the admin; works without any AI model
+// ---------------------------------------------------------------------------
+
+/** Actions «Оливия» may suggest. The list is fixed in code; nothing else can be run. */
+export type OliviaActionId = 'restart-jellyfin' | 'start-jellyfin' | 'run-backup' | 'recheck-services';
+
+export interface OliviaFinding {
+  id: string;
+  level: HealthLevel;
+  title: string;
+  /** What is going on, in plain words. */
+  explanation: string;
+  /** What the admin can do. */
+  suggestion: string;
+  /** A safe action the admin may run with one click (after confirming), or null. */
+  action: OliviaActionId | null;
+}
+
+export interface OliviaActionView {
+  id: OliviaActionId;
+  title: string;
+  /** Shown in the confirmation dialog. */
+  confirmText: string;
+  /** False when the action does not apply right now; `reason` says why. */
+  allowed: boolean;
+  reason: string | null;
+}
+
+/** GET /api/admin/olivia (admin only; 404 when OLIVIA_ENABLED=0). */
+export interface OliviaResponse {
+  generatedAt: string;
+  findings: OliviaFinding[];
+  actions: OliviaActionView[];
+}
+
+/** POST /api/admin/olivia/actions/:id with {confirm: true}. */
+export interface OliviaActionResult {
+  ok: boolean;
+  message: string;
 }

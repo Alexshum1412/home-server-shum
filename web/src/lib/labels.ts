@@ -6,7 +6,9 @@ import type {
   AlertLevel,
   BackupState,
   DiskHealth,
+  HealthLevel,
   PrinterState,
+  ProgramState,
   Role,
   ServiceKind,
   ServiceState,
@@ -24,6 +26,24 @@ export interface StatusView {
 }
 
 const NO_DATA: StatusView = { label: 'Нет данных', tone: 'neutral', icon: 'unknown' };
+
+/** The four summary levels of the server. */
+export const HEALTH_LEVEL: Record<HealthLevel, StatusView> = {
+  ok: { label: 'Работает', tone: 'ok', icon: 'ok' },
+  warning: { label: 'Предупреждение', tone: 'warn', icon: 'warn' },
+  error: { label: 'Ошибка', tone: 'bad', icon: 'bad' },
+  unknown: { label: 'Неизвестно', tone: 'neutral', icon: 'unknown' },
+};
+
+export const PROGRAM_STATE: Record<ProgramState, StatusView> = {
+  running: { label: 'Работает', tone: 'ok', icon: 'ok' },
+  external: { label: 'Работает', tone: 'ok', icon: 'ok' },
+  starting: { label: 'Запускается', tone: 'info', icon: 'busy' },
+  backoff: { label: 'Сбой, перезапуск', tone: 'bad', icon: 'bad' },
+  stopping: { label: 'Останавливается', tone: 'neutral', icon: 'busy' },
+  stopped: { label: 'Остановлен', tone: 'warn', icon: 'minus' },
+  unknown: { label: 'Нет данных', tone: 'neutral', icon: 'unknown' },
+};
 
 export const SERVICE_STATE: Record<ServiceState, StatusView> = {
   online: { label: 'Работает', tone: 'ok', icon: 'ok' },
@@ -102,6 +122,7 @@ const AUDIT_ACTIONS: Record<string, string> = {
   'file.trash': 'Файл перемещён в корзину',
   'file.rename': 'Файл переименован',
   'file.mkdir': 'Создана папка',
+  'olivia.action': 'Действие Оливии',
   'services.refresh': 'Проверка сервисов вручную',
   'diagnostics.export': 'Выгрузка диагностики',
 };

@@ -1,6 +1,23 @@
-import { FileDown, Lock, RefreshCw, ScrollText, ShieldCheck, TriangleAlert, Users } from 'lucide-preact';
+import {
+  FileDown,
+  Lock,
+  RefreshCw,
+  ScrollText,
+  ShieldCheck,
+  Sparkles,
+  TriangleAlert,
+  Users,
+} from 'lucide-preact';
 import { useState } from 'preact/hooks';
-import type { AuditResponse, HealthResponse, RefreshResponse, UsersResponse } from '../../../shared/api.ts';
+import type {
+  AuditResponse,
+  HealthResponse,
+  OliviaActionResult,
+  OliviaActionView,
+  OliviaResponse,
+  RefreshResponse,
+  UsersResponse,
+} from '../../../shared/api.ts';
 import { apiDownload, apiPost, toFailure } from '../api.ts';
 import { TableWrap } from '../components/DataTable.tsx';
 import { EmptyState } from '../components/EmptyState.tsx';
@@ -8,9 +25,10 @@ import { ErrorState } from '../components/ErrorState.tsx';
 import { PageHeader } from '../components/PageHeader.tsx';
 import { RelativeTime } from '../components/RelativeTime.tsx';
 import { Loading } from '../components/Skeleton.tsx';
+import { StatusBadge } from '../components/StatusBadge.tsx';
 import { useResource } from '../hooks/useResource.ts';
 import { formatDateTime } from '../lib/format.ts';
-import { auditActionLabel, ROLE_LABEL } from '../lib/labels.ts';
+import { auditActionLabel, HEALTH_LEVEL, ROLE_LABEL } from '../lib/labels.ts';
 import { useData, useIsAdmin } from '../state.tsx';
 
 type ActionState =
@@ -259,6 +277,76 @@ function DiagnosticsBlock() {
   );
 }
 
+function OliviaBlock() {
+  const data = useResource<OliviaResponse>('/api/admin/olivia');
+  const [state, setState] = useState<ActionState>({ kind: 'idle' });
+
+  async function run(action: OliviaActionView) {
+    if (!window.confirm(action.confirmText)) return;
+    setState({ kind: 'busy' });
+    try {
+      const result = await apiPost<OliviaActionResult>(`/api/admin/olivia/actions/${action.id}`, {
+        confirm: true,
+      });
+      setState({ kind: result.ok ? 'done' : 'error', text: result.message });
+      data.reload();
+    } catch (error) {
+      setState({ kind: 'error', text: toFailure(error).message });
+    }
+  }
+
+  if (data.error?.status === 404) return null; // switched off with OLIVIA_ENABLED=0
+  let content = null;
+  if (data.data) {
+    const actions = new Map(data.data.actions.map((a) => [a.id, a]));
+    content = (
+      <ul class="olivia">
+        {data.data.findings.map((finding) => {
+          const action = finding.action ? actions.get(finding.action) : undefined;
+          return (
+            <li key={finding.id} class="olivia__item">
+              <div class="olivia__head">
+                <StatusBadge status={HEALTH_LEVEL[finding.level]} />
+                <h3 class="olivia__title">{finding.title}</h3>
+              </div>
+              <p>{finding.explanation}</p>
+              <p class="meta">{finding.suggestion}</p>
+              {action?.allowed ? (
+                <button
+                  type="button"
+                  class="button button--secondary"
+                  disabled={state.kind === 'busy'}
+                  onClick={() => void run(action)}
+                >
+                  {action.title}
+                </button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  } else if (data.error) {
+    content = <ErrorState failure={data.error} onRetry={data.reload} busy={data.loading} level={3} />;
+  } else {
+    content = <Loading label="Оливия смотрит на сервер…" />;
+  }
+  return (
+    <section class="page-section" aria-labelledby="olivia-title">
+      <h2 id="olivia-title" class="section-title">
+        <Sparkles class="section-title__icon" size={20} aria-hidden="true" />
+        Оливия — помощник администратора
+      </h2>
+      <p class="section-lead">
+        Объясняет состояние сервера простыми словами по готовым правилам (без нейросети). Может выполнить
+        только несколько безопасных действий — и только после вашего подтверждения; каждое попадает в журнал.
+      </p>
+      {content}
+      <ActionMessage state={state} />
+    </section>
+  );
+}
+
 export function AdminPage() {
   const isAdmin = useIsAdmin();
   if (!isAdmin) {
@@ -278,6 +366,7 @@ export function AdminPage() {
         icon={ShieldCheck}
         lead="Наблюдение и диагностика. Команды на компьютере отсюда не выполняются."
       />
+      <OliviaBlock />
       <ServicesBlock />
       <UsersBlock />
       <AuditBlock />

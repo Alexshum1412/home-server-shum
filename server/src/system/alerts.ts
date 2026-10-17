@@ -1,7 +1,10 @@
 import type {
   Alert,
   BackupInfo,
+  HealthLevel,
+  Measured,
   PhysicalDiskInfo,
+  ProgramStatus,
   Role,
   TailscaleInfo,
   TailscaleState,
@@ -25,6 +28,8 @@ export interface AlertInputs {
   disks: readonly PhysicalDiskInfo[] | null;
   tailscale: TailscaleInfo;
   servicesConfigError: string | null;
+  /** Supervisor state; omitted in old callers and tests. */
+  programs?: Measured<ProgramStatus[]>;
 }
 
 export const CRITICAL_FREE_PERCENT = 5;
@@ -120,6 +125,45 @@ export function buildAlerts(inputs: AlertInputs): AudienceAlert[] {
     });
   }
 
+  const programs = inputs.programs;
+  if (programs && programs.value === null && programs.reason) {
+    alerts.push({
+      id: 'supervisor-not-running',
+      level: 'warning',
+      audience: 'admin',
+      title: 'Супервизор не запущен',
+      text: `${asSentence(programs.reason)} Запустите портал командой start.cmd (папка scripts проекта) — супервизор запустится вместе с ним.`,
+    });
+  }
+  for (const program of programs?.value ?? []) {
+    if (program.state === 'backoff') {
+      alerts.push({
+        id: `program-crash-${program.name}`,
+        level: 'critical',
+        audience: 'all',
+        title: `«${program.title}» перезапускается после сбоя`,
+        text: 'Сервис завершился с ошибкой и сейчас перезапускается автоматически. Если это повторяется, сообщите администратору.',
+        adminText: `Сбоев с момента запуска супервизора: ${program.restarts}. Подробности — в журнале supervisor.log (папка logs данных портала).`,
+      });
+    } else if (program.state === 'stopped') {
+      alerts.push({
+        id: `program-stopped-${program.name}`,
+        level: 'warning',
+        audience: 'admin',
+        title: `«${program.title}» остановлен`,
+        text: 'Программа остановлена вручную и не работает. Запустить снова: start.cmd или команда start супервизора.',
+      });
+    } else if (program.restarts >= 3) {
+      alerts.push({
+        id: `program-unstable-${program.name}`,
+        level: 'warning',
+        audience: 'admin',
+        title: `«${program.title}» работает нестабильно`,
+        text: `После сбоев программа перезапускалась ${program.restarts} раз(а) с момента запуска супервизора. Посмотрите supervisor.log и журналы программы.`,
+      });
+    }
+  }
+
   if (inputs.servicesConfigError) {
     alerts.push({
       id: 'services-config-error',
@@ -139,4 +183,23 @@ export function alertsForRole(alerts: readonly AudienceAlert[], role: Role): Ale
     .map(({ audience: _audience, adminText, ...alert }) =>
       role === 'admin' && adminText ? { ...alert, text: adminText } : alert,
     );
+}
+
+const OVERALL_TEXT: Record<HealthLevel, string> = {
+  ok: 'Всё работает',
+  warning: 'Работает, есть предупреждения',
+  error: 'Есть проблемы, нужна помощь администратора',
+  unknown: 'Нет данных о состоянии сервера',
+};
+
+/** One level for the whole server from the alerts this user can see and the core measurements. */
+export function overallHealth(
+  alerts: readonly Alert[],
+  coreMeasured: boolean,
+): { level: HealthLevel; text: string } {
+  let level: HealthLevel = 'ok';
+  if (alerts.some((a) => a.level === 'critical')) level = 'error';
+  else if (alerts.some((a) => a.level === 'warning')) level = 'warning';
+  else if (!coreMeasured) level = 'unknown';
+  return { level, text: OVERALL_TEXT[level] };
 }

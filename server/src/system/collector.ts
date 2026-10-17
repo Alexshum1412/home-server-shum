@@ -3,6 +3,7 @@ import type {
   Measured,
   PhysicalDiskInfo,
   PrinterInfo,
+  ProgramStatus,
   Role,
   SystemResponse,
   TailscaleInfo,
@@ -10,7 +11,7 @@ import type {
 } from '../../../shared/api.ts';
 import type { Config } from '../config.ts';
 import { type Clock, formatSeconds, isoNow } from '../lib/time.ts';
-import { alertsForRole, buildAlerts, TAILSCALE_DOWN_STATES } from './alerts.ts';
+import { alertsForRole, buildAlerts, overallHealth, TAILSCALE_DOWN_STATES } from './alerts.ts';
 import { readBackupStatus } from './backup.ts';
 import { createCpuSampler } from './cpu.ts';
 import { parsePhysicalDisks } from './disks.ts';
@@ -18,6 +19,7 @@ import { parseOsVersion } from './os-version.ts';
 import { POWERSHELL_TIMEOUT_MS, ProbeError } from './powershell.ts';
 import { parsePrinters } from './printer.ts';
 import type { SystemProbes } from './probes.ts';
+import { PROGRAMS_SOURCE, readPrograms } from './programs.ts';
 import { parseTailscaleStatus, TAILSCALE_FAMILY_DOWN_REASON, TAILSCALE_TIMEOUT_MS } from './tailscale.ts';
 import { pendingVolume, toVolumeInfo, type VolumeSpace } from './volumes.ts';
 
@@ -29,6 +31,7 @@ export const SCHEDULE_MS = {
   volumes: 60_000,
   tailscale: 60_000,
   devices: 5 * 60_000,
+  programs: 10_000,
 } as const;
 
 const DISKS_SOURCE = 'PowerShell Get-PhysicalDisk';
@@ -151,6 +154,16 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
     collectedAt: null,
     reason: 'Ещё не проверено',
   };
+  let programs: Measured<ProgramStatus[]> = {
+    value: null,
+    collectedAt: null,
+    source: PROGRAMS_SOURCE,
+    reason: NOT_MEASURED,
+  };
+  async function collectPrograms(): Promise<void> {
+    programs = await readPrograms(config.dataDir, clock());
+  }
+
   let backup: BackupInfo = {
     state: 'unknown',
     lastSuccessAt: null,
@@ -313,7 +326,13 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
 
   async function collectAll(): Promise<void> {
     collectCpu();
-    await Promise.all([collectVolumes(), collectBackup(), collectTailscale(), collectDevices()]);
+    await Promise.all([
+      collectVolumes(),
+      collectBackup(),
+      collectTailscale(),
+      collectDevices(),
+      collectPrograms(),
+    ]);
   }
 
   const timers: NodeJS.Timeout[] = [];
@@ -341,6 +360,7 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
       every(SCHEDULE_MS.volumes, () => Promise.all([collectVolumes(), collectBackup()]));
       every(SCHEDULE_MS.tailscale, collectTailscale);
       every(SCHEDULE_MS.devices, collectDevices);
+      every(SCHEDULE_MS.programs, collectPrograms);
     },
     stop() {
       for (const timer of timers.splice(0)) clearInterval(timer);
@@ -353,7 +373,11 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
         disks: disks.value,
         tailscale,
         servicesConfigError: options.servicesConfigError(),
+        // Before the first read there is no evidence either way: no supervisor alert yet.
+        programs: programs.collectedAt === null ? undefined : programs,
       });
+      const visibleAlerts = alertsForRole(alerts, role);
+      const coreMeasured = cpu.current().value !== null || memoryUsed.value !== null;
       return {
         generatedAt: isoNow(clock),
         demo: config.demo,
@@ -394,7 +418,9 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
             },
         printer: { ...printer },
         backup: { ...backup },
-        alerts: alertsForRole(alerts, role),
+        programs: { ...programs, value: programs.value ? programs.value.map((p) => ({ ...p })) : null },
+        overall: overallHealth(visibleAlerts, coreMeasured),
+        alerts: visibleAlerts,
       };
     },
   };

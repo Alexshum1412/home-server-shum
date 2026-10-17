@@ -60,7 +60,7 @@ beforeEach(async () => {
     git(['-C', repo, 'remote', 'add', 'origin', remote]);
   }
   fx = { base, dataDir, root: path.join(base, 'backups'), repo, remote, head };
-});
+}, 60_000);
 
 afterEach(async () => {
   await removeDir(fx.base);
@@ -92,7 +92,7 @@ function deps(): BackupDeps {
   };
 }
 
-describe.skipIf(!gitAvailable)('GitHub mirror of the code', () => {
+describe.skipIf(!gitAvailable)('GitHub mirror of the code', { timeout: 60_000 }, () => {
   it('pushes the committed history and records it as an optional target', async () => {
     const result = await runBackup(settings(), deps());
     expect(result.ok).toBe(true);

@@ -27,6 +27,9 @@ const env = {
   FAMILY_FILES_DIR: join(dataDir, 'files'),
   FAMILY_PHOTOS_DIR: join(dataDir, 'photos'),
   MIN_FREE_GB: '1',
+  // Never the real backup places either: a test snapshot would count against their retention.
+  BACKUP_TARGETS: join(dataDir, 'backups'),
+  BACKUP_GIT_PUSH: 'none',
 };
 
 // Same values as tests/e2e/fixtures.ts (kept in sync manually; plain JS cannot import the .ts file here).

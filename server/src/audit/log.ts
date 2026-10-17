@@ -20,6 +20,7 @@ export type AuditAction =
   | 'file.trash'
   | 'file.rename'
   | 'file.mkdir'
+  | 'olivia.action'
   | 'services.refresh'
   | 'diagnostics.export';
 

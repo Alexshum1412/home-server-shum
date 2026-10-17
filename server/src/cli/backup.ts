@@ -7,6 +7,7 @@
  */
 import path from 'node:path';
 import { BackupError, describeError } from '../backup/files.ts';
+import { acquireBackupLock } from '../backup/lock.ts';
 import { restoreSnapshot, testRestore } from '../backup/restore.ts';
 import { applyRetention, listSnapshots } from '../backup/retention.ts';
 import {
@@ -330,8 +331,14 @@ async function main(argv: string[]): Promise<number> {
   const settings = backupSettingsFromConfig(config);
   const deps = defaultBackupDeps(config);
   switch (command) {
-    case 'run':
-      return commandRun(settings, deps);
+    case 'run': {
+      const release = await acquireBackupLock(settings.dataDir);
+      try {
+        return await commandRun(settings, deps);
+      } finally {
+        await release();
+      }
+    }
     case 'list':
       return commandList(settings, deps);
     case 'verify':

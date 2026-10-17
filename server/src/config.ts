@@ -43,6 +43,8 @@ export interface Config {
   readonly uploadMaxFileBytes: number;
   /** Downloads and uploads stop when the volume would have less than this free. */
   readonly minFreeBytes: number;
+  /** «Оливия» (rule-based assistant for the admin); OLIVIA_ENABLED=0 switches it off completely. */
+  readonly oliviaEnabled: boolean;
 }
 
 export type Env = Readonly<Record<string, string | undefined>>;
@@ -91,6 +93,7 @@ const schema = z.object({
   DOWNLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
   UPLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
   MIN_FREE_GB: z.coerce.number().min(0).max(10_000),
+  OLIVIA_ENABLED: z.enum(['0', '1', 'true', 'false']),
 });
 
 /** "C:" — the drive Windows is installed on (the family server root lives there). */
@@ -185,6 +188,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     DOWNLOAD_MAX_FILE_GB: pick('DOWNLOAD_MAX_FILE_GB', '50'),
     UPLOAD_MAX_FILE_GB: pick('UPLOAD_MAX_FILE_GB', '20'),
     MIN_FREE_GB: pick('MIN_FREE_GB', '50'),
+    OLIVIA_ENABLED: pick('OLIVIA_ENABLED', '1').toLowerCase(),
   };
 
   const parsed = schema.safeParse(raw);
@@ -232,6 +236,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     downloadMaxFileBytes: Math.round(v.DOWNLOAD_MAX_FILE_GB * 1024 ** 3),
     uploadMaxFileBytes: Math.round(v.UPLOAD_MAX_FILE_GB * 1024 ** 3),
     minFreeBytes: Math.round(v.MIN_FREE_GB * 1024 ** 3),
+    oliviaEnabled: v.OLIVIA_ENABLED === '1' || v.OLIVIA_ENABLED === 'true',
   });
 }
 

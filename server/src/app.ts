@@ -25,6 +25,8 @@ import { isApiPath, sendError, urlPath } from './lib/http.ts';
 import { removeStaleTempFiles } from './lib/json-store.ts';
 import { type Clock, isoNow, systemClock } from './lib/time.ts';
 import { readAppVersion } from './lib/version.ts';
+import type { ActionDeps } from './olivia/actions.ts';
+import { registerOliviaRoutes } from './olivia/routes.ts';
 import { createServiceRegistry, type FetchLike, type ServiceRegistry } from './services/checker.ts';
 import { registerServiceRoutes } from './services/routes.ts';
 import { DEFAULT_WEB_ROOT, registerStatic, sendSpaFallback } from './static.ts';
@@ -106,6 +108,8 @@ export interface BuildAppOptions {
   usersReloadIntervalMs?: number;
   /** Addresses the download queue may contact (tests allow loopback; default: public internet only). */
   downloadAllowAddress?: (address: string) => boolean;
+  /** Replaces the supervisor and backup process behind «Оливия»'s actions (tests). */
+  oliviaActionDeps?: Partial<ActionDeps>;
   /** Free-space probe for downloads and uploads (tests). */
   freeBytes?: (dir: string) => Promise<number | null>;
 }
@@ -448,6 +452,15 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     freeBytes,
   });
   registerFileRoutes(app, { storage, guards, audit, freeBytes, maxUploadBytes: config.uploadMaxFileBytes });
+  registerOliviaRoutes(app, {
+    config,
+    clock,
+    guards,
+    audit,
+    registry,
+    collector,
+    actionDeps: options.oliviaActionDeps,
+  });
   await registerStatic(app, webRoot);
 
   // --- lifecycle ----------------------------------------------------------------------------

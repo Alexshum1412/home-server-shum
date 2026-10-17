@@ -752,3 +752,50 @@ fieldset.segmented {
   margin: 0;
   min-inline-size: 0;
 }
+
+/* --- Overall server status -------------------------------------------------------- */
+
+.overall {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.overall__text {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-medium);
+}
+
+/* --- Olivia ---------------------------------------------------------------------- */
+
+.olivia {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: 0;
+  list-style: none;
+}
+
+.olivia__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
+
+.olivia__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.olivia__title {
+  font-size: var(--fs-md);
+}

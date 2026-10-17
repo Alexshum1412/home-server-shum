@@ -95,6 +95,13 @@ export function systemResponse(overrides: Partial<SystemResponse> = {}): SystemR
       restoreTested: false,
       message: 'Резервные копии не настроены',
     },
+    programs: {
+      value: [{ name: 'dashboard', title: 'Портал', state: 'running', restarts: 0, startedAt: NOW_ISO }],
+      collectedAt: NOW_ISO,
+      source: 'test',
+      reason: null,
+    },
+    overall: { level: 'ok', text: 'Всё работает' },
     alerts: [],
     ...overrides,
   };

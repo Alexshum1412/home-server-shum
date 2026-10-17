@@ -35,8 +35,10 @@ import {
 import {
   BACKUP_STATE,
   DISK_HEALTH,
+  HEALTH_LEVEL,
   LOW_SPACE,
   PRINTER_STATE,
+  PROGRAM_STATE,
   SPACE_OK,
   TAILSCALE_STATE,
   UNKNOWN,
@@ -236,6 +238,37 @@ function BackupTile({ data }: { data: SystemResponse }) {
   );
 }
 
+function ProgramsSection({ data }: { data: SystemResponse }) {
+  const programs = data.programs;
+  return (
+    <section class="page-section" aria-labelledby="programs-title">
+      <h2 id="programs-title" class="section-title">
+        Программы сервера
+      </h2>
+      {programs.value === null ? (
+        <p class="tile__text">{programs.reason ?? 'Нет данных'}</p>
+      ) : (
+        <div class="tile-grid">
+          {programs.value.map((program) => (
+            <Tile key={program.name} title={program.title} status={PROGRAM_STATE[program.state]} level={3}>
+              <p class="tile__text">
+                {program.restarts === 0
+                  ? 'Сбоев не было с момента запуска.'
+                  : `Перезапусков после сбоев: ${program.restarts}.`}
+              </p>
+              {program.startedAt ? (
+                <p class="meta">
+                  Запущена <RelativeTime value={program.startedAt} />
+                </p>
+              ) : null}
+            </Tile>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function DisksSection({ data }: { data: SystemResponse }) {
   const disks = data.physicalDisks;
   return (
@@ -337,6 +370,10 @@ export function SystemPage() {
   } else {
     body = (
       <>
+        <div class="overall" role="status">
+          <StatusBadge status={HEALTH_LEVEL[data.overall.level]} />
+          <p class="overall__text">{data.overall.text}</p>
+        </div>
         <AlertList alerts={data.alerts} />
         <section class="page-section">
           <h2 class="section-title">Нагрузка</h2>
@@ -367,6 +404,7 @@ export function SystemPage() {
             <BackupTile data={data} />
           </div>
         </section>
+        <ProgramsSection data={data} />
         {isAdmin ? <DisksSection data={data} /> : null}
         {isAdmin ? <ComputerSection data={data} /> : null}
       </>
