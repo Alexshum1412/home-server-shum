@@ -12,6 +12,11 @@ export interface ServiceDefinition {
   healthUrl: string | null;
   enabled: boolean;
   hint: string | null;
+  /**
+   * Name of the program in the supervisor (server/src/supervisor/apps.ts), e.g. "jellyfin": when
+   * the health check fails, the status says whether it was stopped, crashed or is starting.
+   */
+  process?: string | null;
 }
 
 export interface ServicesFile {
@@ -31,6 +36,11 @@ const serviceSchema = z.object({
   healthUrl: z.string().max(2048).nullable(),
   enabled: z.boolean(),
   hint: z.string().max(500).nullable(),
+  process: z
+    .string()
+    .regex(/^[a-z]{2,20}$/, 'process: имя программы супервизора латиницей')
+    .nullable()
+    .optional(),
 });
 
 const fileSchema = z

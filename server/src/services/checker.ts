@@ -1,6 +1,8 @@
+import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import type { ServiceState, ServiceStatus } from '../../../shared/api.ts';
 import type { Config } from '../config.ts';
+import { readJsonFile } from '../lib/json-store.ts';
 import { type Clock, formatSeconds, isoNow } from '../lib/time.ts';
 import {
   DEFAULT_SERVICES,
@@ -39,6 +41,55 @@ export interface ServiceRegistryOptions {
   clock: Clock;
   fetch: FetchLike;
   onConfigError?: (message: string) => void;
+}
+
+/** What the supervisor (run/supervisor.json) says about a program; see supervisor/managed.ts. */
+export interface ProcessInfo {
+  state: string;
+  restarts: number;
+  message: string;
+}
+
+/** Plain-words status for a program that does not answer its health check, by supervisor state. */
+export function describeProcess(info: ProcessInfo | undefined): { message: string; hint: string } | null {
+  switch (info?.state) {
+    case 'stopped':
+      return {
+        message: 'Остановлен',
+        hint: 'Сервис остановлен на сервере. Попросите администратора запустить его снова.',
+      };
+    case 'stopping':
+      return { message: 'Останавливается', hint: 'Подождите минуту и попробуйте ещё раз.' };
+    case 'starting':
+      return { message: 'Запускается', hint: 'Подождите минуту и попробуйте ещё раз.' };
+    case 'backoff':
+      return {
+        message: 'Сбой: сервис перезапускается автоматически',
+        hint: 'Подождите минуту. Если ошибка повторяется, сообщите администратору.',
+      };
+    default:
+      return null;
+  }
+}
+
+async function readSupervisorApps(dataDir: string): Promise<Map<string, ProcessInfo>> {
+  const map = new Map<string, ProcessInfo>();
+  try {
+    const data = (await readJsonFile(path.join(dataDir, 'run', 'supervisor.json'))) as
+      | { apps?: Array<{ name?: unknown; state?: unknown; restarts?: unknown; message?: unknown }> }
+      | undefined;
+    for (const app of data?.apps ?? []) {
+      if (typeof app.name !== 'string' || typeof app.state !== 'string') continue;
+      map.set(app.name, {
+        state: app.state,
+        restarts: typeof app.restarts === 'number' ? app.restarts : 0,
+        message: typeof app.message === 'string' ? app.message.slice(0, 200) : '',
+      });
+    }
+  } catch {
+    // no supervisor (manual start, tests) or an unreadable file: plain health results only
+  }
+  return map;
 }
 
 const OFFLINE_HINT =
@@ -125,7 +176,7 @@ function resolve(definition: ServiceDefinition): Resolved {
   return { definition, openUrl: open.url, checkUrl: health.url ?? open.url, invalidUrl: false };
 }
 
-function toStatus(item: Resolved, result: CheckResult | undefined): ServiceStatus {
+function toStatus(item: Resolved, result: CheckResult | undefined, proc?: ProcessInfo): ServiceStatus {
   const { definition } = item;
   const base = {
     id: definition.id,
@@ -168,6 +219,14 @@ function toStatus(item: Resolved, result: CheckResult | undefined): ServiceStatu
     return status('unknown', 'Проверка ещё не выполнялась', null, { openUrl: item.openUrl });
   }
   const hint = result.state === 'online' ? null : result.state === 'degraded' ? DEGRADED_HINT : OFFLINE_HINT;
+  const known = result.state === 'offline' ? describeProcess(proc) : null;
+  if (known && proc) {
+    return status('offline', known.message, known.hint, {
+      openUrl: item.openUrl,
+      checkedAt: result.checkedAt,
+      detail: `${result.detail ?? 'нет ответа'}; супервизор: ${proc.state}, перезапусков ${proc.restarts}`,
+    });
+  }
   return status(result.state, result.message, hint, {
     openUrl: item.openUrl,
     checkedAt: result.checkedAt,
@@ -239,6 +298,7 @@ export function createServiceRegistry(options: ServiceRegistryOptions): ServiceR
   const { config, clock } = options;
   let loaded: LoadedServices = { services: [], configError: null };
   const results = new Map<string, CheckResult>();
+  let processes = new Map<string, ProcessInfo>();
   let running: Promise<void> | null = null;
   let timer: NodeJS.Timeout | null = null;
   let lastReportedError: string | null = null;
@@ -270,6 +330,7 @@ export function createServiceRegistry(options: ServiceRegistryOptions): ServiceR
         return [item.definition.id, result] as const;
       }),
     );
+    processes = await readSupervisorApps(config.dataDir);
     const ids = new Set(loaded.services.map((service) => service.id));
     for (const id of results.keys()) if (!ids.has(id)) results.delete(id);
     for (const [id, result] of checked) results.set(id, result);
@@ -288,7 +349,13 @@ export function createServiceRegistry(options: ServiceRegistryOptions): ServiceR
     checkAll,
     statuses() {
       if (config.demo) return demoStatuses(clock);
-      return loaded.services.map((definition) => toStatus(resolve(definition), results.get(definition.id)));
+      return loaded.services.map((definition) =>
+        toStatus(
+          resolve(definition),
+          results.get(definition.id),
+          definition.process ? processes.get(definition.process) : undefined,
+        ),
+      );
     },
     configError: () => (config.demo ? null : loaded.configError),
     start() {

@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
@@ -253,6 +253,44 @@ describe('service registry', () => {
   it('reports schema errors (e.g. unknown kind) as a config error', async () => {
     const t = await appWithServices([service('x', { kind: 'nuclear' as never })]);
     expect((await getServices(t, ADMIN)).configError).toMatch(/kind/);
+  });
+});
+
+describe('supervised programs', () => {
+  it('says «stopped» or «restarting» from the supervisor state instead of a bare «not answering»', async () => {
+    const t = await appWithServices([
+      service('stopped', { openUrl: closedPortUrl, process: 'jellyfin' }),
+      service('crashed', { openUrl: closedPortUrl, process: 'other' }),
+      service('plain', { openUrl: closedPortUrl, process: 'missing' }),
+      service('up', { openUrl: `${base}/ok`, process: 'jellyfin' }),
+    ]);
+    await mkdir(path.join(t.dataDir, 'run'), { recursive: true });
+    await writeFile(
+      path.join(t.dataDir, 'run', 'supervisor.json'),
+      JSON.stringify({
+        apps: [
+          { name: 'jellyfin', state: 'stopped', restarts: 0, message: 'Остановлен' },
+          { name: 'other', state: 'backoff', restarts: 3, message: 'Сбой' },
+        ],
+      }),
+    );
+    await t.app.dashboard.registry.checkAll();
+    const family = (await getServices(t)).services;
+    expect(byId(family, 'stopped')).toMatchObject({ state: 'offline', message: 'Остановлен' });
+    expect(byId(family, 'stopped').hint).toMatch(/администратора запустить/);
+    expect(byId(family, 'crashed').message).toBe('Сбой: сервис перезапускается автоматически');
+    expect(byId(family, 'plain').message).toBe('Сервис не отвечает');
+    expect(byId(family, 'up').state).toBe('online');
+    // Technical detail only for the admin.
+    expect(byId(family, 'crashed').detail ?? null).toBeNull();
+    const admin = (await getServices(t, ADMIN)).services;
+    expect(byId(admin, 'crashed').detail).toMatch(/супервизор: backoff, перезапусков 3/);
+  });
+
+  it('rejects an invalid process name in services.json', async () => {
+    const t = await appWithServices([service('x', { openUrl: `${base}/ok`, process: '../evil' })]);
+    const body = await getServices(t, ADMIN);
+    expect(body.configError).toMatch(/process/);
   });
 });
 
