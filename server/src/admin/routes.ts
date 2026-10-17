@@ -3,7 +3,7 @@ import type { AuditResponse, DiagnosticsResponse, UsersResponse } from '../../..
 import { AUDIT_MAX_READ, type AuditLog } from '../audit/log.ts';
 import { currentUser, type Guards } from '../auth/guards.ts';
 import { type LoginTimes, lastLoginOf } from '../auth/logins.ts';
-import { needsPasswordChange, type UserStore } from '../auth/users.ts';
+import { effectivePermissions, needsPasswordChange, type UserStore } from '../auth/users.ts';
 import type { Config } from '../config.ts';
 import { type Clock, isoNow } from '../lib/time.ts';
 import type { ServiceRegistry } from '../services/checker.ts';
@@ -45,6 +45,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         username: user.username,
         displayName: user.displayName,
         role: user.role,
+        permissions: effectivePermissions(user),
         createdAt: user.createdAt,
         lastLoginAt: lastLoginOf(user, deps.logins),
         temporaryPassword: needsPasswordChange(user),

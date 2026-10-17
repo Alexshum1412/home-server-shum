@@ -94,6 +94,10 @@ const AUDIT_ACTIONS: Record<string, string> = {
   logout: 'Выход',
   'password.change': 'Смена пароля',
   'password.change_failed': 'Неудачная смена пароля',
+  'download.add': 'Загрузка добавлена',
+  'download.done': 'Загрузка завершена',
+  'download.fail': 'Загрузка не удалась',
+  'download.cancel': 'Загрузка отменена',
   'services.refresh': 'Проверка сервисов вручную',
   'diagnostics.export': 'Выгрузка диагностики',
 };

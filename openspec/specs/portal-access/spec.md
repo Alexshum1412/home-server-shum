@@ -85,3 +85,10 @@ Every signed-in user SHALL be able to change the own password in the portal afte
 #### Scenario: Wrong current password
 - **WHEN** the current password is wrong
 - **THEN** the server answers 400 `wrong_password`, nothing changes and the user stays signed in
+
+### Requirement: Per-user rights
+Besides the role, a family member MAY be granted extra rights (`downloads`, `print`) on the server with `scripts\user.cmd allow|deny`. Admins SHALL have every right. Rights SHALL be checked by the server on every request that needs them and SHALL be part of the session information.
+
+#### Scenario: Right granted
+- **WHEN** the owner runs `scripts\user.cmd allow mama downloads`
+- **THEN** mama's session lists `downloads` and the download queue accepts her requests

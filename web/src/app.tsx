@@ -6,6 +6,7 @@ import { AppShell } from './components/AppShell.tsx';
 import { documentTitle, type RouteId } from './lib/routes.ts';
 import { AccountPage } from './pages/Account.tsx';
 import { AdminPage } from './pages/Admin.tsx';
+import { DownloadsPage } from './pages/Downloads.tsx';
 import { ForcedPasswordPage } from './pages/ForcedPassword.tsx';
 import { HelpPage } from './pages/Help.tsx';
 import { HomePage } from './pages/Home.tsx';
@@ -34,7 +35,7 @@ function Page(props: { route: RouteId; onSessionChanged: (session: SessionRespon
     case 'files':
       return <ServicePage key="files" kind="files" />;
     case 'downloads':
-      return <ServicePage key="downloads" kind="downloads" />;
+      return <DownloadsPage />;
     case 'print':
       return <PrintPage />;
     case 'system':

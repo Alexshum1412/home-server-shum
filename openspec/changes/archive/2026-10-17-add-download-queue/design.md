@@ -1,0 +1,3 @@
+# Design
+
+See `docs/decisions/0006-downloads.md`. Own queue instead of qBittorrent/aria2: those either expose another web UI with its own accounts or resolve and follow redirects themselves, so the portal could not stop them from fetching from the home network. The guard lives in the socket's DNS lookup (`createSafeLookup`), so the checked address is the connected address; IP literals and well-known home names are refused before any request; every redirect is re-validated. Files are written only to the owner's folder with sanitised names; program types are refused; completed files get `Zone.Identifier` (ZoneId=3).

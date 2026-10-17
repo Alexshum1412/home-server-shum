@@ -31,9 +31,13 @@ test.describe('honest states (real mode)', () => {
   test('service API never marks unconfigured services as online or demo', async ({ page }) => {
     await signIn(page, 'family');
     const body = await (await page.request.get('/api/services')).json();
+    // Features of the portal itself have no separate address and are online with the portal.
+    const builtIn = new Set(['downloads']);
     for (const s of body.services) {
       expect(s.demo).toBe(false);
-      if (s.openUrl === null) expect(s.state).toBe('not_configured');
+      if (builtIn.has(s.id))
+        expect(s).toMatchObject({ state: 'online', message: 'Работает (часть портала)' });
+      else if (s.openUrl === null) expect(s.state).toBe('not_configured');
     }
   });
 });

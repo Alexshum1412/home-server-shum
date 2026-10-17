@@ -12,6 +12,10 @@ export type AuditAction =
   | 'logout'
   | 'password.change'
   | 'password.change_failed'
+  | 'download.add'
+  | 'download.done'
+  | 'download.fail'
+  | 'download.cancel'
   | 'services.refresh'
   | 'diagnostics.export';
 

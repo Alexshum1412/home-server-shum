@@ -12,6 +12,15 @@
 
 export type Role = 'family' | 'admin';
 
+/**
+ * Extra rights an admin grants to a family member (user.cmd allow <login> <right>).
+ * Admins always have all of them.
+ *   downloads — add files to the download queue (P3)
+ *   print     — send documents to the home printer (P7)
+ */
+export type Permission = 'downloads' | 'print';
+export const PERMISSIONS: readonly Permission[] = ['downloads', 'print'];
+
 export interface SessionUser {
   id: string;
   /** Login name, lowercase latin, e.g. "mama". */
@@ -19,6 +28,8 @@ export interface SessionUser {
   /** Name shown in the greeting, e.g. "Мама". */
   displayName: string;
   role: Role;
+  /** Effective rights (admins: all). */
+  permissions: Permission[];
 }
 
 /** GET /api/health — public liveness probe, no auth, minimal info. */
@@ -312,3 +323,56 @@ export interface DiagnosticsResponse {
 
 /** POST /api/services/refresh (admin only) — re-run all checks now (rate limited). */
 export type RefreshResponse = ServicesResponse;
+
+// ---------------------------------------------------------------------------
+// Downloads (P3): direct HTTP(S) links into the user's own «Загрузки» folder
+// ---------------------------------------------------------------------------
+
+export type DownloadState = 'queued' | 'downloading' | 'paused' | 'completed' | 'failed' | 'canceled';
+
+export interface DownloadTaskView {
+  id: string;
+  /** Login of the family member who added it. */
+  owner: string;
+  url: string;
+  host: string;
+  fileName: string;
+  /** null when the site did not say how big the file is. */
+  sizeBytes: number | null;
+  receivedBytes: number;
+  state: DownloadState;
+  /** Russian reason when `state` is `failed`. */
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  /** Bytes per second over the last second, while downloading. */
+  speedBps: number | null;
+}
+
+/** GET /api/downloads — own tasks (admins: everyone's). */
+export interface DownloadsResponse {
+  /** False when the user has no `downloads` permission (the list is then empty). */
+  allowed: boolean;
+  tasks: DownloadTaskView[];
+  limits: { maxFileBytes: number; minFreeBytes: number; freeBytes: number | null };
+  /** Where the files of this user land, in words: «Файлы → Личное → Загрузки». */
+  folderLabel: string;
+}
+
+/**
+ * POST /api/downloads/check {url} — looks at the link without downloading it. The answer is shown
+ * to the user for confirmation; POST /api/downloads {checkId} then starts the download.
+ * Errors: 400 bad_url, 403 private_address / forbidden, 413 too_large, 422 blocked_type /
+ * not_a_file, 502 remote_error.
+ */
+export interface DownloadCheckResponse {
+  checkId: string;
+  url: string;
+  host: string;
+  fileName: string;
+  sizeBytes: number | null;
+  contentType: string | null;
+  /** The site supports pause/resume. */
+  resumable: boolean;
+}

@@ -17,6 +17,8 @@ export interface ServiceDefinition {
    * the health check fails, the status says whether it was stopped, crashed or is starting.
    */
   process?: string | null;
+  /** A feature of the portal itself (no separate program): available whenever the portal runs. */
+  builtin?: boolean;
 }
 
 export interface ServicesFile {
@@ -41,6 +43,7 @@ const serviceSchema = z.object({
     .regex(/^[a-z]{2,20}$/, 'process: имя программы супервизора латиницей')
     .nullable()
     .optional(),
+  builtin: z.boolean().optional(),
 });
 
 const fileSchema = z
@@ -84,11 +87,12 @@ export const DEFAULT_SERVICES: readonly ServiceDefinition[] = Object.freeze([
     id: 'downloads',
     kind: 'downloads',
     name: 'Загрузки',
-    description: 'Загрузка фильмов и файлов',
+    description: 'Скачивание файлов по ссылке в свою папку',
     openUrl: null,
     healthUrl: null,
     enabled: true,
-    hint: 'Загрузки пока не подключены. Попросите администратора установить программу для загрузок.',
+    hint: 'Загрузки доступны по разрешению администратора.',
+    builtin: true,
   },
   {
     id: 'calendar',

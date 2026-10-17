@@ -4,6 +4,7 @@
 import { type ComponentChildren, h } from 'preact';
 import { vi } from 'vitest';
 import type {
+  Permission,
   Role,
   ServiceStatus,
   ServicesResponse,
@@ -125,6 +126,7 @@ export function failure(unreachable = true): ApiFailure {
 
 export interface ProvidersOptions {
   role?: Role;
+  permissions?: Permission[];
   demo?: boolean;
   services?: PollingResult<ServicesResponse>;
   system?: PollingResult<SystemResponse>;
@@ -135,7 +137,13 @@ export interface ProvidersOptions {
 export function withProviders(children: ComponentChildren, options: ProvidersOptions = {}) {
   const role = options.role ?? 'family';
   const session: SessionResponse = {
-    user: { id: role, username: role, displayName: role === 'admin' ? 'Админ' : 'Мама', role },
+    user: {
+      id: role,
+      username: role,
+      displayName: role === 'admin' ? 'Админ' : 'Мама',
+      role,
+      permissions: role === 'admin' ? ['downloads', 'print'] : (options.permissions ?? []),
+    },
     demo: options.demo ?? false,
     mustChangePassword: false,
   };

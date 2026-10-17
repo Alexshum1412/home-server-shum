@@ -34,6 +34,13 @@ export interface Config {
   readonly gitExe: string;
   /** BACKUP_GIT_PUSH "<remote>/<branch>": mirror the committed code there on every backup; null — off. */
   readonly backupGitPush: { readonly remote: string; readonly branch: string } | null;
+  /** Root of the family files (personal folders, shared folder, downloads), see files/. */
+  readonly filesDir: string;
+  /** Root of the family photo library. */
+  readonly photosDir: string;
+  readonly downloadMaxFileBytes: number;
+  /** Downloads and uploads stop when the volume would have less than this free. */
+  readonly minFreeBytes: number;
 }
 
 export type Env = Readonly<Record<string, string | undefined>>;
@@ -77,6 +84,10 @@ const schema = z.object({
   BACKUP_EXTRA_FILES: z.string(),
   GIT_EXE: z.string().min(1),
   BACKUP_GIT_PUSH: z.string(),
+  FAMILY_FILES_DIR: z.string().min(1),
+  FAMILY_PHOTOS_DIR: z.string().min(1),
+  DOWNLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
+  MIN_FREE_GB: z.coerce.number().min(0).max(10_000),
 });
 
 /** "C:" — the drive Windows is installed on (the family server root lives there). */
@@ -91,6 +102,11 @@ function defaultDataDir(env: Env, platform: NodeJS.Platform): string {
   return localAppData
     ? path.join(localAppData, 'FamilyDashboard')
     : path.join(os.homedir(), '.family-dashboard');
+}
+
+function defaultFamilyDir(env: Env, platform: NodeJS.Platform, name: 'Files' | 'Photos'): string {
+  if (platform === 'win32') return `${systemDrive(env)}\\FamilyData\\${name}`;
+  return path.join(os.homedir(), '.family-data', name.toLowerCase());
 }
 
 function defaultBackupTargets(env: Env, platform: NodeJS.Platform): string {
@@ -161,6 +177,10 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     BACKUP_EXTRA_FILES: env.BACKUP_EXTRA_FILES?.trim() ?? '',
     GIT_EXE: pick('GIT_EXE', 'git'),
     BACKUP_GIT_PUSH: env.BACKUP_GIT_PUSH?.trim() ?? '',
+    FAMILY_FILES_DIR: pick('FAMILY_FILES_DIR', defaultFamilyDir(env, platform, 'Files')),
+    FAMILY_PHOTOS_DIR: pick('FAMILY_PHOTOS_DIR', defaultFamilyDir(env, platform, 'Photos')),
+    DOWNLOAD_MAX_FILE_GB: pick('DOWNLOAD_MAX_FILE_GB', '50'),
+    MIN_FREE_GB: pick('MIN_FREE_GB', '50'),
   };
 
   const parsed = schema.safeParse(raw);
@@ -203,6 +223,10 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     backupExtraFiles: backupExtraFiles === null ? null : Object.freeze(backupExtraFiles),
     gitExe: v.GIT_EXE,
     backupGitPush: backupGitPush === null ? null : Object.freeze(backupGitPush),
+    filesDir: path.resolve(v.FAMILY_FILES_DIR),
+    photosDir: path.resolve(v.FAMILY_PHOTOS_DIR),
+    downloadMaxFileBytes: Math.round(v.DOWNLOAD_MAX_FILE_GB * 1024 ** 3),
+    minFreeBytes: Math.round(v.MIN_FREE_GB * 1024 ** 3),
   });
 }
 

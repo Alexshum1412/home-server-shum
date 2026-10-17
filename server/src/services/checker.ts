@@ -205,6 +205,9 @@ function toStatus(item: Resolved, result: CheckResult | undefined, proc?: Proces
   if (!definition.enabled) {
     return status('disabled', 'Сервис отключён администратором', definition.hint);
   }
+  if (definition.builtin) {
+    return status('online', 'Работает (часть портала)', null);
+  }
   if (item.invalidUrl) {
     return status(
       'not_configured',

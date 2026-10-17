@@ -17,6 +17,8 @@ import { registerAuthRoutes } from './auth/routes.ts';
 import { createSessionStore, type SessionStore } from './auth/sessions.ts';
 import { createUserStore, type UserStore } from './auth/users.ts';
 import type { Config } from './config.ts';
+import { createDownloadManager, type DownloadManager } from './downloads/manager.ts';
+import { registerDownloadRoutes } from './downloads/routes.ts';
 import { isApiPath, sendError, urlPath } from './lib/http.ts';
 import { removeStaleTempFiles } from './lib/json-store.ts';
 import { type Clock, isoNow, systemClock } from './lib/time.ts';
@@ -80,6 +82,7 @@ export interface AppContext {
   registry: ServiceRegistry;
   collector: SystemCollector;
   guards: Guards;
+  downloads: DownloadManager;
 }
 
 export type DashboardApp = FastifyInstance & { dashboard: AppContext };
@@ -99,6 +102,10 @@ export interface BuildAppOptions {
   webRoot?: string;
   /** How often users.json is checked for changes (default 2 s). */
   usersReloadIntervalMs?: number;
+  /** Addresses the download queue may contact (tests allow loopback; default: public internet only). */
+  downloadAllowAddress?: (address: string) => boolean;
+  /** Free-space probe for downloads and uploads (tests). */
+  freeBytes?: (dir: string) => Promise<number | null>;
 }
 
 function defaultLogger(config: Config): FastifyServerOptions['logger'] {
@@ -253,6 +260,18 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     onProbeError: (probe, message) => log.warn({ probe }, `Системная проверка не удалась: ${message}`),
   });
   const guards = createGuards({ config, users, sessions });
+  const downloads = createDownloadManager({
+    dataDir: config.dataDir,
+    filesRoot: config.filesDir,
+    maxFileBytes: config.downloadMaxFileBytes,
+    minFreeBytes: config.minFreeBytes,
+    clock,
+    allowAddress: options.downloadAllowAddress,
+    freeBytes: options.freeBytes,
+    log: (message) => log.warn(message),
+    onEvent: (event) =>
+      void audit.write({ action: event.action, actor: event.actor, ip: null, detail: event.detail }),
+  });
   const context: AppContext = {
     config,
     clock,
@@ -266,6 +285,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     registry,
     collector,
     guards,
+    downloads,
   };
   app.decorate('dashboard', context);
 
@@ -398,12 +418,14 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   registerServiceRoutes(app, { registry, guards, audit, clock });
   registerSystemRoutes(app, { collector, guards });
   registerAdminRoutes(app, { config, clock, version, guards, audit, users, logins, registry, collector });
+  registerDownloadRoutes(app, { config, clock, guards, downloads });
   await registerStatic(app, webRoot);
 
   // --- lifecycle ----------------------------------------------------------------------------
   app.addHook('onClose', async () => {
     registry.stop();
     collector.stop();
+    await downloads.stop();
     await sessions.flush();
     await audit.idle();
   });
@@ -412,6 +434,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     app.addHook('onReady', async () => {
       registry.start();
       collector.start();
+      await downloads.load();
     });
   }
 

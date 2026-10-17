@@ -127,7 +127,13 @@ describe('login', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body).toEqual({
-      user: { id: expect.any(String), username: 'mama', displayName: 'Мама', role: 'family' },
+      user: {
+        id: expect.any(String),
+        username: 'mama',
+        displayName: 'Мама',
+        role: 'family',
+        permissions: [],
+      },
       demo: false,
       mustChangePassword: false,
     });

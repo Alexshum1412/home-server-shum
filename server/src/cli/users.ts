@@ -5,7 +5,7 @@
  * Passwords are typed twice without echo; non-interactive use requires --password-stdin.
  */
 import { promises as fsp } from 'node:fs';
-import type { Role } from '../../../shared/api.ts';
+import { PERMISSIONS, type Permission, type Role } from '../../../shared/api.ts';
 import { lastLoginOf, readLoginTimes } from '../auth/logins.ts';
 import {
   checkPasswordPolicy,
@@ -36,6 +36,7 @@ class CliError extends Error {
 }
 
 const ROLE_LABEL: Record<Role, string> = { family: 'семья', admin: 'администратор' };
+const PERMISSION_LABEL: Record<Permission, string> = { downloads: 'загрузки', print: 'печать' };
 
 function usage(dataDir: string): string {
   return [
@@ -46,6 +47,8 @@ function usage(dataDir: string): string {
     '  scripts\\user.cmd list',
     '  scripts\\user.cmd passwd <логин> [--generate-password]',
     '  scripts\\user.cmd role <логин> family|admin',
+    '  scripts\\user.cmd allow <логин> downloads|print   (дать право: загрузки / печать)',
+    '  scripts\\user.cmd deny <логин> downloads|print    (забрать право)',
     '  scripts\\user.cmd remove <логин> --yes',
     '',
     'Логин: латиница в нижнем регистре, цифры, «.», «_», «-» (2–32 символа), например mama.',
@@ -325,9 +328,12 @@ async function run(argv: string[]): Promise<void> {
           user.createdAt.slice(0, 10),
           lastLoginAt ? lastLoginAt.replace('T', ' ').slice(0, 16) : 'не входил',
           passwordState(user),
+          user.role === 'admin'
+            ? 'все'
+            : (user.permissions ?? []).map((p) => PERMISSION_LABEL[p]).join(', ') || '—',
         ];
       });
-      const header = ['Логин', 'Имя', 'Роль', 'Создан', 'Последний вход', 'Пароль'];
+      const header = ['Логин', 'Имя', 'Роль', 'Создан', 'Последний вход', 'Пароль', 'Права'];
       const widths = header.map((title, col) =>
         Math.max(title.length, ...rows.map((row) => (row[col] ?? '').length)),
       );
@@ -361,6 +367,30 @@ async function run(argv: string[]): Promise<void> {
       }
       await store.update(user.id, { role });
       console.log(`Роль пользователя «${user.username}» изменена на «${ROLE_LABEL[role]}».`);
+      return;
+    }
+    case 'allow':
+    case 'deny': {
+      const user = await requireUser(store, target);
+      const right = (args.positional[2] ?? '').trim().toLowerCase();
+      if (!PERMISSIONS.includes(right as Permission)) {
+        throw new CliError(`Право должно быть одним из: ${PERMISSIONS.join(', ')}.`, 2);
+      }
+      const permission = right as Permission;
+      const current = new Set(user.permissions ?? []);
+      if (command === 'allow') current.add(permission);
+      else current.delete(permission);
+      await store.update(user.id, { permissions: PERMISSIONS.filter((p) => current.has(p)) });
+      const label = PERMISSION_LABEL[permission];
+      if (user.role === 'admin') {
+        console.log(`«${user.username}» — администратор: у него и так есть все права (${label}).`);
+      } else {
+        console.log(
+          command === 'allow'
+            ? `Пользователю «${user.username}» разрешено: ${label}.`
+            : `У пользователя «${user.username}» больше нет права: ${label}.`,
+        );
+      }
       return;
     }
     case 'remove': {

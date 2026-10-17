@@ -2,7 +2,7 @@ import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
-import type { Role, SessionUser } from '../../../shared/api.ts';
+import { PERMISSIONS, type Permission, type Role, type SessionUser } from '../../../shared/api.ts';
 import { newId } from '../lib/ids.ts';
 import { createSerialQueue, errorCode, readJsonFile, writeJsonAtomic } from '../lib/json-store.ts';
 import { type Clock, isoNow } from '../lib/time.ts';
@@ -25,6 +25,8 @@ export interface StoredUser {
   mustChangePassword?: boolean;
   /** A generated (temporary) password stops working at this time; absent for own passwords. */
   passwordExpiresAt?: string | null;
+  /** Extra rights granted by an admin (admins have all of them anyway). */
+  permissions?: Permission[];
   /**
    * Written by versions before logins.json; still read as a fallback for the last sign-in time and
    * kept as is when the CLI rewrites the file. Nothing writes it any more.
@@ -42,6 +44,7 @@ const userSchema = z.object({
   passwordChangedAt: z.string(),
   mustChangePassword: z.boolean().optional(),
   passwordExpiresAt: z.string().nullable().optional(),
+  permissions: z.array(z.enum(['downloads', 'print'])).optional(),
   lastLoginAt: z.string().nullable().optional(),
 });
 
@@ -66,14 +69,39 @@ export function temporaryPasswordExpired(
   return Number.isNaN(expires) || expires <= now;
 }
 
+/** Effective rights: admins have every right, family members only the granted ones. */
+export function effectivePermissions(user: Pick<StoredUser, 'role' | 'permissions'>): Permission[] {
+  if (user.role === 'admin') return [...PERMISSIONS];
+  return PERMISSIONS.filter((p) => user.permissions?.includes(p));
+}
+
+export function hasPermission(
+  user: Pick<StoredUser, 'role' | 'permissions'>,
+  permission: Permission,
+): boolean {
+  return effectivePermissions(user).includes(permission);
+}
+
 export function toSessionUser(user: StoredUser): SessionUser {
-  return { id: user.id, username: user.username, displayName: user.displayName, role: user.role };
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    role: user.role,
+    permissions: effectivePermissions(user),
+  };
 }
 
 export type UserPatch = Partial<
   Pick<
     StoredUser,
-    'displayName' | 'role' | 'passwordHash' | 'passwordChangedAt' | 'mustChangePassword' | 'passwordExpiresAt'
+    | 'displayName'
+    | 'role'
+    | 'passwordHash'
+    | 'passwordChangedAt'
+    | 'mustChangePassword'
+    | 'passwordExpiresAt'
+    | 'permissions'
   >
 >;
 
