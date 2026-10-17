@@ -19,6 +19,7 @@ import {
   needsPasswordChange,
   normaliseUsername,
   USERNAME_RE,
+  type UserGuard,
   type UserStore,
   UserStoreError,
 } from '../auth/users.ts';
@@ -39,6 +40,8 @@ export interface AdminRouteDeps {
   registry: ServiceRegistry;
   collector: SystemCollector;
   limiter: LoginLimiter;
+  /** After removal: the person's files are moved to the trash folder, their private events are deleted. */
+  retireAccount: (username: string) => Promise<string>;
 }
 
 const DEFAULT_AUDIT_LIMIT = 100;
@@ -63,6 +66,15 @@ const accessSchema = z
   .refine((value) => value.role !== undefined || value.permissions !== undefined);
 const removeSchema = z.object({ confirm: z.literal(true) });
 const usernameParam = z.object({ username: z.string().max(64) });
+
+/** Decided inside the store's write queue, so two administrators acting at once cannot both pass. */
+const keepOneAdmin =
+  (message: string): UserGuard =>
+  (current, target) => {
+    if (target.role === 'admin' && current.filter((user) => user.role === 'admin').length <= 1) {
+      throw new UserStoreError(message, 'last_admin');
+    }
+  };
 
 const roleLabel = (role: string) => (role === 'admin' ? 'администратор' : 'семья');
 const orderedPermissions = (list: readonly Permission[]): Permission[] =>
@@ -201,17 +213,22 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       if (target.id === me.id && newRole !== target.role) {
         return sendError(reply, 400, 'self', 'Свою роль менять нельзя: попросите другого администратора.');
       }
-      if (target.role === 'admin' && newRole !== 'admin') {
-        const admins = (await deps.users.list()).filter((user) => user.role === 'admin');
-        if (admins.length <= 1) {
-          return sendError(reply, 409, 'last_admin', 'Нельзя снять роль с последнего администратора.');
-        }
-      }
       const permissions = parsed.data.permissions ? orderedPermissions(parsed.data.permissions) : undefined;
-      await deps.users.update(target.id, {
-        ...(parsed.data.role ? { role: parsed.data.role } : {}),
-        ...(permissions ? { permissions } : {}),
-      });
+      try {
+        await deps.users.update(
+          target.id,
+          {
+            ...(parsed.data.role ? { role: parsed.data.role } : {}),
+            ...(permissions ? { permissions } : {}),
+          },
+          newRole !== 'admin' ? keepOneAdmin('Нельзя снять роль с последнего администратора.') : undefined,
+        );
+      } catch (error) {
+        if (error instanceof UserStoreError && error.code === 'last_admin') {
+          return sendError(reply, 409, 'last_admin', error.message);
+        }
+        throw error;
+      }
       const rights = newRole === 'admin' ? [...PERMISSIONS] : (permissions ?? target.permissions ?? []);
       await deps.audit.write({
         action: 'user.access',
@@ -235,18 +252,37 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       if (!target) return sendError(reply, 404, 'not_found', 'Такого пользователя нет.');
       const me = currentUser(request);
       if (target.id === me.id) return sendError(reply, 400, 'self', 'Нельзя удалить самого себя.');
-      if (target.role === 'admin') {
-        const admins = (await deps.users.list()).filter((user) => user.role === 'admin');
-        if (admins.length <= 1) {
-          return sendError(reply, 409, 'last_admin', 'Нельзя удалить последнего администратора.');
+      try {
+        await deps.users.remove(target.id, keepOneAdmin('Нельзя удалить последнего администратора.'));
+      } catch (error) {
+        if (error instanceof UserStoreError && error.code === 'last_admin') {
+          return sendError(reply, 409, 'last_admin', error.message);
         }
+        throw error;
       }
-      await deps.users.remove(target.id);
+      let what = '';
+      try {
+        what = await deps.retireAccount(target.username);
+      } catch (error) {
+        request.log.error({ err: error }, 'Не удалось убрать данные удалённого пользователя');
+        await deps.audit.write({
+          action: 'user.remove',
+          actor: me.username,
+          ip: request.ip,
+          detail: `${target.username}: учётная запись удалена, но перенос файлов не удался`,
+        });
+        return sendError(
+          reply,
+          500,
+          'archive_failed',
+          'Пользователь удалён, но его файлы не удалось перенести в корзину сервера. Сделайте это вручную, прежде чем создавать учётную запись с таким же логином.',
+        );
+      }
       await deps.audit.write({
         action: 'user.remove',
         actor: me.username,
         ip: request.ip,
-        detail: target.username,
+        detail: what ? `${target.username}: ${what}` : target.username,
       });
       return reply.code(204).send();
     },

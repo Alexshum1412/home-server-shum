@@ -9,7 +9,7 @@ import type { CalendarEventInput, CalendarEventView, CalendarOccurrence } from '
 import { newId } from '../lib/ids.ts';
 import { createSerialQueue, readJsonFile, writeJsonAtomic } from '../lib/json-store.ts';
 import { type Clock, isoNow } from '../lib/time.ts';
-import { daysBetween, eachDay, isRealDate, isTime, occursOn } from './dates.ts';
+import { dayInfo, daysBetween, eachDay, isRealDate, isTime, occursOnInfo } from './dates.ts';
 
 export class CalendarError extends Error {
   readonly status: number;
@@ -22,6 +22,12 @@ export class CalendarError extends Error {
 }
 
 export const MAX_EVENTS = 5000;
+/** One person cannot fill the whole calendar for everybody (and nobody else can clean it up). */
+export const MAX_EVENTS_PER_USER = 300;
+/** A response never carries more appearances than this; the rest is reported as «truncated». */
+export const MAX_OCCURRENCES = 4000;
+/** Owner of the family events of a removed account: no login can ever equal it (logins cannot start with «-»). */
+export const REMOVED_OWNER = '-removed-';
 export const MAX_RANGE_DAYS = 120;
 export const TITLE_MAX = 120;
 export const NOTE_MAX = 1000;
@@ -141,7 +147,11 @@ export function createCalendarStore(dataDir: string, options: { clock: Clock }) 
     },
 
     /** Every appearance of the events in [from, to] that this person may see, ordered by day and time. */
-    async occurrences(viewer: Viewer, from: string, to: string): Promise<CalendarOccurrence[]> {
+    async occurrences(
+      viewer: Viewer,
+      from: string,
+      to: string,
+    ): Promise<{ occurrences: CalendarOccurrence[]; truncated: boolean }> {
       if (!isRealDate(from) || !isRealDate(to) || to < from) {
         throw new CalendarError(400, 'bad_range', 'Неверный период.');
       }
@@ -149,25 +159,38 @@ export function createCalendarStore(dataDir: string, options: { clock: Clock }) 
         throw new CalendarError(400, 'bad_range', `Период не больше ${MAX_RANGE_DAYS} дней.`);
       }
       const events = (await read()).filter((event) => visible(event, viewer));
+      const days = eachDay(from, to).map(dayInfo);
       const out: CalendarOccurrence[] = [];
+      let truncated = false;
       for (const event of events) {
         const last = event.endDate ?? event.date;
         if (event.repeat === 'none' && (last < from || event.date > to)) continue;
         if (event.repeat !== 'none' && event.date > to) continue;
-        for (const day of eachDay(from, to)) {
+        const start = dayInfo(event.date);
+        const finish = dayInfo(last);
+        let shown: CalendarEventView | null = null;
+        for (const day of days) {
           const hit =
             event.repeat === 'none'
-              ? day >= event.date && day <= last
-              : occursOn(event.date, event.repeat, day);
-          if (hit) out.push({ day, event: view(event, viewer) });
+              ? day.n >= start.n && day.n <= finish.n
+              : occursOnInfo(start, event.repeat, day);
+          if (!hit) continue;
+          if (out.length >= MAX_OCCURRENCES) {
+            truncated = true;
+            break;
+          }
+          shown ??= view(event, viewer);
+          out.push({ day: day.day, event: shown });
         }
+        if (truncated) break;
       }
-      return out.sort(
+      out.sort(
         (a, b) =>
           a.day.localeCompare(b.day) ||
           (a.event.time ?? '').localeCompare(b.event.time ?? '') ||
           a.event.title.localeCompare(b.event.title, 'ru'),
       );
+      return { occurrences: out, truncated };
     },
 
     create(viewer: Viewer & { displayName: string }, input: CalendarEventInput): Promise<CalendarEventView> {
@@ -175,6 +198,13 @@ export function createCalendarStore(dataDir: string, options: { clock: Clock }) 
         const events = await read();
         if (events.length >= MAX_EVENTS) {
           throw new CalendarError(409, 'too_many', 'В календаре слишком много событий. Удалите старые.');
+        }
+        if (events.filter((event) => event.owner === viewer.username).length >= MAX_EVENTS_PER_USER) {
+          throw new CalendarError(
+            409,
+            'too_many_own',
+            `У вас уже ${MAX_EVENTS_PER_USER} событий. Удалите старые, чтобы добавить новые.`,
+          );
         }
         const now = isoNow(options.clock);
         const event: StoredEvent = {
@@ -210,6 +240,26 @@ export function createCalendarStore(dataDir: string, options: { clock: Clock }) 
         next[index] = updated;
         await writeJsonAtomic(file, { version: 1, events: next });
         return view(updated, viewer);
+      });
+    },
+
+    /**
+     * The account was removed: its private events are deleted, its family events stay for the family
+     * but no longer belong to that login, so a person who gets the same login later does not inherit them.
+     */
+    retireOwner(username: string): Promise<{ deleted: number; kept: number }> {
+      return queue.run(async () => {
+        const events = await read();
+        const mine = events.filter((event) => event.owner === username);
+        if (mine.length === 0) return { deleted: 0, kept: 0 };
+        const next = events
+          .filter((event) => !(event.owner === username && event.private))
+          .map((event) => (event.owner === username ? { ...event, owner: REMOVED_OWNER } : event));
+        await writeJsonAtomic(file, { version: 1, events: next });
+        return {
+          deleted: mine.filter((event) => event.private).length,
+          kept: mine.filter((event) => !event.private).length,
+        };
       });
     },
 

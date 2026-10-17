@@ -3,12 +3,14 @@
  * «Общее» (the family). Being ordinary files they appear in «Файлы», are in every backup, and can
  * be opened in Notepad on the server — a note is never locked inside the portal.
  */
+import { createHash, randomBytes } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { NoteResponse, NoteSummary, SaveNoteResponse, StorageSpace } from '../../../shared/api.ts';
 import { sanitizeName } from '../files/names.ts';
 import { type Storage, StorageError } from '../files/storage.ts';
+import { createKeyedLock } from '../lib/keyed-lock.ts';
 
 export const NOTES_FOLDER = 'Заметки';
 export const NOTE_EXT = '.txt';
@@ -26,7 +28,12 @@ export class NoteError extends Error {
   }
 }
 
-const revisionOf = (stat: { mtimeMs: number; size: number }) => `${Math.trunc(stat.mtimeMs)}-${stat.size}`;
+/**
+ * Version of a note: time, size AND a hash of the text. Windows stamps files with a coarse clock (up to
+ * ~15 ms), so two different texts of the same length written within one tick would otherwise look alike.
+ */
+const revisionOf = (stat: { mtimeMs: number; size: number }, content: Buffer) =>
+  `${Math.trunc(stat.mtimeMs)}-${stat.size}-${createHash('sha1').update(content).digest('hex').slice(0, 16)}`;
 
 /** A title that is also a safe file name; anything else is explained, not silently changed. */
 export function checkTitle(raw: string): string {
@@ -49,6 +56,8 @@ function previewOf(buffer: Buffer): string {
 }
 
 export function createNotes(storage: Storage) {
+  /** Saves and deletes of one note go one after another: the revision check and the write are one step. */
+  const lock = createKeyedLock();
   const location = (space: StorageSpace, name?: string) => ({
     root: 'files' as const,
     space,
@@ -109,8 +118,9 @@ export function createNotes(storage: Storage) {
           'Эта заметка слишком большая для просмотра в портале. Откройте её в «Файлах».',
         );
       }
-      const text = (await fsp.readFile(file, 'utf8')).replace(/^﻿/, '');
-      return { space, name, text, revision: revisionOf(stat), modifiedAt: stat.mtime.toISOString() };
+      const content = await fsp.readFile(file);
+      const text = content.toString('utf8').replace(/^﻿/, '');
+      return { space, name, text, revision: revisionOf(stat, content), modifiedAt: stat.mtime.toISOString() };
     },
 
     /** Creates a note (`revision` null) or replaces the text of an existing one if nobody changed it meanwhile. */
@@ -132,55 +142,65 @@ export function createNotes(storage: Storage) {
       }
       if (text.includes('\u0000'))
         throw new NoteError(400, 'bad_text', 'В тексте есть недопустимые символы.');
-      const target = path.join(dirOf(space, username), `${name}${NOTE_EXT}`);
-      const present = await fsp.lstat(target).catch(() => null);
+      return lock(`${space}/${username}/${name.toLowerCase()}`, async () => {
+        const target = path.join(dirOf(space, username), `${name}${NOTE_EXT}`);
 
-      if (revision === null) {
-        if (present)
-          throw new NoteError(409, 'exists', 'Заметка с таким названием уже есть. Выберите другое название.');
-        await ensureFolder(space, username);
-        const saved = await storage.upload(
-          location(space),
-          username,
-          `${name}${NOTE_EXT}`,
-          bytes.length,
-          Readable.from([bytes]),
-        );
-        const stat = await fsp.stat(path.join(dirOf(space, username), saved.name));
-        return {
-          name: saved.name.slice(0, -NOTE_EXT.length),
-          revision: revisionOf(stat),
-          modifiedAt: stat.mtime.toISOString(),
-        };
-      }
-
-      const { file, stat } = await storage.openFile(location(space, name), username);
-      if (revisionOf(stat) !== revision) {
-        throw new NoteError(
-          409,
-          'conflict',
-          'Эту заметку только что изменил кто-то другой. Скопируйте свой текст, закройте и откройте заметку заново.',
-        );
-      }
-      const temp = path.join(path.dirname(file), `.note-${process.pid}-${Date.now()}`);
-      try {
-        await fsp.writeFile(temp, bytes, { flag: 'wx' });
-        await fsp.rename(temp, file);
-      } catch (error) {
-        await fsp.rm(temp, { force: true }).catch(() => undefined);
-        if ((error as NodeJS.ErrnoException).code === 'ENOSPC') {
-          throw new NoteError(507, 'no_space', 'На диске сервера закончилось место.');
+        if (revision === null) {
+          const present = await fsp.lstat(target).catch(() => null);
+          if (present) {
+            throw new NoteError(
+              409,
+              'exists',
+              'Заметка с таким названием уже есть. Выберите другое название.',
+            );
+          }
+          await ensureFolder(space, username);
+          // The upload never replaces a file: if the name was taken meanwhile it gets a free one.
+          const saved = await storage.upload(
+            location(space),
+            username,
+            `${name}${NOTE_EXT}`,
+            bytes.length,
+            Readable.from([bytes]),
+          );
+          const stat = await fsp.stat(path.join(dirOf(space, username), saved.name));
+          return {
+            name: saved.name.slice(0, -NOTE_EXT.length),
+            revision: revisionOf(stat, bytes),
+            modifiedAt: stat.mtime.toISOString(),
+          };
         }
-        throw error;
-      }
-      const after = await fsp.stat(file);
-      return { name, revision: revisionOf(after), modifiedAt: after.mtime.toISOString() };
+
+        const { file, stat } = await storage.openFile(location(space, name), username);
+        if (revisionOf(stat, await fsp.readFile(file)) !== revision) {
+          throw new NoteError(
+            409,
+            'conflict',
+            'Эту заметку только что изменил кто-то другой. Скопируйте свой текст, закройте и откройте заметку заново.',
+          );
+        }
+        const temp = path.join(path.dirname(file), `.note-${randomBytes(8).toString('hex')}`);
+        try {
+          await fsp.writeFile(temp, bytes, { flag: 'wx' });
+          await fsp.rename(temp, file); // replacing is intended: the version was checked just above
+        } catch (error) {
+          await fsp.rm(temp, { force: true }).catch(() => undefined);
+          if ((error as NodeJS.ErrnoException).code === 'ENOSPC') {
+            throw new NoteError(507, 'no_space', 'На диске сервера закончилось место.');
+          }
+          throw error;
+        }
+        const after = await fsp.stat(file);
+        return { name, revision: revisionOf(after, bytes), modifiedAt: after.mtime.toISOString() };
+      });
     },
 
     /** To the space's trash; the portal never deletes for good. */
     async remove(space: StorageSpace, username: string, rawName: string): Promise<void> {
       const name = checkTitle(rawName);
-      await storage.trash(location(space, name), username);
+      await lock(`${space}/${username}/${name.toLowerCase()}`, async () => {
+        await storage.trash(location(space, name), username);
+      });
     },
   };
 }

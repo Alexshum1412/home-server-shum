@@ -664,6 +664,8 @@ export interface CalendarResponse {
   from: string;
   to: string;
   occurrences: CalendarOccurrence[];
+  /** The period has more appearances than one answer carries: show a narrower period. */
+  truncated: boolean;
 }
 
 /** Notes are plain text files in the folder «Заметки» of «Личное» or «Общее» (so they are also in «Файлы» and in backups). */

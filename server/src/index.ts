@@ -1,6 +1,7 @@
 import { promises as fsp } from 'node:fs';
 import { buildApp } from './app.ts';
 import { type Config, loadConfig } from './config.ts';
+import { removeStaleTempFiles } from './files/cleanup.ts';
 import { type LanListeners, listenOnLan } from './lan.ts';
 import { errorCode } from './lib/json-store.ts';
 
@@ -72,6 +73,14 @@ async function main(): Promise<void> {
       app.log.warn(`Запасной адрес в домашней сети не включён (${item.address}): ${item.reason}`);
     }
   }
+
+  // Half-written temp files from an earlier forced stop: cleaned in the background, never blocking start.
+  void (async () => {
+    for (const dir of [config.filesDir, config.photosDir]) {
+      const removed = await removeStaleTempFiles(dir).catch(() => []);
+      if (removed.length > 0) app.log.warn(`Удалены старые временные файлы в ${dir}: ${removed.length}`);
+    }
+  })();
 
   const shownHost = config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
   app.log.info(

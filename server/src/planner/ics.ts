@@ -10,7 +10,18 @@ const compactDate = (date: string) => date.replace(/-/g, '');
 const compactTime = (time: string) => `${time.replace(':', '')}00`;
 
 export function escapeText(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/;/g, '\\;').replace(/,/g, '\\,');
+  return (
+    value
+      // Any kind of line break becomes one «\n»; other control characters are dropped, so a title can
+      // never start a new property in the file.
+      .replace(/\r\n|\r|\n|\u2028|\u2029/g, '\n')
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what is removed
+      .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, '')
+      .replace(/\\/g, '\\\\')
+      .replace(/\n/g, '\\n')
+      .replace(/;/g, '\\;')
+      .replace(/,/g, '\\,')
+  );
 }
 
 /** Lines longer than 75 octets are folded (RFC 5545 §3.1) without cutting a UTF-8 character. */

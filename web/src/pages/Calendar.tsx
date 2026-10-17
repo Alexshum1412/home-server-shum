@@ -447,6 +447,12 @@ export function CalendarPage() {
             Сегодня
           </button>
         </div>
+        {grid.data?.truncated ? (
+          <p class="banner banner--warn" role="status">
+            В этом месяце слишком много повторяющихся событий: показаны не все. Удалите ненужные или откройте
+            короткий период.
+          </p>
+        ) : null}
         {grid.error && !grid.data ? (
           <ErrorState failure={grid.error} onRetry={grid.reload} busy={grid.loading} level={3} />
         ) : (

@@ -102,7 +102,21 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   const { env, dataDir: givenDir, clock: givenClock, ...rest } = options;
   const dataDir = givenDir ?? (await makeTempDir());
   const clock = givenClock ?? createFakeClock();
-  const config = loadConfig({ DASHBOARD_DATA_DIR: dataDir, VOLUMES: 'C:\\', ...env }, 'win32');
+  // Every folder the portal writes to lives inside the throwaway data dir: a test that forgets to
+  // override one must never write into the real C:\FamilyData (a probe once did).
+  const config = loadConfig(
+    {
+      DASHBOARD_DATA_DIR: dataDir,
+      VOLUMES: 'C:\\',
+      FAMILY_FILES_DIR: path.join(dataDir, 'family-files'),
+      FAMILY_PHOTOS_DIR: path.join(dataDir, 'family-photos'),
+      MEDIA_DIR: path.join(dataDir, 'media'),
+      BACKUP_TARGETS: path.join(dataDir, 'backups'),
+      BACKUP_GIT_PUSH: 'none',
+      ...env,
+    },
+    'win32',
+  );
   const app = await buildApp({
     logger: false,
     startBackground: false,

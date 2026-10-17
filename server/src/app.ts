@@ -465,6 +465,24 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   registerAuthRoutes(app, { config, clock, users, logins, sessions, audit, limiter, guards });
   registerServiceRoutes(app, { registry, guards, audit, clock });
   registerSystemRoutes(app, { collector, guards });
+  const freeBytes = options.freeBytes ?? statfsFree;
+  const storage = createStorage({
+    filesRoot: config.filesDir,
+    photosRoot: config.photosDir,
+    minFreeBytes: config.minFreeBytes,
+    maxUploadBytes: config.uploadMaxFileBytes,
+    freeBytes,
+  });
+  const calendar = createCalendarStore(config.dataDir, { clock });
+  const retireAccount = async (username: string): Promise<string> => {
+    const moved = await storage.archiveUser(username);
+    const events = await calendar.retireOwner(username);
+    const parts: string[] = [];
+    if (moved.length > 0) parts.push('файлы и фото перенесены в корзину сервера');
+    if (events.deleted > 0) parts.push(`личных событий удалено: ${events.deleted}`);
+    if (events.kept > 0) parts.push(`общих событий оставлено: ${events.kept}`);
+    return parts.join('; ');
+  };
   registerAdminRoutes(app, {
     config,
     clock,
@@ -476,20 +494,13 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     registry,
     collector,
     limiter,
+    retireAccount,
   });
   registerDownloadRoutes(app, { config, clock, guards, downloads });
-  const freeBytes = options.freeBytes ?? statfsFree;
-  const storage = createStorage({
-    filesRoot: config.filesDir,
-    photosRoot: config.photosDir,
-    minFreeBytes: config.minFreeBytes,
-    maxUploadBytes: config.uploadMaxFileBytes,
-    freeBytes,
-  });
   registerFileRoutes(app, { storage, guards, audit, freeBytes, maxUploadBytes: config.uploadMaxFileBytes });
   registerMediaRoutes(app, { library: createMediaLibrary(config.mediaDir), guards });
   registerPlannerRoutes(app, {
-    calendar: createCalendarStore(config.dataDir, { clock }),
+    calendar,
     notes: createNotes(storage),
     guards,
     audit,

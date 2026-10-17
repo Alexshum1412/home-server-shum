@@ -30,7 +30,8 @@ const fileSchema = z.object({
 
 export interface SessionStore {
   load(): Promise<void>;
-  create(userId: string): Promise<{ token: string; session: StoredSession }>;
+  /** `startedAt`: when the sign-in began (before the slow password check); default — now. */
+  create(userId: string, startedAt?: string): Promise<{ token: string; session: StoredSession }>;
   /** Finds a live (not expired) session by its raw token. */
   lookup(token: string): StoredSession | undefined;
   /** Slides the expiry; returns true when lastSeenAt was actually updated (at most once per minute). */
@@ -102,10 +103,15 @@ export function createSessionStore(dataDir: string, options: SessionStoreOptions
       }
     },
 
-    async create(userId) {
+    async create(userId, startedAt) {
       const token = randomToken(32);
       const at = clock().toISOString();
-      const session: StoredSession = { tokenHash: sha256Hex(token), userId, createdAt: at, lastSeenAt: at };
+      const session: StoredSession = {
+        tokenHash: sha256Hex(token),
+        userId,
+        createdAt: startedAt ?? at,
+        lastSeenAt: at,
+      };
       const own = [...sessions.values()]
         .filter((item) => item.userId === userId)
         .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));

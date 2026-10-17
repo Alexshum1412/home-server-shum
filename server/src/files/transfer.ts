@@ -7,6 +7,7 @@
  * photos only if the content is really a picture or a video, names made safe, free space kept.
  * Nothing is ever deleted: the source of an import stays where it was.
  */
+import { createHash } from 'node:crypto';
 import { createReadStream, constants as fsConstants, promises as fsp, type Stats } from 'node:fs';
 import path from 'node:path';
 import type { StorageRoot, StorageSpace } from '../../../shared/api.ts';
@@ -37,6 +38,17 @@ export interface ImportReport {
 }
 
 const JUNK = new Set(['thumbs.db', 'desktop.ini', '.ds_store']);
+
+async function sha256(file: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(file)) hash.update(chunk as Buffer);
+  return hash.digest('hex');
+}
+
+/** Same size is not enough: an edited file of the same length must not be mistaken for the copy already there. */
+async function sameContent(a: string, b: string): Promise<boolean> {
+  return (await sha256(a)) === (await sha256(b));
+}
 
 /** "2026-10" from the file's own date, like the browser does for photos. */
 export function monthOf(date: Date): string {
@@ -111,7 +123,7 @@ export async function importFolder(options: ImportOptions): Promise<ImportReport
     }
     const target = path.join(spaceDir, ...folder.split('/').filter((p) => p !== ''), name);
     const present = await fsp.stat(target).catch(() => null);
-    if (present?.isFile() && present.size === stat.size) {
+    if (present?.isFile() && present.size === stat.size && (await sameContent(file, target))) {
       report.existing += 1;
       return;
     }

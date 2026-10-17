@@ -70,10 +70,12 @@ export function registerPlannerRoutes(app: FastifyInstance, deps: PlannerRouteDe
     const query = rangeSchema.safeParse(request.query);
     if (!query.success) return sendError(reply, 400, 'bad_range', 'Укажите период: from и to.');
     try {
+      const result = await calendar.occurrences(viewer(request), query.data.from, query.data.to);
       const body: CalendarResponse = {
         from: query.data.from,
         to: query.data.to,
-        occurrences: await calendar.occurrences(viewer(request), query.data.from, query.data.to),
+        occurrences: result.occurrences,
+        truncated: result.truncated,
       };
       return body;
     } catch (error) {
@@ -163,27 +165,32 @@ export function registerPlannerRoutes(app: FastifyInstance, deps: PlannerRouteDe
     }
   });
 
-  app.post('/api/notes/save', { preHandler: guards.requireUser }, async (request, reply) => {
-    const parsed = saveSchema.safeParse(request.body);
-    if (!parsed.success) return sendError(reply, 400, 'bad_request', 'Укажите название и текст заметки.');
-    const body: SaveNoteRequest = parsed.data;
-    try {
-      const saved: SaveNoteResponse = await notes.save(
-        body.space,
-        currentUser(request).username,
-        body.name,
-        body.text,
-        body.revision,
-      );
-      await log(
-        request,
-        `Заметки (${body.space === 'shared' ? 'общие' : 'личные'}): ${body.revision === null ? 'создана' : 'сохранена'}`,
-      );
-      return saved;
-    } catch (error) {
-      return fail(reply, error);
-    }
-  });
+  // A note may be up to 200 KB of text (JSON-escaped and in UTF-8 more): the general 64 KB limit is too small here.
+  app.post(
+    '/api/notes/save',
+    { preHandler: guards.requireUser, bodyLimit: 600 * 1024 },
+    async (request, reply) => {
+      const parsed = saveSchema.safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, 'bad_request', 'Укажите название и текст заметки.');
+      const body: SaveNoteRequest = parsed.data;
+      try {
+        const saved: SaveNoteResponse = await notes.save(
+          body.space,
+          currentUser(request).username,
+          body.name,
+          body.text,
+          body.revision,
+        );
+        await log(
+          request,
+          `Заметки (${body.space === 'shared' ? 'общие' : 'личные'}): ${body.revision === null ? 'создана' : 'сохранена'}`,
+        );
+        return saved;
+      } catch (error) {
+        return fail(reply, error);
+      }
+    },
+  );
 
   app.post('/api/notes/delete', { preHandler: guards.requireUser }, async (request, reply) => {
     const parsed = nameQuery.safeParse(request.body);

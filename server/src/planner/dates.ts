@@ -62,6 +62,29 @@ export function occursOn(start: string, repeat: Repeat, day: string): boolean {
   return a.d === b.d && a.m === b.m;
 }
 
+/** A day as plain integers, parsed once: `n` counts whole days since 1970-01-01. */
+export interface DayInfo {
+  day: string;
+  y: number;
+  m: number;
+  d: number;
+  n: number;
+}
+
+export function dayInfo(day: string): DayInfo {
+  const { y, m, d } = parse(day);
+  return { day, y, m, d, n: Math.floor(Date.UTC(y, m - 1, d) / 86_400_000) };
+}
+
+/** Same rule as `occursOn`, on pre-parsed days. */
+export function occursOnInfo(start: DayInfo, repeat: Repeat, day: DayInfo): boolean {
+  if (day.n < start.n) return false;
+  if (repeat === 'none') return day.n === start.n;
+  if (repeat === 'weekly') return (day.n - start.n) % 7 === 0;
+  if (repeat === 'monthly') return start.d === day.d;
+  return start.d === day.d && start.m === day.m;
+}
+
 /** All days from `from` to `to` inclusive. */
 export function eachDay(from: string, to: string): string[] {
   const days: string[] = [];

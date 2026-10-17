@@ -12,6 +12,7 @@
  * folder, not even an admin's. Every path is resolved inside its space and checked again after
  * following links (realpath), so «..», drive letters, streams and junctions cannot escape.
  */
+import { randomBytes } from 'node:crypto';
 import { createReadStream, createWriteStream, promises as fsp, type Stats } from 'node:fs';
 import path from 'node:path';
 import { Transform } from 'node:stream';
@@ -110,6 +111,37 @@ export function contentTypeFor(name: string): { type: string; inline: boolean } 
 }
 
 /**
+ * Puts a finished temp file into `dir` under the first free name, never replacing a file: a hard link
+ * fails with EEXIST when the name is taken (a rename would silently overwrite it on Windows), and the
+ * next free name is tried. Two uploads of the same name at the same moment both survive.
+ */
+export async function placeFile(temp: string, dir: string, name: string): Promise<string> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const candidate = await uniqueName(dir, name);
+    try {
+      await fsp.link(temp, path.join(dir, candidate));
+      await fsp.rm(temp, { force: true });
+      return candidate;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST') continue;
+      if (code === 'EPERM' || code === 'ENOTSUP' || code === 'EXDEV' || code === 'EINVAL') {
+        // A file system without hard links: best effort, checked right before the rename.
+        const free = await fsp.lstat(path.join(dir, candidate)).then(
+          () => false,
+          () => true,
+        );
+        if (!free) continue;
+        await fsp.rename(temp, path.join(dir, candidate));
+        return candidate;
+      }
+      throw error;
+    }
+  }
+  throw new StorageError(409, 'busy', 'Не удалось подобрать свободное имя файла. Попробуйте ещё раз.');
+}
+
+/**
  * Feeds the request body into `sink` (guard → file). On any failure the request is unpiped and
  * drained instead of destroyed: destroying it would cut the connection before the client gets
  * the explanation (e.g. 415 «only photos»).
@@ -139,6 +171,8 @@ async function writeFromRequest(
 }
 
 export function createStorage(options: StorageOptions) {
+  /** Bytes promised to uploads that are still running: parallel uploads must not all pass the same free-space check. */
+  let reservedBytes = 0;
   function rootDir(root: StorageRoot): string {
     return root === 'photos' ? options.photosRoot : options.filesRoot;
   }
@@ -206,7 +240,7 @@ export function createStorage(options: StorageOptions) {
 
   async function ensureSpace(dir: string, needBytes: number): Promise<void> {
     const free = await options.freeBytes(dir);
-    if (free !== null && free - needBytes < options.minFreeBytes) {
+    if (free !== null && free - reservedBytes - needBytes < options.minFreeBytes) {
       throw new StorageError(507, 'no_space', 'На диске сервера мало места. Сообщите администратору.');
     }
   }
@@ -302,12 +336,22 @@ export function createStorage(options: StorageOptions) {
         }
       }
       await fsp.rename(source, target);
-      if (loc.root === 'photos' && stat.isFile()) {
+      if (loc.root === 'photos') {
         const parent = loc.path.split('/').slice(0, -1).join('/');
-        const oldThumb = this.thumbPath({ ...loc, path: parent }, username, path.basename(source));
-        await fsp
-          .rename(oldThumb, this.thumbPath({ ...loc, path: parent }, username, name))
-          .catch(() => undefined);
+        if (stat.isFile()) {
+          const oldThumb = this.thumbPath({ ...loc, path: parent }, username, path.basename(source));
+          await fsp
+            .rename(oldThumb, this.thumbPath({ ...loc, path: parent }, username, name))
+            .catch(() => undefined);
+        } else {
+          // The previews of a renamed month/folder move with it.
+          await fsp
+            .rename(
+              this.thumbFolder(loc, username),
+              this.thumbFolder({ ...loc, path: parent ? `${parent}/${name}` : name }, username),
+            )
+            .catch(() => undefined);
+        }
       }
       return name;
     },
@@ -320,8 +364,57 @@ export function createStorage(options: StorageOptions) {
       await fsp.mkdir(bin, { recursive: true });
       const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
       const name = await uniqueName(bin, `${stamp} ${path.basename(source)}`);
+      const stat = await fsp.stat(source);
       await fsp.rename(source, path.join(bin, name));
+      if (loc.root === 'photos') {
+        // A preview is a cache of that very picture: it must not outlive it (a later file of the same
+        // name would show the old picture).
+        if (stat.isFile()) {
+          const parent = loc.path.split('/').slice(0, -1).join('/');
+          await fsp.rm(this.thumbPath({ ...loc, path: parent }, username, path.basename(source)), {
+            force: true,
+          });
+        } else {
+          await fsp.rm(this.thumbFolder(loc, username), { recursive: true, force: true });
+        }
+      }
       return name;
+    },
+
+    /** Folder of the previews that belong to the folder `loc` of the photo library. */
+    thumbFolder(loc: Location, username: string): string {
+      const owner = loc.space === 'shared' ? 'shared' : path.join('users', username);
+      return path.join(options.photosRoot, '.thumbs', owner, ...splitPath(loc.path));
+    },
+
+    /**
+     * An account was removed: its personal folders are moved (never deleted) to
+     * <root>\.trash\removed-users\<login>-<stamp>, so a person who gets the same login later does not
+     * inherit someone else's files, and an administrator can still give them back from the server.
+     */
+    async archiveUser(username: string): Promise<string[]> {
+      const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+      const moved: string[] = [];
+      for (const root of ['files', 'photos'] as const) {
+        const home = path.join(rootDir(root), 'users', username);
+        const exists = await fsp.lstat(home).then(
+          () => true,
+          () => false,
+        );
+        if (!exists) continue;
+        const bin = path.join(rootDir(root), '.trash', 'removed-users');
+        await fsp.mkdir(bin, { recursive: true });
+        const name = await uniqueName(bin, `${username}-${stamp}`);
+        await fsp.rename(home, path.join(bin, name));
+        moved.push(path.join(bin, name));
+        if (root === 'photos') {
+          await fsp.rm(path.join(options.photosRoot, '.thumbs', 'users', username), {
+            recursive: true,
+            force: true,
+          });
+        }
+      }
+      return moved;
     },
 
     /**
@@ -350,10 +443,8 @@ export function createStorage(options: StorageOptions) {
       }
       const dir = await resolve(loc, username);
       await ensureSpace(dir, declaredBytes);
-      const temp = path.join(
-        dir,
-        `.upload-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      );
+      reservedBytes += declaredBytes;
+      const temp = path.join(dir, `.upload-${process.pid}-${Date.now()}-${randomBytes(6).toString('hex')}`);
       let received = 0;
       let head = Buffer.alloc(0);
       let checked = false;
@@ -394,8 +485,7 @@ export function createStorage(options: StorageOptions) {
         if (loc.root === 'photos' && received === 0) {
           throw new StorageError(415, 'not_media', 'В «Фото» можно добавлять только фотографии и видео.');
         }
-        const finalName = await uniqueName(dir, name);
-        await fsp.rename(temp, path.join(dir, finalName));
+        const finalName = await placeFile(temp, dir, name);
         return { name: finalName, sizeBytes: received, media };
       } catch (error) {
         await fsp.rm(temp, { force: true }).catch(() => undefined);
@@ -406,6 +496,8 @@ export function createStorage(options: StorageOptions) {
           throw new StorageError(400, 'incomplete', 'Передача файла прервалась. Попробуйте ещё раз.');
         }
         throw error;
+      } finally {
+        reservedBytes -= declaredBytes;
       }
     },
 
@@ -418,12 +510,16 @@ export function createStorage(options: StorageOptions) {
       bytes: number,
     ) {
       if (loc.root !== 'photos') throw new StorageError(400, 'bad_request', 'Миниатюры только для фото.');
-      if (bytes <= 0 || bytes > 512 * 1024)
-        throw new StorageError(413, 'too_large', 'Миниатюра слишком большая.');
+      // The size must be declared (a chunked body without a length would sidestep the cap).
+      if (!Number.isFinite(bytes) || bytes <= 0) {
+        throw new StorageError(411, 'length_required', 'Неизвестен размер миниатюры.');
+      }
+      if (bytes > 512 * 1024) throw new StorageError(413, 'too_large', 'Миниатюра слишком большая.');
       const photoPath = loc.path === '' ? fileName : `${loc.path}/${fileName}`;
       await resolve({ ...loc, path: photoPath }, username);
       const target = this.thumbPath(loc, username, fileName);
       await fsp.mkdir(path.dirname(target), { recursive: true });
+      await ensureSpace(options.photosRoot, bytes);
       let head = Buffer.alloc(0);
       let received = 0;
       const guard = new Transform({
@@ -438,10 +534,12 @@ export function createStorage(options: StorageOptions) {
           callback(null, chunk);
         },
       });
-      const temp = `${target}.tmp`;
+      // A unique temp name: two devices backfilling the same preview must not write into one file.
+      const temp = `${target}.${randomBytes(6).toString('hex')}.tmp`;
       try {
-        await writeFromRequest(body, guard, createWriteStream(temp));
-        await fsp.rename(temp, target);
+        await writeFromRequest(body, guard, createWriteStream(temp, { flags: 'wx' }));
+        if (received !== bytes) throw new StorageError(400, 'incomplete', 'Миниатюра передана не полностью.');
+        await fsp.rename(temp, target); // the same picture from either device: replacing is fine
       } catch (error) {
         await fsp.rm(temp, { force: true }).catch(() => undefined);
         throw error;

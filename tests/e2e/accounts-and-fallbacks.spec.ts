@@ -40,7 +40,7 @@ test.describe('accounts from the portal', () => {
 
     // Remove: needs the confirmation dialog; the files stay (the dialog says so).
     page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('Его файлы и фото на сервере останутся нетронутыми');
+      expect(dialog.message()).toContain('они переносятся в корзину на сервере');
       await dialog.accept();
     });
     const usersTable = page.locator('table', { hasText: 'Последний вход' });

@@ -216,7 +216,8 @@ describe('GET /api/admin/diagnostics', () => {
     expect(body.config).toMatchObject({ host: '127.0.0.1', port: 8070, userCount: 2, demo: false });
     // Backup settings are paths and numbers only (no file contents).
     expect(body.config).toMatchObject({
-      backupTargets: 'C:\\FamilyServer\\backups;label:reserve\\FamilyServerBackups',
+      // The test app puts the backup place inside its throwaway data folder (never the real disks).
+      backupTargets: t.config.backupTargets.join(';'),
       backupKeep: 14,
       backupExtraFiles: null,
       gitExe: 'git',

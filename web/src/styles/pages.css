@@ -904,7 +904,11 @@ fieldset.segmented {
   flex: 1;
   min-width: 8rem;
   text-align: center;
-  text-transform: capitalize;
+}
+
+/* Only the first letter: «капитализация» would turn «г.» of «2026 г.» into «Г.». */
+.cal__month::first-letter {
+  text-transform: uppercase;
 }
 
 .cal {

@@ -94,7 +94,11 @@ export async function uniqueName(
   const ext = path.extname(name);
   const base = name.slice(0, name.length - ext.length);
   for (let i = 1; i < 10_000; i += 1) {
-    const candidate = i === 1 ? name : `${base} (${i})${ext}`;
+    const suffix = i === 1 ? '' : ` (${i})`;
+    // The numbered name must still fit NAME_MAX, or the portal could never open the file it accepted.
+    const room = Math.max(1, NAME_MAX - Array.from(ext).length - Array.from(suffix).length);
+    const shortBase = Array.from(base).slice(0, room).join('');
+    const candidate = i === 1 ? name : `${shortBase}${suffix}${ext}`;
     if (reserved.has(candidate.toLowerCase())) continue;
     try {
       await fsp.lstat(path.join(dir, candidate));

@@ -123,8 +123,8 @@ export interface UserStore {
   /** Reads users.json now; throws when the file is invalid. */
   reload(): Promise<StoredUser[]>;
   add(user: NewUser): Promise<StoredUser>;
-  update(id: string, patch: UserPatch): Promise<StoredUser | undefined>;
-  remove(id: string): Promise<boolean>;
+  update(id: string, patch: UserPatch, guard?: UserGuard): Promise<StoredUser | undefined>;
+  remove(id: string, guard?: UserGuard): Promise<boolean>;
   /**
    * Non-null while users.json exists but cannot be read or parsed (as of the last check). The
    * server then refuses sign-ins and never treats the store as empty; the file is not rewritten.
@@ -138,7 +138,17 @@ export interface UserStoreOptions {
   onLoadError?: (message: string) => void;
 }
 
-export class UserStoreError extends Error {}
+export class UserStoreError extends Error {
+  /** Machine-readable reason for callers that map it to an HTTP status (e.g. 'last_admin'). */
+  readonly code: string | undefined;
+  constructor(message: string, code?: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/** Runs inside the store's write queue with the freshly read list; throws to refuse the change. */
+export type UserGuard = (current: readonly StoredUser[], target: StoredUser) => void;
 
 async function readUsersFile(file: string): Promise<StoredUser[]> {
   let data: unknown;
@@ -255,13 +265,14 @@ export function createUserStore(dataDir: string, options: UserStoreOptions): Use
         return user;
       });
     },
-    update(id, patch) {
+    update(id, patch, guard) {
       return queue.run(async () => {
         // Always re-read so a concurrent CLI change is not overwritten with a stale copy.
         const current = await readUsersFile(file);
         const index = current.findIndex((user) => user.id === id);
         const existing = current[index];
         if (!existing) return undefined;
+        guard?.(current, existing);
         const updated: StoredUser = { ...existing, ...patch };
         const next = current.slice();
         next[index] = updated;
@@ -269,9 +280,11 @@ export function createUserStore(dataDir: string, options: UserStoreOptions): Use
         return updated;
       });
     },
-    remove(id) {
+    remove(id, guard) {
       return queue.run(async () => {
         const current = await readUsersFile(file);
+        const target = current.find((user) => user.id === id);
+        if (target) guard?.(current, target);
         const next = current.filter((user) => user.id !== id);
         if (next.length === current.length) return false;
         await write(next);

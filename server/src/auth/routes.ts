@@ -95,8 +95,10 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     const username = normaliseUsername(parsed.data.username);
     const { password } = parsed.data;
     const ip = request.ip;
-    // Only a well-formed login name goes to the audit log (never free text that could be a password).
-    const actor = USERNAME_RE.test(username) ? username : null;
+    // The audit log gets the login name only when it belongs to a real account: anything else typed
+    // into this field may be a password that landed in the wrong box.
+    const known = USERNAME_RE.test(username) ? await users.findByUsername(username) : undefined;
+    const actor = known?.username ?? null;
 
     const byIp = limiter.byIp.check(ip);
     const byUser = limiter.byUser.check(username);
@@ -127,7 +129,10 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     limiter.byUser.hit(username);
     limiter.byIp.hit(ip);
 
-    const user = await users.findByUsername(username);
+    // Taken before the slow password check: a password change that commits meanwhile must end
+    // this session too (guards compare it with passwordChangedAt).
+    const attemptStartedAt = isoNow(deps.clock);
+    const user = known ?? (await users.findByUsername(username));
     if (users.loadError() !== null) {
       // users.json is broken: nobody can be checked, and it is not the visitor's fault.
       limiter.byUser.release(username);
@@ -155,7 +160,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       await audit.write({ action: 'login.failure', actor, ip, detail: 'временный пароль истёк' });
       return sendError(reply, 403, 'temporary_password_expired', TEMPORARY_EXPIRED_MESSAGE);
     }
-    const { token } = await sessions.create(user.id);
+    const { token } = await sessions.create(user.id, attemptStartedAt);
     // logins.json, not users.json: the server never rewrites the file the CLI edits.
     await logins.record(user.id, isoNow(deps.clock)).catch((error: unknown) => {
       request.log.warn({ err: error }, 'Не удалось сохранить время входа');
