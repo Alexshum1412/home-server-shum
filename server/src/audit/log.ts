@@ -21,6 +21,9 @@ export type AuditAction =
   | 'file.rename'
   | 'file.mkdir'
   | 'olivia.action'
+  | 'print.submit'
+  | 'print.cancel'
+  | 'print.fail'
   | 'services.refresh'
   | 'diagnostics.export';
 

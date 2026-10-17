@@ -123,6 +123,9 @@ const AUDIT_ACTIONS: Record<string, string> = {
   'file.rename': 'Файл переименован',
   'file.mkdir': 'Создана папка',
   'olivia.action': 'Действие Оливии',
+  'print.submit': 'Отправлено на печать',
+  'print.cancel': 'Печать отменена',
+  'print.fail': 'Печать не удалась',
   'services.refresh': 'Проверка сервисов вручную',
   'diagnostics.export': 'Выгрузка диагностики',
 };

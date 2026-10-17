@@ -15,7 +15,7 @@ export function storageQuery(target: UploadTarget, extra: Record<string, string>
   return new URLSearchParams({ space: target.space, path: target.path, ...extra }).toString();
 }
 
-function putRaw(
+export function putRaw(
   url: string,
   body: Blob,
   onProgress?: (loaded: number, total: number) => void,

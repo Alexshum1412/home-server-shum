@@ -23,6 +23,8 @@ const env = {
   DASHBOARD_DEMO: mode === 'demo' ? '1' : '0',
   LOG_LEVEL: 'warn',
   LAN_URL: '',
+  // No real printer for tests.
+  PRINTER_IPP_URL: '',
   // Never the real family folders (C:/FamilyData): everything stays in the throwaway data dir.
   FAMILY_FILES_DIR: join(dataDir, 'files'),
   FAMILY_PHOTOS_DIR: join(dataDir, 'photos'),

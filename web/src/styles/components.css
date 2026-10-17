@@ -994,3 +994,7 @@
   font-size: var(--fs-sm);
   overflow-wrap: anywhere;
 }
+
+.field__input--short {
+  max-width: 8rem;
+}

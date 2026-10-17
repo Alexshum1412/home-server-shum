@@ -45,6 +45,9 @@ export interface Config {
   readonly minFreeBytes: number;
   /** «Оливия» (rule-based assistant for the admin); OLIVIA_ENABLED=0 switches it off completely. */
   readonly oliviaEnabled: boolean;
+  /** IPP address of the home printer for printing through the portal; null — not configured. */
+  readonly printerIppUrl: string | null;
+  readonly printMaxBytes: number;
 }
 
 export type Env = Readonly<Record<string, string | undefined>>;
@@ -94,6 +97,8 @@ const schema = z.object({
   UPLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
   MIN_FREE_GB: z.coerce.number().min(0).max(10_000),
   OLIVIA_ENABLED: z.enum(['0', '1', 'true', 'false']),
+  PRINTER_IPP_URL: httpUrlOrEmpty('PRINTER_IPP_URL'),
+  PRINT_MAX_MB: z.coerce.number().min(1).max(500),
 });
 
 /** "C:" — the drive Windows is installed on (the family server root lives there). */
@@ -189,6 +194,8 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     UPLOAD_MAX_FILE_GB: pick('UPLOAD_MAX_FILE_GB', '20'),
     MIN_FREE_GB: pick('MIN_FREE_GB', '50'),
     OLIVIA_ENABLED: pick('OLIVIA_ENABLED', '1').toLowerCase(),
+    PRINTER_IPP_URL: env.PRINTER_IPP_URL?.trim() ?? '',
+    PRINT_MAX_MB: pick('PRINT_MAX_MB', '30'),
   };
 
   const parsed = schema.safeParse(raw);
@@ -237,6 +244,8 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     uploadMaxFileBytes: Math.round(v.UPLOAD_MAX_FILE_GB * 1024 ** 3),
     minFreeBytes: Math.round(v.MIN_FREE_GB * 1024 ** 3),
     oliviaEnabled: v.OLIVIA_ENABLED === '1' || v.OLIVIA_ENABLED === 'true',
+    printerIppUrl: v.PRINTER_IPP_URL === '' ? null : v.PRINTER_IPP_URL,
+    printMaxBytes: Math.round(v.PRINT_MAX_MB * 1024 ** 2),
   });
 }
 

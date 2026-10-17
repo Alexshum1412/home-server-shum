@@ -485,3 +485,55 @@ export interface OliviaActionResult {
   ok: boolean;
   message: string;
 }
+
+// ---------------------------------------------------------------------------
+// Printing (P7): PDF/JPEG sent over IPP to the home printer
+// ---------------------------------------------------------------------------
+
+export type PrintSides = 'one-sided' | 'two-sided-long-edge' | 'two-sided-short-edge';
+export type PrintColorMode = 'auto' | 'monochrome' | 'color';
+/**
+ * checked   — the printer validated the job (Validate-Job); waits for the user's «Напечатать»
+ * sent/printing — accepted by the printer / being printed
+ * completed / canceled / failed — final; expired — not confirmed within an hour
+ */
+export type PrintJobState = 'checked' | 'sent' | 'printing' | 'completed' | 'canceled' | 'failed' | 'expired';
+
+export interface PrintJobView {
+  id: string;
+  owner: string;
+  fileName: string;
+  sizeBytes: number;
+  format: 'pdf' | 'jpeg';
+  copies: number;
+  sides: PrintSides;
+  colorMode: PrintColorMode;
+  state: PrintJobState;
+  /** Russian status text from the printer or the portal. */
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PrinterIppStatus {
+  /** PRINTER_IPP_URL is set. */
+  configured: boolean;
+  reachable: boolean | null;
+  state: 'idle' | 'processing' | 'stopped' | null;
+  acceptingJobs: boolean | null;
+  /** printer-state-reasons other than "none", e.g. "media-empty". */
+  reasons: string[];
+  /** Toner levels exactly as the printer reports them; null when it does not report a level. */
+  markers: Array<{ name: string; color: string | null; levelPercent: number | null }>;
+  checkedAt: string | null;
+  message: string;
+}
+
+/** GET /api/print */
+export interface PrintResponse {
+  /** The user has the `print` right. */
+  allowed: boolean;
+  printer: PrinterIppStatus;
+  jobs: PrintJobView[];
+  maxBytes: number;
+}

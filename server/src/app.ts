@@ -27,6 +27,9 @@ import { type Clock, isoNow, systemClock } from './lib/time.ts';
 import { readAppVersion } from './lib/version.ts';
 import type { ActionDeps } from './olivia/actions.ts';
 import { registerOliviaRoutes } from './olivia/routes.ts';
+import type { IppTransport } from './print/ipp.ts';
+import { createPrintQueue } from './print/queue.ts';
+import { registerPrintRoutes } from './print/routes.ts';
 import { createServiceRegistry, type FetchLike, type ServiceRegistry } from './services/checker.ts';
 import { registerServiceRoutes } from './services/routes.ts';
 import { DEFAULT_WEB_ROOT, registerStatic, sendSpaFallback } from './static.ts';
@@ -110,6 +113,8 @@ export interface BuildAppOptions {
   downloadAllowAddress?: (address: string) => boolean;
   /** Replaces the supervisor and backup process behind «Оливия»'s actions (tests). */
   oliviaActionDeps?: Partial<ActionDeps>;
+  /** Talks to a fake printer in tests. */
+  ippTransport?: IppTransport;
   /** Free-space probe for downloads and uploads (tests). */
   freeBytes?: (dir: string) => Promise<number | null>;
 }
@@ -452,6 +457,19 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     freeBytes,
   });
   registerFileRoutes(app, { storage, guards, audit, freeBytes, maxUploadBytes: config.uploadMaxFileBytes });
+  const printQueue = createPrintQueue({
+    dataDir: config.dataDir,
+    printerUrl: config.printerIppUrl,
+    maxBytes: config.printMaxBytes,
+    clock,
+    transport: options.ippTransport,
+    pollMs: options.ippTransport ? 50 : undefined,
+    waitForFirstProbe: options.ippTransport !== undefined,
+    onEvent: (event) =>
+      void audit.write({ action: event.action, actor: event.actor, ip: null, detail: event.detail }),
+  });
+  await printQueue.load();
+  registerPrintRoutes(app, { guards, queue: printQueue, maxBytes: config.printMaxBytes });
   registerOliviaRoutes(app, {
     config,
     clock,
@@ -468,6 +486,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     registry.stop();
     collector.stop();
     await downloads.stop();
+    await printQueue.stop();
     await sessions.flush();
     await audit.idle();
   });
