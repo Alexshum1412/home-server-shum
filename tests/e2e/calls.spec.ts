@@ -6,7 +6,7 @@ import { signIn } from './helpers.ts';
  * Real WebRTC between two browser windows on this PC: Chrome supplies a test camera and microphone,
  * the media goes directly between the two pages, the portal only introduces them. This proves the
  * signalling, the offer/answer exchange, ICE and the call screen. It does NOT prove a call between
- * two networks or countries — that needs two real devices (see docs/runbooks/calls.md).
+ * two networks or countries — that needs two real devices (see docs/runbooks/chat-and-calls.md).
  */
 test.use({
   launchOptions: {

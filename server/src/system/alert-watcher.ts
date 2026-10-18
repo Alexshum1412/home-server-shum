@@ -5,7 +5,7 @@
  * again only after it went away and came back, or after a day if it is still there.
  */
 import type { Alert, NotificationKind } from '../../../shared/api.ts';
-import type { StoredUser } from '../auth/users.ts';
+import { isDisabled, type StoredUser } from '../auth/users.ts';
 import type { NotificationCenter } from '../notify/center.ts';
 
 export const REMIND_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -53,7 +53,7 @@ export function createAlertWatcher(options: {
         seen.set(alert.id, state);
       }
       if (due.length === 0) return;
-      const admins = (await options.admins()).filter((user) => user.role === 'admin');
+      const admins = (await options.admins()).filter((user) => user.role === 'admin' && !isDisabled(user));
       if (admins.length === 0) return;
       for (const alert of due) {
         await options.notify({

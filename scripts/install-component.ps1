@@ -4,7 +4,8 @@
 # from scripts\components.json. An existing folder is renamed, never deleted.
 param(
   [Parameter(Mandatory = $true)][ValidateSet('aria2', 'llama', 'model')][string]$Name,
-  [switch]$Yes
+  [switch]$Yes,
+  [switch]$Reinstall
 )
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -31,9 +32,9 @@ if (-not $item.sha256) {
   Write-Host 'Установка остановлена: файл без проверки не ставим. Закрепите сумму и запустите снова.'
   exit 2
 }
-if (Test-Path -LiteralPath $mainFile) {
+if ((Test-Path -LiteralPath $mainFile) -and -not $Reinstall) {
   Write-Host ''
-  Write-Host "Уже установлено: $mainFile. Ничего не делаю." -ForegroundColor Green
+  Write-Host "Уже установлено: $mainFile. Ничего не делаю (для обновления добавьте -Reinstall)." -ForegroundColor Green
   exit 0
 }
 if (-not $Yes) {
@@ -73,6 +74,11 @@ try {
     Copy-Item -Path (Join-Path $source '*') -Destination $destination -Recurse
   } else {
     New-Item -ItemType Directory -Force -Path $destination | Out-Null
+    if (Test-Path -LiteralPath $mainFile) {
+      $old = $mainFile + '.old-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+      Move-Item -LiteralPath $mainFile -Destination $old
+      Write-Host "Прежний файл сохранён как $old"
+    }
     Copy-Item -LiteralPath $file -Destination $mainFile
   }
   $record = [ordered]@{ name = $Name; title = $item.title; url = $item.url; sha256 = $hash; installedAt = (Get-Date).ToString('o') }

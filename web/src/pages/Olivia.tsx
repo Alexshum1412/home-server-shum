@@ -202,14 +202,22 @@ export function OliviaPage() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<OliviaStatusResponse | null>(null);
   const next = useRef(1);
-  const end = useRef<HTMLDivElement>(null);
+  const log = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     apiGet<OliviaStatusResponse>('/api/olivia/status').then(setStatus, () => undefined);
   }, []);
+  // Scrolls the conversation itself (not the page) to its last line, and again once posters have loaded and
+  // changed the height.
   useEffect(() => {
-    end.current?.scrollIntoView({ block: 'end' });
+    const toEnd = () => {
+      const box = log.current;
+      if (box) box.scrollTop = box.scrollHeight;
+    };
+    toEnd();
+    const later = setTimeout(toEnd, 350);
+    return () => clearTimeout(later);
   }, [turns.length, busy]);
 
   async function ask(message: string) {
@@ -265,7 +273,7 @@ export function OliviaPage() {
         </p>
       ) : null}
       <section class="olivia" aria-label="Разговор с Оливией">
-        <div class="olivia__log" role="log" aria-live="polite" aria-relevant="additions">
+        <div ref={log} class="olivia__log" role="log" aria-live="polite" aria-relevant="additions">
           {turns.map((turn) => (
             <div key={turn.id} class={turn.from === 'me' ? 'olivia-turn olivia-turn--me' : 'olivia-turn'}>
               <p class="olivia-turn__who">{turn.from === 'me' ? 'Вы' : 'Оливия'}</p>
@@ -290,7 +298,6 @@ export function OliviaPage() {
               Оливия думает…
             </p>
           ) : null}
-          <div ref={end} />
         </div>
         <fieldset class="chips chips--set">
           <legend class="visually-hidden">Подсказки</legend>

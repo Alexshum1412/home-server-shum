@@ -5,6 +5,12 @@
   "compilerOptions": {
     "lib": ["es2024", "dom", "dom.iterable"]
   },
-  "include": ["tests/e2e/**/*.ts", "scripts/**/*.ts", "playwright.config.ts"],
+  "include": [
+    "tests/e2e/**/*.ts",
+    "tests/guide/**/*.ts",
+    "scripts/**/*.ts",
+    "playwright.config.ts",
+    "playwright.guide.config.ts"
+  ],
   "exclude": ["node_modules", "dist", "web"]
 }

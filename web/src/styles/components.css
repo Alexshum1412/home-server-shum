@@ -1213,3 +1213,8 @@
 .secret__title {
   font-size: var(--fs-md);
 }
+
+/* A tile that needs the whole row (a table inside). */
+.tile--wide {
+  grid-column: 1 / -1;
+}

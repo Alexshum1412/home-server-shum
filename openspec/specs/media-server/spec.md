@@ -40,3 +40,39 @@ Direct playback of a supported file SHALL work in a browser without transcoding,
 #### Scenario: Direct play
 - **WHEN** the 1080p H.264/AAC test video is played in Chrome through Jellyfin Web
 - **THEN** the session reports `DirectPlay`, playback advances in real time and Jellyfin uses under 5 % of the CPU
+
+### Requirement: Audiobooks in the media library
+The media library SHALL include a library «Аудиокниги» in `C:\FamilyData\Media\Аудиокниги`, one folder per book and one file per chapter.
+
+#### Scenario: Chapter files
+- **WHEN** a book folder with audio files is scanned
+- **THEN** Jellyfin lists them as audiobook items
+
+### Requirement: Fallback player without Jellyfin
+Signed-in users SHALL be able to browse and play the audio and video files of the media folder through the portal when Jellyfin is down. The folder SHALL be read-only, only playable media types SHALL be listed or served, and paths outside the folder, including through links, SHALL be refused.
+
+#### Scenario: Seeking
+- **WHEN** a player requests a byte range of a listed file
+- **THEN** the server answers 206 with that range
+
+#### Scenario: Escape attempt
+- **WHEN** a path contains `..` or leads through a junction out of the folder
+- **THEN** the server refuses it and serves nothing
+
+### Requirement: The cinema catalogue goes through the portal
+The portal SHALL list films, series, music and audiobooks with posters, descriptions and genres, support search and «Продолжить просмотр», and stream with seeking, using Jellyfin's key kept on the server; the key SHALL NOT be sent to any browser, and Jellyfin's own page SHALL stay available as the second way to watch.
+
+#### Scenario: Posters and search
+- **WHEN** a person searches the catalogue
+- **THEN** matching titles are shown with their posters and a title without a poster gets an honest placeholder
+
+#### Scenario: Jellyfin is down
+- **WHEN** Jellyfin does not answer
+- **THEN** the catalogue says so and the fallback player still plays plain files
+
+### Requirement: Continue watching belongs to the person
+The place where a person stopped SHALL be kept per person and SHALL NOT be visible to or overwritten by another person; a stop shorter than ten seconds SHALL NOT erase a saved place.
+
+#### Scenario: Two people, one film
+- **WHEN** two people watch the same film to different places
+- **THEN** each sees «Продолжить» at their own place
