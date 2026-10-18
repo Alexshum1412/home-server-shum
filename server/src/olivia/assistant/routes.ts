@@ -4,6 +4,7 @@ import type { AuditLog } from '../../audit/log.ts';
 import { currentUser, type Guards } from '../../auth/guards.ts';
 import { createSlidingWindowLimiter } from '../../auth/rate-limit.ts';
 import type { Config } from '../../config.ts';
+import { requestChannel } from '../../lib/channel.ts';
 import { sendError } from '../../lib/http.ts';
 import type { Clock } from '../../lib/time.ts';
 import type { Assistant } from './assistant.ts';
@@ -40,7 +41,7 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: AssistantRou
       return sendError(reply, 429, 'too_many_requests', 'Слишком много вопросов подряд. Подождите минуту.');
     }
     limiter.hit(user.id);
-    const answer = await assistant.ask(user, body.data.message);
+    const answer = await assistant.ask(user, body.data.message, requestChannel(request, config));
     // What was asked is private and is not written down; only which kind of help was given.
     await audit.write({
       action: 'olivia.action',

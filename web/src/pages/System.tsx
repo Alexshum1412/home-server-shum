@@ -44,6 +44,7 @@ import {
   UNKNOWN,
 } from '../lib/labels.ts';
 import { useData, useIsAdmin } from '../state.tsx';
+import { HardwareSection } from './HardwareSection.tsx';
 
 /**
  * «Обновлено …» only for a value that was actually measured. A value that has never been
@@ -409,6 +410,7 @@ export function SystemPage() {
           </div>
         </section>
         <ProgramsSection data={data} />
+        {isAdmin && data.hardware ? <HardwareSection hardware={data.hardware} /> : null}
         {isAdmin ? <DisksSection data={data} /> : null}
         {isAdmin ? <ComputerSection data={data} /> : null}
       </>

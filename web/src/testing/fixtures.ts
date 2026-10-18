@@ -65,6 +65,7 @@ export function systemResponse(overrides: Partial<SystemResponse> = {}): SystemR
       source: 'нет поддерживаемого источника',
       reason: 'Датчик температуры недоступен на этом компьютере',
     },
+    hardware: null,
     volumes: [
       {
         path: 'C:\\',
@@ -154,6 +155,7 @@ export function withProviders(children: ComponentChildren, options: ProvidersOpt
     },
     demo: options.demo ?? false,
     mustChangePassword: false,
+    channel: 'private',
   };
   const data: DataContextValue = {
     services: options.services ?? polling(servicesResponse([])),

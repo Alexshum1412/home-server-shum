@@ -248,6 +248,12 @@ export function AppShell(props: { path: string; notice?: string | null; children
         <main id="main" class="shell__main" tabIndex={-1}>
           <div class="shell__banners">
             {demo ? <DemoBanner /> : null}
+            {session.channel === 'public' ? (
+              <p class="banner banner--info" role="status">
+                Вы вошли через внешний адрес. Здесь доступны чат, звонки, файлы и фото; управление сервером и
+                запуск загрузок — только через Tailscale или домашнюю сеть.
+              </p>
+            ) : null}
             {props.notice ? (
               <p class="banner banner--warn" role="alert">
                 {props.notice}

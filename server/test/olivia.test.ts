@@ -28,6 +28,7 @@ function system(overrides: Partial<SystemResponse> = {}): SystemResponse {
     cpu: { model: 'cpu', cores: 4, usagePercent: { value: 5, collectedAt: null, source: '', reason: null } },
     memory: { totalBytes: 16e9, usedBytes: { value: 6e9, collectedAt: null, source: '', reason: null } },
     temperatureC: { value: null, collectedAt: null, source: '', reason: 'нет' },
+    hardware: null,
     volumes: [],
     physicalDisks: { value: [], collectedAt: null, source: '', reason: null },
     tailscale: {

@@ -136,6 +136,7 @@ describe('login', () => {
       },
       demo: false,
       mustChangePassword: false,
+      channel: 'private',
     });
     expect(res.body).not.toContain('scrypt');
     expect(cookie).toBeDefined();
@@ -427,6 +428,8 @@ describe('access control', () => {
       lanUrl: null,
       lanProblem: null,
       localUrl: 'http://127.0.0.1:8070',
+      publicHttpsUrl: null,
+      channel: 'private',
     });
   });
 });

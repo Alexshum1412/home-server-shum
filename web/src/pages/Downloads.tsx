@@ -254,6 +254,7 @@ const DESTINATION_HINT: Record<DownloadDestination, string> = {
 
 function AddForm(props: { onAdded: () => void; folderLabel: string; engine: TorrentEngineView }) {
   const id = useId();
+  const { session } = useSession();
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -389,6 +390,11 @@ function AddForm(props: { onAdded: () => void; folderLabel: string; engine: Torr
         Добавить загрузку
       </h2>
       <EngineNote engine={props.engine} />
+      {session.channel === 'public' ? (
+        <p class="banner banner--info" role="status">
+          Через внешний адрес загрузки не запускаются. Откройте портал через Tailscale или из домашней сети.
+        </p>
+      ) : null}
       <form class="download-form" onSubmit={submitCheck} noValidate>
         <div class="field">
           <label class="field__label" htmlFor={`${id}-url`}>

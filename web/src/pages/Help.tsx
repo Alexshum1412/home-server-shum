@@ -33,6 +33,25 @@ function MainAddress(props: { data: ConnectionResponse }) {
   );
 }
 
+function PublicAddress(props: { data: ConnectionResponse }) {
+  const { publicHttpsUrl, channel } = props.data;
+  if (!publicHttpsUrl) return null;
+  return (
+    <section class="prose-block">
+      <h2 class="section-title">
+        <Globe class="section-title__icon" size={20} aria-hidden="true" />
+        Запасной внешний адрес
+      </h2>
+      <CopyField label="Внешний адрес" value={publicHttpsUrl} />
+      <p>
+        Работает без Tailscale, но предназначен для запасного случая: через него доступны чат, звонки, файлы и
+        фото. Управление сервером, запуск загрузок и фильмы целиком — только через основной адрес.
+        {channel === 'public' ? ' Сейчас вы пользуетесь именно им.' : ''}
+      </p>
+    </section>
+  );
+}
+
 function FirstSteps() {
   return (
     <section class="prose-block">
@@ -159,6 +178,7 @@ export function HelpPage() {
     addresses = (
       <>
         <MainAddress data={connection.data} />
+        <PublicAddress data={connection.data} />
         <FirstSteps />
         <InstallSteps />
         <LanAddress data={connection.data} isAdmin={isAdmin} />

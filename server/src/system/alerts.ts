@@ -1,6 +1,7 @@
 import type {
   Alert,
   BackupInfo,
+  DiskReliabilityInfo,
   HealthLevel,
   Measured,
   PhysicalDiskInfo,
@@ -30,9 +31,19 @@ export interface AlertInputs {
   servicesConfigError: string | null;
   /** Supervisor state; omitted in old callers and tests. */
   programs?: Measured<ProgramStatus[]>;
+  /** Readings of the processor, video card and drives; omitted when there are none. Only real measurements raise alerts. */
+  hardware?: {
+    cpuTemperatureC: number | null;
+    gpuTemperatureC: number | null;
+    reliability: readonly DiskReliabilityInfo[] | null;
+  };
 }
 
 export const CRITICAL_FREE_PERCENT = 5;
+
+/** Above this the processor or the video card is too hot (a card and a processor of this age throttle from about 90). */
+export const HOT_WARNING_C = 90;
+export const HOT_CRITICAL_C = 100;
 
 /** Tailscale states that mean remote access is confirmed to be down. */
 export const TAILSCALE_DOWN_STATES: ReadonlySet<TailscaleState> = new Set<TailscaleState>([
@@ -102,6 +113,29 @@ export function buildAlerts(inputs: AlertInputs): AudienceAlert[] {
       text:
         disk.note ??
         `Windows сообщает состояние диска «${disk.rawHealth || 'неизвестно'}». Проверьте SMART и убедитесь, что есть резервная копия.`,
+    });
+  });
+
+  const hot = (id: string, what: string, celsius: number | null): void => {
+    if (celsius === null || celsius < HOT_WARNING_C) return;
+    alerts.push({
+      id,
+      level: celsius >= HOT_CRITICAL_C ? 'critical' : 'warning',
+      audience: 'admin',
+      title: `${what} перегревается`,
+      text: `Датчик показывает ${Math.round(celsius)} °C. Проверьте вентиляторы и пыль в корпусе, не закрывайте решётки.`,
+    });
+  };
+  hot('cpu-hot', 'Процессор', inputs.hardware?.cpuTemperatureC ?? null);
+  hot('gpu-hot', 'Видеокарта', inputs.hardware?.gpuTemperatureC ?? null);
+  inputs.hardware?.reliability?.forEach((disk, index) => {
+    if (disk.note === null) return;
+    alerts.push({
+      id: `disk-smart-${index}`,
+      level: 'warning',
+      audience: 'admin',
+      title: `Диск «${disk.model}» сообщает о неполадке`,
+      text: `${disk.note} Убедитесь, что есть свежая резервная копия.`,
     });
   });
 

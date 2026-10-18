@@ -49,6 +49,8 @@ export interface SessionResponse {
    * 403 password_change_required until POST /api/password succeeds.
    */
   mustChangePassword: boolean;
+  /** Through the public (open-internet) address the portal offers ordinary features only. */
+  channel: 'private' | 'public';
 }
 
 /**
@@ -142,6 +144,10 @@ export interface ServicesResponse {
 export interface ConnectionResponse {
   /** Main private HTTPS address inside the tailnet, e.g. "https://server-home.tail89d77e.ts.net". */
   tailnetUrl: string | null;
+  /** Address on the open internet (a protected tunnel), null when none is set up. */
+  publicHttpsUrl: string | null;
+  /** Which way this very request came in: the private one (Tailscale, home network) or the public one. */
+  channel: 'private' | 'public';
   /** Optional fallback address inside the home LAN (plain HTTP), null when LAN access is off. */
   lanUrl: string | null;
   /** Address that works on the server itself. */
@@ -278,6 +284,78 @@ export interface ProgramStatus {
   startedAt: string | null;
 }
 
+/** The video card, as the NVIDIA driver reports it (nvidia-smi). */
+export interface GpuInfo {
+  name: string;
+  loadPercent: number | null;
+  memoryUsedBytes: number | null;
+  memoryTotalBytes: number | null;
+  temperatureC: number | null;
+  powerWatts: number | null;
+  fanPercent: number | null;
+  driver: string | null;
+}
+
+/** One network connection that is up; the speed is measured between two readings. */
+export interface NetworkAdapterInfo {
+  name: string;
+  description: string;
+  /** A real network card (cable, Wi-Fi), not a tunnel or a virtual adapter. */
+  physical: boolean;
+  linkSpeedMbps: number | null;
+  /** Bytes per second since the previous reading; null for the first reading. */
+  rxBytesPerSec: number | null;
+  txBytesPerSec: number | null;
+  rxTotalBytes: number | null;
+  txTotalBytes: number | null;
+}
+
+/** What the drive itself reports about its health (SMART-like counters that Windows exposes). */
+export interface DiskReliabilityInfo {
+  model: string;
+  temperatureC: number | null;
+  /** Wear of an SSD, 0–100 %; null for a hard disk. */
+  wearPercent: number | null;
+  readErrors: number | null;
+  writeErrors: number | null;
+  powerOnHours: number | null;
+  /** Russian note when a counter looks bad. */
+  note: string | null;
+}
+
+/** GET /api/system → hardware (administrator only). Every part is a measurement or an honest «Недоступно». */
+export interface HardwareInfo {
+  /** Load of every processor core, 0..100. */
+  cpuCores: Measured<number[]>;
+  cpuClock: Measured<{ currentMhz: number; maxMhz: number }>;
+  /** The processor's own temperature: only from a sensor program (LibreHardwareMonitor), never guessed. */
+  cpuTemperatureC: Measured<number>;
+  /** Temperature of the motherboard zone (ACPI); NOT the processor's temperature. */
+  boardTemperatureC: Measured<number>;
+  gpu: Measured<GpuInfo[]>;
+  network: Measured<NetworkAdapterInfo[]>;
+  diskReliability: Measured<DiskReliabilityInfo[]>;
+}
+
+/** One reading of the history (every minute, kept for a day). null = not measured at that moment. */
+export interface MetricsPoint {
+  /** Seconds since 1970. */
+  t: number;
+  cpu: number | null;
+  memory: number | null;
+  gpu: number | null;
+  cpuTemp: number | null;
+  gpuTemp: number | null;
+  rxBytesPerSec: number | null;
+  txBytesPerSec: number | null;
+}
+
+/** GET /api/system/history (administrator only). */
+export interface MetricsHistoryResponse {
+  intervalSec: number;
+  points: MetricsPoint[];
+}
+
 /** GET /api/system — available to every signed-in user; some fields are admin-only. */
 export interface SystemResponse {
   generatedAt: string;
@@ -293,6 +371,8 @@ export interface SystemResponse {
   memory: MemoryInfo;
   /** Temperature is not available on this machine; kept so the UI can say so honestly. */
   temperatureC: Measured<number>;
+  /** Details of the processor, video card, network and drives; null for everybody but the administrator. */
+  hardware: HardwareInfo | null;
   volumes: VolumeInfo[];
   physicalDisks: Measured<PhysicalDiskInfo[]>;
   tailscale: TailscaleInfo;

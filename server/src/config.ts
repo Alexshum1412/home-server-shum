@@ -23,6 +23,16 @@ export interface Config {
   readonly printerName: string | null;
   readonly tailscaleExe: string;
   readonly publicUrl: string | null;
+  /** Second address of the portal on the open internet (a protected tunnel); ordinary features only. */
+  readonly publicHttpsUrl: string | null;
+  /** Whether the administrator may sign in through the open-internet address (default: no). */
+  readonly publicAllowAdminLogin: boolean;
+  /** Whether films may be streamed through the open-internet address (default: no). */
+  readonly publicAllowMediaStream: boolean;
+  /** How often the processor clock, network and video card are read, in seconds. */
+  readonly hardwarePollSec: number;
+  /** Local page of LibreHardwareMonitor (the only source of the processor temperature), loopback only; null = none. */
+  readonly hwMonitorUrl: string | null;
   readonly lanUrl: string | null;
   /**
    * Extra addresses of the home network the portal listens on besides HOST (LAN_BIND). Empty by
@@ -88,6 +98,33 @@ export type Env = Readonly<Record<string, string | undefined>>;
 export const DEFAULT_PUBLIC_URL = 'https://server-home.tail89d77e.ts.net';
 export const DEFAULT_TAILSCALE_EXE = 'C:\\Program Files\\Tailscale\\tailscale.exe';
 
+/** An https:// address with a real name (not an IP address and not a home-network or tailnet name). */
+function httpsUrlOrEmpty(name: string) {
+  return z.string().refine(
+    (value) => {
+      if (value === '') return true;
+      try {
+        const url = new URL(value);
+        const host = url.hostname.toLowerCase();
+        return (
+          url.protocol === 'https:' &&
+          !url.username &&
+          !url.password &&
+          host.includes('.') &&
+          !/^[\d.]+$/.test(host) &&
+          !host.startsWith('[') &&
+          !host.endsWith('.ts.net') &&
+          !host.endsWith('.local') &&
+          !host.endsWith('.lan')
+        );
+      } catch {
+        return false;
+      }
+    },
+    { message: `${name}: нужен адрес https://имя.домен (не IP-адрес и не адрес Tailscale)` },
+  );
+}
+
 function httpUrlOrEmpty(name: string) {
   return z.string().refine(
     (value) => {
@@ -117,6 +154,11 @@ const schema = z.object({
   TAILSCALE_EXE: z.string().min(1),
   PUBLIC_URL: httpUrlOrEmpty('PUBLIC_URL'),
   LAN_URL: httpUrlOrEmpty('LAN_URL'),
+  PUBLIC_HTTPS_URL: httpsUrlOrEmpty('PUBLIC_HTTPS_URL'),
+  PUBLIC_ALLOW_ADMIN_LOGIN: z.enum(['0', '1']),
+  PUBLIC_ALLOW_MEDIA_STREAM: z.enum(['0', '1']),
+  HARDWARE_POLL_SEC: z.coerce.number().int().min(15).max(600),
+  HWMONITOR_URL: z.string(),
   LAN_BIND: z.string(),
   COOKIE_SECURE: z.enum(['auto', 'always', 'never']),
   BACKUP_TARGETS: z.string(),
@@ -234,6 +276,11 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     TAILSCALE_EXE: pick('TAILSCALE_EXE', DEFAULT_TAILSCALE_EXE),
     PUBLIC_URL: env.PUBLIC_URL === undefined ? DEFAULT_PUBLIC_URL : env.PUBLIC_URL.trim(),
     LAN_URL: env.LAN_URL?.trim() ?? '',
+    PUBLIC_HTTPS_URL: env.PUBLIC_HTTPS_URL?.trim() ?? '',
+    PUBLIC_ALLOW_ADMIN_LOGIN: pick('PUBLIC_ALLOW_ADMIN_LOGIN', '0'),
+    PUBLIC_ALLOW_MEDIA_STREAM: pick('PUBLIC_ALLOW_MEDIA_STREAM', '0'),
+    HARDWARE_POLL_SEC: pick('HARDWARE_POLL_SEC', '60'),
+    HWMONITOR_URL: env.HWMONITOR_URL?.trim() ?? '',
     LAN_BIND: env.LAN_BIND?.trim() ?? '',
     COOKIE_SECURE: pick('COOKIE_SECURE', 'auto').toLowerCase(),
     BACKUP_TARGETS: pick('BACKUP_TARGETS', defaultBackupTargets(env, platform)),
@@ -310,6 +357,11 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     printerName: v.PRINTER_NAME === '' ? null : v.PRINTER_NAME,
     tailscaleExe: v.TAILSCALE_EXE,
     publicUrl: trimUrl(v.PUBLIC_URL),
+    publicHttpsUrl: trimUrl(v.PUBLIC_HTTPS_URL),
+    publicAllowAdminLogin: v.PUBLIC_ALLOW_ADMIN_LOGIN === '1',
+    publicAllowMediaStream: v.PUBLIC_ALLOW_MEDIA_STREAM === '1',
+    hardwarePollSec: v.HARDWARE_POLL_SEC,
+    hwMonitorUrl: parseLoopbackUrl('HWMONITOR_URL', v.HWMONITOR_URL, 'http://127.0.0.1:8085'),
     lanUrl,
     lanBind: Object.freeze(lanBind),
     cookieSecure: v.COOKIE_SECURE,

@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Config } from '../config.ts';
+import { requestChannel } from '../lib/channel.ts';
 import { sendError } from '../lib/http.ts';
 import { SESSION_COOKIE, SESSION_TTL_MS, type SessionStore } from './sessions.ts';
 import { isDisabled, needsPasswordChange, type StoredUser, type UserStore } from './users.ts';
@@ -18,6 +19,8 @@ const signedIn = new WeakMap<FastifyRequest, StoredUser>();
  */
 export function isSecureRequest(request: FastifyRequest, config: Config): boolean {
   if (config.cookieSecure === 'always') return true;
+  // The open-internet address is always https: the cookie never travels in the clear.
+  if (requestChannel(request, config) === 'public') return true;
   if (config.cookieSecure === 'never') return false;
   return request.protocol === 'https' || request.hostname.toLowerCase().endsWith('.ts.net');
 }

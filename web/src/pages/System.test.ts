@@ -1,6 +1,6 @@
 import { h } from 'preact';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BackupInfo } from '../../../shared/api.ts';
+import type { BackupInfo, SystemResponse } from '../../../shared/api.ts';
 import {
   byClass,
   byTag,
@@ -112,5 +112,110 @@ describe('system page: backups', () => {
     expect(values['Последняя удачная копия']).not.toBe('Нет данных');
     expect(values['Последняя удачная копия']).not.toBe('Не было');
     expect(values['Восстановление проверено']).toBe('Да');
+  });
+});
+
+describe('system page: hardware details (administrator)', () => {
+  const NOTHING = { value: null, collectedAt: null, source: 's', reason: 'нет' };
+  const hardware = (over: Partial<NonNullable<SystemResponse['hardware']>> = {}) => ({
+    cpuCores: { value: [12, 80, 3.5, 0], collectedAt: NOW_ISO, source: 's', reason: null },
+    cpuClock: { value: { currentMhz: 2712, maxMhz: 2712 }, collectedAt: NOW_ISO, source: 's', reason: null },
+    cpuTemperatureC: {
+      ...NOTHING,
+      reason: 'Температуру процессора Windows не сообщает. Нужна LibreHardwareMonitor.',
+    },
+    boardTemperatureC: { value: 29.9, collectedAt: NOW_ISO, source: 's', reason: null },
+    gpu: {
+      value: [
+        {
+          name: 'NVIDIA GeForce GTX 960',
+          loadPercent: 31,
+          memoryUsedBytes: 1194 * 1024 ** 2,
+          memoryTotalBytes: 2048 * 1024 ** 2,
+          temperatureC: 39,
+          powerWatts: 19,
+          fanPercent: 0,
+          driver: '560.94',
+        },
+      ],
+      collectedAt: NOW_ISO,
+      source: 's',
+      reason: null,
+    },
+    network: {
+      value: [
+        {
+          name: 'Ethernet',
+          description: 'Realtek',
+          physical: true,
+          linkSpeedMbps: 1000,
+          rxBytesPerSec: 125_000,
+          txBytesPerSec: null,
+          rxTotalBytes: 2_500_000_000,
+          txTotalBytes: 400_000_000,
+        },
+      ],
+      collectedAt: NOW_ISO,
+      source: 's',
+      reason: null,
+    },
+    diskReliability: {
+      value: [
+        {
+          model: 'ST_M13FQBL',
+          temperatureC: null,
+          wearPercent: null,
+          readErrors: null,
+          writeErrors: null,
+          powerOnHours: null,
+          note: null,
+        },
+      ],
+      collectedAt: NOW_ISO,
+      source: 's',
+      reason: null,
+    },
+    ...over,
+  });
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ intervalSec: 60, points: [] }), { status: 200 })),
+    );
+  });
+
+  it('shows what is measured and says «Недоступно» for the rest, never a zero', async () => {
+    const root = await renderSystem({ hardware: hardware() });
+    const text = textOf(root);
+    expect(text).toContain('Оборудование');
+    expect(byClass(tile(root, 'Ядра процессора'), 'core-list__item')).toHaveLength(4);
+    expect(text).toContain('2 712 МГц');
+    expect(facts(tile(root, 'Видеокарта'))['Видеопамять']).toContain('из');
+    const temperatures = facts(tile(root, 'Температуры'));
+    expect(temperatures['Процессор']).toBe('Недоступно');
+    expect(temperatures['Видеокарта']).toBe('39 °C');
+    expect(temperatures['Плата (зона ACPI)']).toBe('29,9 °C');
+    expect(text).toContain('Недоступно');
+    expect(text).not.toContain('0 °C');
+  });
+
+  it('explains a missing video card instead of showing zeros', async () => {
+    const root = await renderSystem({
+      hardware: hardware({
+        gpu: { ...NOTHING, reason: 'Драйвер NVIDIA (nvidia-smi) не найден' },
+      }),
+    });
+    expect(textOf(tile(root, 'Видеокарта'))).toContain('Драйвер NVIDIA (nvidia-smi) не найден');
+  });
+
+  it('is not shown to the family', async () => {
+    view = await mount(
+      withProviders(h(SystemPage, {}), {
+        role: 'family',
+        system: polling(systemResponse({ hardware: null })),
+      }),
+    );
+    expect(textOf(view.container)).not.toContain('Оборудование');
   });
 });

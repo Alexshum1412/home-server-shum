@@ -1,8 +1,9 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { SessionResponse, SessionsResponse, SetupStateResponse } from '../../../shared/api.ts';
 import type { AuditLog } from '../audit/log.ts';
 import type { Config } from '../config.ts';
+import { requestChannel } from '../lib/channel.ts';
 import { deviceLabel } from '../lib/device.ts';
 import { sendError } from '../lib/http.ts';
 import { type Clock, ceilMinutes, isoNow } from '../lib/time.ts';
@@ -33,6 +34,8 @@ export const TEMPORARY_EXPIRED_MESSAGE =
   'Срок временного пароля истёк. Попросите администратора выдать новый на домашнем компьютере.';
 export const ACCOUNT_DISABLED_MESSAGE =
   'Эта учётная запись отключена администратором. Если это ошибка, попросите его включить её снова.';
+export const ADMIN_NOT_PUBLIC_MESSAGE =
+  'Администратор входит в портал только через Tailscale или домашнюю сеть, не через внешний адрес.';
 export const INVALID_CREDENTIALS_MESSAGE = 'Неверное имя пользователя или пароль';
 export const USERS_UNAVAILABLE_MESSAGE =
   'Не удаётся прочитать список пользователей на сервере. Сообщите администратору.';
@@ -71,8 +74,13 @@ const BLOCK_AUDIT_MINUTES = ceilMinutes(LOGIN_WINDOW_MS / 1000);
 export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): void {
   const { config, users, logins, sessions, audit, limiter, guards } = deps;
 
-  function sessionBody(user: StoredUser): SessionResponse {
-    return { user: toSessionUser(user), demo: config.demo, mustChangePassword: needsPasswordChange(user) };
+  function sessionBody(user: StoredUser, request: FastifyRequest): SessionResponse {
+    return {
+      user: toSessionUser(user),
+      demo: config.demo,
+      mustChangePassword: needsPasswordChange(user),
+      channel: requestChannel(request, config),
+    };
   }
 
   // A blocked login is audited at most once per key (login name or address) per limiter window,
@@ -103,17 +111,20 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     }
     const username = normaliseUsername(parsed.data.username);
     const { password } = parsed.data;
+    const channel = requestChannel(request, config);
     const ip = request.ip;
+    const limitIp = channel === 'public' ? `public:${ip}` : ip;
+    const limiterName = channel === 'public' ? `public:${username}` : username;
     // The audit log gets the login name only when it belongs to a real account: anything else typed
     // into this field may be a password that landed in the wrong box.
     const known = USERNAME_RE.test(username) ? await users.findByUsername(username) : undefined;
     const actor = known?.username ?? null;
 
-    const byIp = limiter.byIp.check(ip);
-    const byUser = limiter.byUser.check(username);
+    const byIp = limiter.byIp.check(limitIp);
+    const byUser = limiter.byUser.check(limiterName);
     if (!byIp.allowed || !byUser.allowed) {
       const retryAfterSec = Math.max(byIp.retryAfterSec, byUser.retryAfterSec);
-      if (shouldAuditBlock(byIp.allowed ? `user:${username}` : `ip:${ip}`)) {
+      if (shouldAuditBlock(byIp.allowed ? `user:${limiterName}` : `ip:${limitIp}`)) {
         const why = byIp.allowed
           ? 'слишком много попыток для этого логина'
           : 'слишком много попыток с этого адреса';
@@ -135,8 +146,8 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
 
     // Count the attempt BEFORE the first await: concurrent guesses must see each other, otherwise
     // a burst would all pass check() while the slow password hashing runs. Taken back on success.
-    limiter.byUser.hit(username);
-    limiter.byIp.hit(ip);
+    limiter.byUser.hit(limiterName);
+    limiter.byIp.hit(limitIp);
 
     // Taken before the slow password check: a password change that commits meanwhile must end
     // this session too (guards compare it with passwordChangedAt).
@@ -144,8 +155,8 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     const user = known ?? (await users.findByUsername(username));
     if (users.loadError() !== null) {
       // users.json is broken: nobody can be checked, and it is not the visitor's fault.
-      limiter.byUser.release(username);
-      limiter.byIp.release(ip);
+      limiter.byUser.release(limiterName);
+      limiter.byIp.release(limitIp);
       return sendError(reply, 503, 'users_unavailable', USERS_UNAVAILABLE_MESSAGE);
     }
     let valid = false;
@@ -162,12 +173,22 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       return sendError(reply, 401, 'invalid_credentials', INVALID_CREDENTIALS_MESSAGE);
     }
 
-    limiter.byUser.reset(username);
-    limiter.byIp.release(ip);
+    limiter.byUser.reset(limiterName);
+    limiter.byIp.release(limitIp);
     if (temporaryPasswordExpired(user, deps.clock().getTime())) {
       // Told only after the password matched: an outsider learns nothing about the account.
       await audit.write({ action: 'login.failure', actor, ip, detail: 'временный пароль истёк' });
       return sendError(reply, 403, 'temporary_password_expired', TEMPORARY_EXPIRED_MESSAGE);
+    }
+    if (channel === 'public' && user.role === 'admin' && !config.publicAllowAdminLogin) {
+      // Told only after the password matched, like the cases above.
+      await audit.write({
+        action: 'login.failure',
+        actor,
+        ip,
+        detail: 'администратор: вход через внешний адрес закрыт',
+      });
+      return sendError(reply, 403, 'admin_not_public', ADMIN_NOT_PUBLIC_MESSAGE);
     }
     if (isDisabled(user)) {
       // Told only after the password matched: an outsider learns nothing about the account.
@@ -190,7 +211,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       ip,
       detail: needsPasswordChange(user) ? 'временный пароль: нужно сменить' : null,
     });
-    return sessionBody(user);
+    return sessionBody(user, request);
   });
 
   app.post('/api/logout', async (request, reply) => {
@@ -208,7 +229,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
   });
 
   app.get('/api/session', { preHandler: guards.requireSignedIn }, async (request) =>
-    sessionBody(currentUser(request)),
+    sessionBody(currentUser(request), request),
   );
 
   /** The devices signed in as this person; «lost phone» → end that one from another device. */
@@ -319,7 +340,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       ip,
       detail: needsPasswordChange(user) ? 'временный пароль заменён своим' : null,
     });
-    return sessionBody(updated);
+    return sessionBody(updated, request);
   });
 
   app.get('/api/setup-state', async () => {

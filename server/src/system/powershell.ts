@@ -47,6 +47,52 @@ ConvertTo-Json -Compress -Depth 3 -InputObject @($items)
 })
 ConvertTo-Json -Compress -Depth 3 -InputObject @($items)
 `,
+  /** Processor clock, traffic counters of the network adapters that are up, ACPI temperature zones. */
+  hardwareLive: `${HEADER}$cpu = Get-CimInstance -ClassName Win32_Processor | Select-Object -First 1
+$stats = @{}
+Get-NetAdapterStatistics -ErrorAction SilentlyContinue | ForEach-Object { $stats[[string]$_.Name] = $_ }
+$adapters = @(Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' } | ForEach-Object {
+  $s = $stats[[string]$_.Name]
+  [pscustomobject]@{
+    name = [string]$_.Name
+    description = [string]$_.InterfaceDescription
+    hardware = [bool]$_.HardwareInterface
+    speedBps = [double]$_.Speed
+    rx = if ($s) { [double]$s.ReceivedBytes } else { $null }
+    tx = if ($s) { [double]$s.SentBytes } else { $null }
+  }
+})
+$thermal = @(Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | ForEach-Object {
+  [pscustomobject]@{ name = [string]$_.InstanceName; deciKelvin = [double]$_.CurrentTemperature }
+})
+ConvertTo-Json -Compress -Depth 4 -InputObject ([pscustomobject]@{
+  currentMhz = [int]$cpu.CurrentClockSpeed
+  maxMhz = [int]$cpu.MaxClockSpeed
+  adapters = @($adapters)
+  thermal = @($thermal)
+})
+`,
+  /** What each drive reports about itself (temperature, wear, error counters, hours); a drive that says nothing is still listed. */
+  diskReliability: `${HEADER}$items = @(Get-PhysicalDisk | ForEach-Object {
+  $model = ([string]$_.Model).Trim()
+  if (-not $model) { $model = ([string]$_.FriendlyName).Trim() }
+  $c = $null
+  # A Seagate in a firmware failure ("ST_M13FQBL") takes 20 s to answer and must not be touched more than
+  # Windows itself does: it is listed without counters.
+  if ($model -notmatch '^ST_[A-Z0-9]+$') {
+    try { $c = $_ | Get-StorageReliabilityCounter -ErrorAction Stop } catch { $c = $null }
+  }
+  [pscustomobject]@{
+    model = $model
+    temperature = if ($c) { $c.Temperature } else { $null }
+    wear = if ($c) { $c.Wear } else { $null }
+    readErrors = if ($c) { $c.ReadErrorsTotal } else { $null }
+    writeErrors = if ($c) { $c.WriteErrorsTotal } else { $null }
+    hours = if ($c) { $c.PowerOnHours } else { $null }
+  }
+})
+ConvertTo-Json -Compress -Depth 3 -InputObject @($items)
+`,
   /** Mounted volumes with a drive letter: backup targets are found by label (label:reserve\...). */
   volumes: `${HEADER}$items = @(Get-Volume | Where-Object DriveLetter | ForEach-Object {
   [pscustomobject]@{

@@ -51,7 +51,8 @@ export interface AssistantDeps {
 }
 
 export interface Assistant {
-  ask(user: StoredUser, message: string): Promise<OliviaAnswer>;
+  /** `channel`: through the open-internet address she does not prepare downloads (they start only at home or over Tailscale). */
+  ask(user: StoredUser, message: string, channel?: 'private' | 'public'): Promise<OliviaAnswer>;
   status(): Promise<OliviaStatusResponse>;
 }
 
@@ -395,7 +396,12 @@ export function createAssistant(deps: AssistantDeps): Assistant {
     };
   }
 
-  async function run(user: StoredUser, plan: Plan, message: string): Promise<Outcome> {
+  async function run(
+    user: StoredUser,
+    plan: Plan,
+    message: string,
+    channel: 'private' | 'public',
+  ): Promise<Outcome> {
     switch (plan.tool) {
       case 'faq':
         return faq(plan.faqId, message);
@@ -412,6 +418,14 @@ export function createAssistant(deps: AssistantDeps): Assistant {
       case 'downloads':
         return downloads(user);
       case 'add_download':
+        if (channel === 'public') {
+          return {
+            reply:
+              'Через внешний адрес загрузки не запускаются. Откройте портал через Tailscale или из домашней сети и спросите меня снова.',
+            cards: [],
+            tool: 'add_download',
+          };
+        }
         return addDownload(user, plan);
       case 'calendar':
         return calendar(user);
@@ -421,7 +435,7 @@ export function createAssistant(deps: AssistantDeps): Assistant {
   }
 
   return {
-    async ask(user, message) {
+    async ask(user, message, channel = 'private') {
       const text = message.trim();
       let plan = routeByRules(text);
       let via: 'model' | 'rules' = 'rules';
@@ -435,7 +449,7 @@ export function createAssistant(deps: AssistantDeps): Assistant {
           via = 'model';
         }
       }
-      const outcome = await run(user, plan, text);
+      const outcome = await run(user, plan, text, channel);
       return { reply: outcome.reply, via, tool: outcome.tool ?? plan.tool, cards: outcome.cards, note };
     },
 

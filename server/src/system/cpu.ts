@@ -23,10 +23,19 @@ export interface CpuSampler {
   /** Takes a sample; utilisation = 1 − Δidle/Δtotal since the previous sample. */
   sample(cpus: readonly OsCpuInfo[], at: Date): Measured<number>;
   current(): Measured<number>;
+  /** Load of every core over the same window, 0..100. */
+  cores(): Measured<number[]>;
 }
 
 export function createCpuSampler(): CpuSampler {
   let previous: CpuTotals | null = null;
+  let previousCores: CpuTotals[] | null = null;
+  let perCore: Measured<number[]> = {
+    value: null,
+    collectedAt: null,
+    source: CPU_SOURCE,
+    reason: 'Идёт первое измерение',
+  };
   let measured: Measured<number> = {
     value: null,
     collectedAt: null,
@@ -51,9 +60,23 @@ export function createCpuSampler(): CpuSampler {
           };
         }
       }
+      const nowCores = cpus.map((cpu) => totals([cpu]));
+      if (previousCores !== null && previousCores.length === nowCores.length && nowCores.length > 0) {
+        const loads = nowCores.map((core, index) => {
+          const before = previousCores?.[index];
+          const dTotal = before ? core.total - before.total : 0;
+          const dIdle = before ? core.idle - before.idle : 0;
+          return dTotal > 0
+            ? Math.round(Math.min(100, Math.max(0, (1 - dIdle / dTotal) * 100)) * 10) / 10
+            : 0;
+        });
+        perCore = { value: loads, collectedAt: at.toISOString(), source: CPU_SOURCE, reason: null };
+      }
+      previousCores = nowCores;
       previous = now;
       return measured;
     },
     current: () => measured,
+    cores: () => perCore,
   };
 }

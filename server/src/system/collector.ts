@@ -1,6 +1,7 @@
 import type {
   BackupInfo,
   Measured,
+  MetricsHistoryResponse,
   PhysicalDiskInfo,
   PrinterInfo,
   ProgramStatus,
@@ -15,6 +16,8 @@ import { alertsForRole, buildAlerts, overallHealth, TAILSCALE_DOWN_STATES } from
 import { readBackupStatus } from './backup.ts';
 import { createCpuSampler } from './cpu.ts';
 import { parsePhysicalDisks } from './disks.ts';
+import { createHardwareMonitor } from './hardware.ts';
+import { createMetricsHistory } from './history.ts';
 import { parseOsVersion } from './os-version.ts';
 import { POWERSHELL_TIMEOUT_MS, ProbeError } from './powershell.ts';
 import { parsePrinters } from './printer.ts';
@@ -32,6 +35,9 @@ export const SCHEDULE_MS = {
   tailscale: 60_000,
   devices: 5 * 60_000,
   programs: 10_000,
+  /** Drive counters change slowly, and the broken drive of this PC is slow to answer. */
+  driveCounters: 15 * 60_000,
+  historySave: 5 * 60_000,
 } as const;
 
 const DISKS_SOURCE = 'PowerShell Get-PhysicalDisk';
@@ -62,6 +68,11 @@ export interface SystemCollector {
   collectBackup(): Promise<void>;
   collectTailscale(): Promise<void>;
   collectDevices(): Promise<void>;
+  /** Processor clock, video card, network, sensor program; adds a point to the history. */
+  collectHardware(): Promise<void>;
+  collectDriveCounters(): Promise<void>;
+  /** The last day, one reading a minute (administrator only). */
+  history(): MetricsHistoryResponse;
   /** Runs every probe once (used at start and by tests). */
   collectAll(): Promise<void>;
   start(): void;
@@ -120,6 +131,18 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
   let osVersionReadAt: number | null = null;
   const totalMemoryBytes = probes.totalMemoryBytes();
   const cpu = createCpuSampler();
+  const hardware = createHardwareMonitor({
+    config,
+    clock,
+    probes,
+    timeoutMs: POWERSHELL_TIMEOUT_MS + 5_000,
+    onProbeError: (probe, error) => report(probe, error),
+  });
+  const metrics = createMetricsHistory({
+    dataDir: config.dataDir,
+    now: () => clock().getTime(),
+    onError: (message) => options.onProbeError?.('history', message),
+  });
 
   let memoryUsed: Measured<number> = {
     value: null,
@@ -324,6 +347,30 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
     });
   }
 
+  function collectHardware(): Promise<void> {
+    return exclusive('hardware', async () => {
+      await hardware.collectLive();
+      const latest = hardware.latest();
+      metrics.record({
+        t: Math.floor(clock().getTime() / 1000),
+        cpu: cpu.current().value,
+        memory:
+          memoryUsed.value === null || totalMemoryBytes <= 0
+            ? null
+            : Math.round((memoryUsed.value / totalMemoryBytes) * 1000) / 10,
+        gpu: latest.gpuLoad,
+        cpuTemp: latest.cpuTemp,
+        gpuTemp: latest.gpuTemp,
+        rxBytesPerSec: latest.rx,
+        txBytesPerSec: latest.tx,
+      });
+    });
+  }
+
+  function collectDriveCounters(): Promise<void> {
+    return exclusive('driveCounters', () => hardware.collectDisks());
+  }
+
   async function collectAll(): Promise<void> {
     collectCpu();
     await Promise.all([
@@ -333,6 +380,9 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
       collectDevices(),
       collectPrograms(),
     ]);
+    // After the other probes: PowerShell processes one at a time.
+    await collectHardware();
+    await collectDriveCounters();
   }
 
   const timers: NodeJS.Timeout[] = [];
@@ -352,10 +402,21 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
     collectBackup,
     collectTailscale,
     collectDevices,
+    collectHardware,
+    collectDriveCounters,
+    history() {
+      return { intervalSec: config.hardwarePollSec, points: metrics.points() };
+    },
     collectAll,
     start() {
       if (timers.length > 0) return;
-      collectAll().catch((error: unknown) => report('startup', error));
+      metrics
+        .load()
+        .then(() => collectAll())
+        .catch((error: unknown) => report('startup', error));
+      every(config.hardwarePollSec * 1000, collectHardware);
+      every(SCHEDULE_MS.driveCounters, collectDriveCounters);
+      every(SCHEDULE_MS.historySave, () => metrics.flush());
       every(SCHEDULE_MS.cpu, collectCpu);
       every(SCHEDULE_MS.volumes, () => Promise.all([collectVolumes(), collectBackup()]));
       every(SCHEDULE_MS.tailscale, collectTailscale);
@@ -364,9 +425,11 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
     },
     stop() {
       for (const timer of timers.splice(0)) clearInterval(timer);
+      void metrics.flush();
     },
     snapshot(role) {
       const isAdmin = role === 'admin';
+      const details = hardware.snapshot(cpu.cores());
       const alerts = buildAlerts({
         backup,
         volumes,
@@ -375,6 +438,11 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
         servicesConfigError: options.servicesConfigError(),
         // Before the first read there is no evidence either way: no supervisor alert yet.
         programs: programs.collectedAt === null ? undefined : programs,
+        hardware: {
+          cpuTemperatureC: details.cpuTemperatureC.value,
+          gpuTemperatureC: hardware.latest().gpuTemp,
+          reliability: details.diskReliability.value,
+        },
       });
       const visibleAlerts = alertsForRole(alerts, role);
       const coreMeasured = cpu.current().value !== null || memoryUsed.value !== null;
@@ -396,6 +464,7 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
           source: 'нет поддерживаемого источника',
           reason: 'Датчик температуры недоступен на этом компьютере',
         },
+        hardware: isAdmin ? details : null,
         volumes: volumes.map((volume) => ({ ...volume })),
         physicalDisks: isAdmin
           ? { ...disks, value: disks.value ? disks.value.map((disk) => ({ ...disk })) : null }

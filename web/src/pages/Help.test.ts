@@ -37,6 +37,8 @@ const NO_LAN: ConnectionResponse = {
   lanUrl: null,
   localUrl: LOCAL_URL,
   lanProblem: null,
+  publicHttpsUrl: null,
+  channel: 'private',
 };
 const WITH_LAN: ConnectionResponse = { ...NO_LAN, lanUrl: 'http://192.168.1.10:8071' };
 

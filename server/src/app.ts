@@ -32,6 +32,7 @@ import { createStorage } from './files/storage.ts';
 import { createJellyfinClient } from './jellyfin/client.ts';
 import { createProgressStore } from './jellyfin/progress.ts';
 import { registerCatalogRoutes } from './jellyfin/routes.ts';
+import { PUBLIC_RESTRICTED_MESSAGE, publicRouteAllowed, requestChannel } from './lib/channel.ts';
 import { isApiPath, sendError, urlPath } from './lib/http.ts';
 import { removeStaleTempFiles } from './lib/json-store.ts';
 import { type Clock, isoNow, systemClock } from './lib/time.ts';
@@ -57,6 +58,7 @@ import { createServiceRegistry, type FetchLike, type ServiceRegistry } from './s
 import { registerServiceRoutes } from './services/routes.ts';
 import { DEFAULT_WEB_ROOT, registerStatic, sendSpaFallback } from './static.ts';
 import { readJellyfinApiKey } from './supervisor/apps.ts';
+import { createAlertWatcher } from './system/alert-watcher.ts';
 import { createSystemCollector, type ProbeTimeouts, type SystemCollector } from './system/collector.ts';
 import { createDefaultProbes, type SystemProbes } from './system/probes.ts';
 import { registerSystemRoutes } from './system/routes.ts';
@@ -201,7 +203,7 @@ function isApiRequest(request: FastifyRequest): boolean {
 /** The addresses the portal answers under: its loopback port plus PUBLIC_URL and LAN_URL. */
 function portalUrls(config: Config): URL[] {
   const urls = ['127.0.0.1', 'localhost', '[::1]'].map((name) => new URL(`http://${name}:${config.port}`));
-  for (const url of [config.publicUrl, config.lanUrl]) {
+  for (const url of [config.publicUrl, config.publicHttpsUrl, config.lanUrl]) {
     if (url) urls.push(new URL(url));
   }
   // Every address the portal is bound to in the home network answers under its own name.
@@ -510,6 +512,14 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     }
   });
 
+  // The open-internet way (a protected tunnel) reaches ordinary family features only; see lib/channel.ts.
+  app.addHook('onRequest', async (request, reply) => {
+    if (requestChannel(request, config) !== 'public') return;
+    if (!publicRouteAllowed(request.method, request.routeOptions.url ?? '', config)) {
+      return sendError(reply, 403, 'channel_restricted', PUBLIC_RESTRICTED_MESSAGE);
+    }
+  });
+
   const fixedOrigins = allowedOrigins(config);
   // CSRF / origin guard runs before the body is read, so a rejected request does nothing.
   // Applied to EVERY state-changing request, whatever the path: the router decodes the path
@@ -605,6 +615,8 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     const problem = context.lan.failed.map((item) => `${item.address}: ${item.reason}`).join('; ');
     const body: ConnectionResponse = {
       tailnetUrl: config.publicUrl,
+      publicHttpsUrl: config.publicHttpsUrl,
+      channel: requestChannel(request, config),
       lanUrl: lanListening ? config.lanUrl : null,
       localUrl: `http://127.0.0.1:${config.port}`,
       lanProblem: isAdmin && lanWanted && problem !== '' ? problem : null,
@@ -716,7 +728,9 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   await registerStatic(app, webRoot);
 
   // --- lifecycle ----------------------------------------------------------------------------
+  let watchTimer: NodeJS.Timeout | undefined;
   app.addHook('onClose', async () => {
+    if (watchTimer) clearInterval(watchTimer);
     calls.stop();
     torrents.stop();
     hub.closeAll();
@@ -737,6 +751,19 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
       collector.start();
       await downloads.load();
       torrents.start();
+      // Real problems reach the administrators' phones, once each (see system/alert-watcher.ts).
+      const watcher = createAlertWatcher({
+        alerts: () => collector.snapshot('admin').alerts,
+        admins: () => users.list(),
+        notify: (input) => notify.notify(input),
+        now: () => clock().getTime(),
+      });
+      watchTimer = setInterval(() => {
+        watcher
+          .tick()
+          .catch((error: unknown) => log.warn(`Оповещение о проблеме не отправлено: ${String(error)}`));
+      }, 60_000);
+      watchTimer.unref();
     });
   }
 
