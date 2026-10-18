@@ -1,10 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 
 // Uses the installed Google Chrome (channel 'chrome'): no browser downloads.
-// Two isolated servers with throwaway data dirs: real mode (8071) and demo mode (8072).
+// Three isolated servers with throwaway data dirs: real mode (8071), demo mode (8072) and cinema mode (8073,
+// with a stand-in for Jellyfin on 8097 and for the torrent client on 8098).
+// E2E_PORT_OFFSET moves all of them (for example by 100) so that two test runs, such as the checkouts of
+// parallel workers, never fight over the same ports.
 // They run on the same node.exe as Playwright itself: a `node` found on PATH may be another,
 // stale copy (seen on this PC: an old AppData copy that crashed with an access violation).
 const NODE = `"${process.execPath}"`;
+const OFFSET = Number(process.env.E2E_PORT_OFFSET ?? 0);
+const PORT = { real: 8071 + OFFSET, demo: 8072 + OFFSET, cinema: 8073 + OFFSET };
+const url = (port: number) => `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -28,7 +34,7 @@ export default defineConfig({
     {
       name: 'real',
       testIgnore: /(demo|chat|calls|cinema|torrents|olivia-assistant)\.spec\.ts/,
-      use: { baseURL: 'http://127.0.0.1:8071' },
+      use: { baseURL: url(PORT.real) },
     },
     // Chat and calls run one after the other, after everything else: both hold several browser
     // windows at once, and two such files side by side crashed the test runner now and then.
@@ -36,37 +42,37 @@ export default defineConfig({
       name: 'chat',
       testMatch: /chat\.spec\.ts/,
       dependencies: ['real'],
-      use: { baseURL: 'http://127.0.0.1:8071' },
+      use: { baseURL: url(PORT.real) },
     },
     {
       name: 'calls',
       testMatch: /calls\.spec\.ts/,
       dependencies: ['chat'],
-      use: { baseURL: 'http://127.0.0.1:8071' },
+      use: { baseURL: url(PORT.real) },
     },
-    { name: 'demo', testMatch: /demo\.spec\.ts/, use: { baseURL: 'http://127.0.0.1:8072' } },
+    { name: 'demo', testMatch: /demo\.spec\.ts/, use: { baseURL: url(PORT.demo) } },
     {
       name: 'cinema',
       testMatch: /(cinema|torrents|olivia-assistant)\.spec\.ts/,
-      use: { baseURL: 'http://127.0.0.1:8073' },
+      use: { baseURL: url(PORT.cinema) },
     },
   ],
   webServer: [
     {
-      command: `${NODE} tests/e2e/start-server.mjs real 8071`,
-      url: 'http://127.0.0.1:8071/api/health',
+      command: `${NODE} tests/e2e/start-server.mjs real ${PORT.real}`,
+      url: `${url(PORT.real)}/api/health`,
       reuseExistingServer: false,
       timeout: 60_000,
     },
     {
-      command: `${NODE} tests/e2e/start-server.mjs demo 8072`,
-      url: 'http://127.0.0.1:8072/api/health',
+      command: `${NODE} tests/e2e/start-server.mjs demo ${PORT.demo}`,
+      url: `${url(PORT.demo)}/api/health`,
       reuseExistingServer: false,
       timeout: 60_000,
     },
     {
-      command: `${NODE} tests/e2e/start-server.mjs cinema 8073`,
-      url: 'http://127.0.0.1:8073/api/health',
+      command: `${NODE} tests/e2e/start-server.mjs cinema ${PORT.cinema}`,
+      url: `${url(PORT.cinema)}/api/health`,
       reuseExistingServer: false,
       timeout: 60_000,
     },

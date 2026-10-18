@@ -20,8 +20,10 @@ const guideBackups = join(tmpdir(), `${basename(dataDir)}-backups`);
 // catalogue page is checked against it. Every other mode never reaches any Jellyfin.
 // «guide» is the cinema mode with family-like names: the pictures of docs/FAMILY_USER_GUIDE.md are taken on it.
 const cinemaLike = mode === 'cinema' || mode === 'guide';
-const fakeJellyfinPort = 8097;
-const fakeAria2Port = 8098;
+// E2E_PORT_OFFSET moves every port (see playwright.config.ts): parallel test runs must not share them.
+const portOffset = Number(process.env.E2E_PORT_OFFSET ?? 0);
+const fakeJellyfinPort = 8097 + portOffset;
+const fakeAria2Port = 8098 + portOffset;
 if (cinemaLike) {
   const { startFakeJellyfin, FAKE_KEY } = await import('./fake-jellyfin.mjs');
   await startFakeJellyfin({
@@ -62,9 +64,9 @@ const env = {
   PORT: port,
   DASHBOARD_DEMO: mode === 'demo' ? '1' : '0',
   // Never the real Jellyfin of this PC (a test data folder has no key for it anyway).
-  JELLYFIN_URL: cinemaLike ? `http://127.0.0.1:${fakeJellyfinPort}` : 'http://127.0.0.1:8099',
+  JELLYFIN_URL: cinemaLike ? `http://127.0.0.1:${fakeJellyfinPort}` : `http://127.0.0.1:${8099 + portOffset}`,
   // The torrent client of the cinema mode is the stand-in below; nobody else reaches a real one.
-  TORRENT_RPC_URL: `http://127.0.0.1:${cinemaLike ? fakeAria2Port : 8100}/jsonrpc`,
+  TORRENT_RPC_URL: `http://127.0.0.1:${cinemaLike ? fakeAria2Port : 8100 + portOffset}/jsonrpc`,
   TORRENT_HOME: join(dataDir, 'no-torrent-client'),
   LOG_LEVEL: 'warn',
   LAN_URL: '',
