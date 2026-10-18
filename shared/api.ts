@@ -1234,6 +1234,8 @@ export interface CatalogShelfEntry {
 /** GET /api/catalog/shelves — the personal rows of the cinema's start page. */
 export interface CatalogShelvesResponse {
   marks: CatalogMarks;
+  /** Why the rows are empty because Jellyfin does not answer (plain words), or null. The marks still work. */
+  reason: string | null;
   /** Recommendations: unseen items, each with one short reason. */
   forYou: CatalogShelfEntry[];
   /** Why `forYou` is empty, in plain words, or null. */

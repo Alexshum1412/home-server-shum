@@ -31,8 +31,11 @@ import { createTorrentManager, type TorrentManager } from './downloads/torrents.
 import { registerFileRoutes } from './files/routes.ts';
 import { createStorage } from './files/storage.ts';
 import { createJellyfinClient } from './jellyfin/client.ts';
+import { registerCatalogListRoutes } from './jellyfin/list-routes.ts';
+import { createMediaLists } from './jellyfin/lists.ts';
 import { createProgressStore } from './jellyfin/progress.ts';
 import { registerCatalogRoutes } from './jellyfin/routes.ts';
+import { createShelves } from './jellyfin/shelves.ts';
 import { PUBLIC_RESTRICTED_MESSAGE, publicRouteAllowed, requestChannel } from './lib/channel.ts';
 import { isApiPath, sendError, urlPath } from './lib/http.ts';
 import { removeStaleTempFiles } from './lib/json-store.ts';
@@ -436,6 +439,10 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     },
     fetch: options.jellyfinFetch,
   });
+  // Family cinema lists: favourites, «later», watched, film suggestions (media-lists.json).
+  const mediaLists = createMediaLists({ dataDir: config.dataDir, clock, onError: (message) => log.warn(message) });
+  await mediaLists.load();
+  const cinemaShelves = createShelves({ client: jellyfin, progress, lists: mediaLists, clock });
   const aria2Secret = await ensureAria2Secret(config.dataDir).catch((error: unknown) => {
     log.warn(`Ключ торрент-клиента не создан: ${(error as Error).message}`);
     return null;
@@ -649,6 +656,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   const calendar = createCalendarStore(config.dataDir, { clock });
   const retireAccount = async (username: string, userId: string): Promise<string> => {
     progress.forget(userId);
+    await mediaLists.forget(userId);
     await calls.dropUser(userId);
     await chat.onUserRemoved(userId);
     notify.forget(userId);
@@ -686,6 +694,25 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     client: jellyfin,
     progress,
     jellyfinUrl: () => registry.statuses().find((service) => service.kind === 'media')?.openUrl ?? null,
+    afterProgress: async (userId, itemId, positionSec, durationSec) => {
+      try {
+        await mediaLists.noteProgress(userId, itemId, positionSec, durationSec, () =>
+          cinemaShelves.watchedTarget(itemId),
+        );
+      } catch (error) {
+        log.warn(`Отметка «просмотрено» не сохранена: ${(error as Error).message}`);
+      }
+    },
+  });
+  registerCatalogListRoutes(app, {
+    guards,
+    client: jellyfin,
+    lists: mediaLists,
+    shelves: cinemaShelves,
+    progress,
+    users,
+    notify,
+    audit,
   });
   registerPlannerRoutes(app, {
     calendar,
@@ -755,6 +782,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     await notify.idle();
     await chatStore.idle();
     await progress.idle();
+    await mediaLists.idle();
   });
 
   if (options.startBackground) {

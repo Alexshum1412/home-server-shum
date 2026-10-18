@@ -17,6 +17,8 @@ export interface CatalogRouteDeps {
   progress: ProgressStore;
   /** Jellyfin's own address for the family (tailnet), or null. */
   jellyfinUrl: () => string | null;
+  /** Told about every saved place after it was kept (the family lists mark «просмотрено» from it). Must not throw. */
+  afterProgress?: (userId: string, itemId: string, positionSec: number, durationSec: number) => Promise<void>;
 }
 
 const ID = z.string().regex(/^[0-9a-fA-F]{32}$/);
@@ -177,12 +179,10 @@ export function registerCatalogRoutes(app: FastifyInstance, deps: CatalogRouteDe
   app.post('/api/catalog/progress', { preHandler: guards.requireUser }, async (request, reply) => {
     const body = progressBody.safeParse(request.body);
     if (!body.success) return sendError(reply, 400, 'bad_request', 'Некорректные данные.');
-    progress.put(
-      currentUser(request).id,
-      body.data.id.toLowerCase(),
-      body.data.positionSec,
-      body.data.durationSec,
-    );
+    const userId = currentUser(request).id;
+    const itemId = body.data.id.toLowerCase();
+    progress.put(userId, itemId, body.data.positionSec, body.data.durationSec);
+    await deps.afterProgress?.(userId, itemId, body.data.positionSec, body.data.durationSec);
     return reply.code(204).send();
   });
 }

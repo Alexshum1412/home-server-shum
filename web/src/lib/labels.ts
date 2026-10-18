@@ -133,6 +133,7 @@ const AUDIT_ACTIONS: Record<string, string> = {
   'print.fail': 'Печать не удалась',
   'services.refresh': 'Проверка сервисов вручную',
   'diagnostics.export': 'Выгрузка диагностики',
+  'catalog.suggestion': 'Ответ на предложение фильма',
 };
 
 /** Russian name of an audit action; unknown codes are shown as they are. */

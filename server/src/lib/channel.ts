@@ -82,6 +82,10 @@ const WRITE = [
   '/api/notifications',
   '/api/storage',
   '/api/catalog/progress',
+  // Family cinema lists: the person's own marks and the family's film suggestions (the administrator's
+  // decision is under /api/admin and stays closed).
+  '/api/catalog/marks',
+  '/api/catalog/suggestions',
   '/api/calendar',
   '/api/notes',
   '/api/olivia/ask',

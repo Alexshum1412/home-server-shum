@@ -87,6 +87,11 @@ export interface MarkEntry {
 export interface WatchedEntry extends MarkEntry {
   how: 'auto' | 'manual';
 }
+/** What the portal learns about an item when it is about to be marked as watched automatically. */
+export interface WatchedTarget {
+  parent: string | null;
+  countable: boolean;
+}
 
 export interface MediaLists {
   load(): Promise<void>;
@@ -104,14 +109,16 @@ export interface MediaLists {
   setWatched(userId: string, itemId: string, on: boolean, parent: string | null): Promise<void>;
   /**
    * Called with every reported place. From about 90 % the item is marked watched (once; again only after
-   * a long time). `parentOf` is asked only then. Returns whether the mark was made now.
+   * a long time). `resolve` is asked only then: it says which series (book, album) the item belongs to
+   * and whether it counts at all (a song does not belong into «Что я смотрел»). Returns whether the
+   * mark was made now.
    */
   noteProgress(
     userId: string,
     itemId: string,
     positionSec: number,
     durationSec: number,
-    parentOf?: () => Promise<string | null>,
+    resolve?: () => Promise<WatchedTarget | null>,
   ): Promise<boolean>;
   /** How many OTHER people finished or favourited each item (and its series): counts only, never who. */
   community(exceptUserId: string): Map<string, number>;
@@ -325,14 +332,16 @@ export function createMediaLists(options: {
       });
     },
 
-    async noteProgress(userId, itemId, positionSec, durationSec, parentOf) {
+    async noteProgress(userId, itemId, positionSec, durationSec, resolve) {
       if (positionSec < MIN_POSITION_SEC || durationSec <= 0) return false;
       if (positionSec < durationSec * WATCHED_SHARE && !finishedByProgress(positionSec, durationSec)) return false;
       const existing = person(userId)?.watched[itemId];
       const gap = existing ? options.clock().getTime() - Date.parse(existing.at) : Number.POSITIVE_INFINITY;
       if (existing && gap < REWATCH_GAP_MS) return false;
-      const parent = existing ? existing.parent : ((await parentOf?.().catch(() => null)) ?? null);
-      await commit(() => markWatched(userId, itemId, existing?.how ?? 'auto', parent));
+      // Jellyfin not answering must not lose the mark: it is made without the series then.
+      const target = existing ? null : await (resolve?.() ?? Promise.resolve(null)).catch(() => null);
+      if (target && !target.countable) return false;
+      await commit(() => markWatched(userId, itemId, existing?.how ?? 'auto', target?.parent ?? null));
       return true;
     },
 
