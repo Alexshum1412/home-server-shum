@@ -227,7 +227,7 @@ export function createTasksStore(dataDir: string, options: { clock: Clock }) {
       throw new TaskError(
         503,
         'unavailable',
-        'Файл с делами на сервере повреждён. Сообщите администратору: сами дела не потеряны, пока файл не перезаписан.',
+        'Файл с делами на сервере повреждён. Сообщите администратору: портал его не трогает, пока не починят.',
       );
     }
     if (data === undefined) return { tasks: [], lists: [] };
@@ -789,3 +789,12 @@ function assertFreeName(
 }
 
 export type TaskStore = ReturnType<typeof createTasksStore>;
+
+/**
+ * The helper for the portal-wide search: titles of the tasks `viewer` may see that contain the words
+ * of `query` (open ones first). A private task of another person is never among them, administrators
+ * included.
+ */
+export function searchTasks(store: TaskStore, viewer: Viewer, query: string, limit = 5): Promise<TaskSearchHit[]> {
+  return store.searchTasks(viewer, query, limit);
+}

@@ -64,6 +64,7 @@ const READ = [
   '/api/media/list',
   '/api/calendar',
   '/api/notes',
+  '/api/tasks',
   '/api/olivia/status',
   '/api/downloads',
   '/api/services',
@@ -84,6 +85,7 @@ const WRITE = [
   '/api/catalog/progress',
   '/api/calendar',
   '/api/notes',
+  '/api/tasks',
   '/api/olivia/ask',
 ];
 

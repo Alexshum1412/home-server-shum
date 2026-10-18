@@ -1312,3 +1312,8 @@ export interface TaskSearchHit {
   due: string | null;
   listName: string | null;
 }
+
+/** POST /api/tasks/lists/:id/delete — the list goes together with everything in it. */
+export interface DeleteTaskListResponse {
+  removedTasks: number;
+}

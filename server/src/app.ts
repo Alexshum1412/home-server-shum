@@ -51,6 +51,9 @@ import { registerOliviaRoutes } from './olivia/routes.ts';
 import { createCalendarStore } from './planner/calendar.ts';
 import { createNotes } from './planner/notes.ts';
 import { registerPlannerRoutes } from './planner/routes.ts';
+import { createReminderWatcher, REMINDER_TICK_MS, type ReminderWatcher } from './planner/task-reminders.ts';
+import { registerTaskRoutes } from './planner/task-routes.ts';
+import { createTasksStore, type TaskStore } from './planner/tasks.ts';
 import type { IppTransport } from './print/ipp.ts';
 import { createPrintQueue } from './print/queue.ts';
 import { registerPrintRoutes } from './print/routes.ts';
@@ -123,6 +126,9 @@ export interface AppContext {
   notify: NotificationCenter;
   chat: ChatService;
   calls: CallManager;
+  // Family tasks, shopping lists and reminders («Дела»).
+  tasks: TaskStore;
+  taskReminders: ReminderWatcher;
   /** What the extra home-network listeners (LAN_BIND) actually did; filled in by index.ts. */
   lan: { bound: string[]; failed: Array<{ address: string; reason: string }> };
 }
@@ -465,6 +471,15 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     log: (message) => log.warn(message),
   });
   await torrents.load();
+  // Family tasks («Дела»): the store and the reminders (the once-a-minute tick starts in onReady).
+  const tasks = createTasksStore(config.dataDir, { clock });
+  const taskReminders = createReminderWatcher({
+    tasks,
+    findUser: (username) => users.findByUsername(username),
+    notify: (input) => notify.notify(input),
+    now: clock,
+    onError: (message) => log.warn(message),
+  });
   const context: AppContext = {
     config,
     clock,
@@ -484,6 +499,8 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     notify,
     chat,
     calls,
+    tasks,
+    taskReminders,
     lan: { bound: [], failed: [] },
   };
   app.decorate('dashboard', context);
@@ -654,10 +671,13 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     notify.forget(userId);
     const moved = await storage.archiveUser(username);
     const events = await calendar.retireOwner(username);
+    const chores = await tasks.retireOwner(username);
     const parts: string[] = [];
     if (moved.length > 0) parts.push('файлы и фото перенесены в корзину сервера');
     if (events.deleted > 0) parts.push(`личных событий удалено: ${events.deleted}`);
     if (events.kept > 0) parts.push(`общих событий оставлено: ${events.kept}`);
+    if (chores.deleted > 0) parts.push(`личных дел и списков удалено: ${chores.deleted}`);
+    if (chores.kept > 0) parts.push(`общих дел и списков оставлено: ${chores.kept}`);
     return parts.join('; ');
   };
   registerAdminRoutes(app, {
@@ -694,6 +714,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     audit,
     clock,
   });
+  registerTaskRoutes(app, { tasks, users, guards, audit });
   const printQueue = createPrintQueue({
     dataDir: config.dataDir,
     printerUrl: config.printerIppUrl,
@@ -741,8 +762,12 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
 
   // --- lifecycle ----------------------------------------------------------------------------
   let watchTimer: NodeJS.Timeout | undefined;
+  let reminderTimer: NodeJS.Timeout | undefined;
+  let reminderRun: Promise<unknown> = Promise.resolve();
   app.addHook('onClose', async () => {
     if (watchTimer) clearInterval(watchTimer);
+    if (reminderTimer) clearInterval(reminderTimer);
+    await reminderRun;
     calls.stop();
     torrents.stop();
     hub.closeAll();
@@ -776,6 +801,13 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
           .catch((error: unknown) => log.warn(`Оповещение о проблеме не отправлено: ${String(error)}`));
       }, 60_000);
       watchTimer.unref();
+      // Reminders of family tasks («Дела»): once a minute, and right away after a start (see planner/task-reminders.ts).
+      const tickReminders = () => {
+        reminderRun = taskReminders.tick().catch(() => undefined);
+      };
+      reminderTimer = setInterval(tickReminders, REMINDER_TICK_MS);
+      reminderTimer.unref();
+      tickReminders();
     });
   }
 
