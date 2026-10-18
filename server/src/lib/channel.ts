@@ -64,6 +64,7 @@ const READ = [
   '/api/media/list',
   '/api/calendar',
   '/api/notes',
+  '/api/search',
   '/api/olivia/status',
   '/api/downloads',
   '/api/services',

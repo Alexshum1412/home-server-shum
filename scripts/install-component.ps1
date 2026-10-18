@@ -49,8 +49,19 @@ $file = Join-Path $work $fileName
 try {
   Write-Host ''
   Write-Host 'Скачиваю…'
-  & curl.exe --location --fail --silent --show-error --retry 3 --output $file $item.url
-  if ($LASTEXITCODE -ne 0) { throw "Загрузка не удалась (curl, код $LASTEXITCODE)." }
+  # A big file over a flaky link: when the server drops the connection, continue from where it stopped (-C -).
+  $done = $false
+  for ($try = 1; $try -le 15 -and -not $done; $try++) {
+    & curl.exe --location --fail --silent --show-error -C - --output $file $item.url
+    if ($LASTEXITCODE -eq 0) { $done = $true }
+    elseif ((Test-Path -LiteralPath $file) -and (Get-Item -LiteralPath $file).Length -eq [int64]$item.sizeBytes) { $done = $true }
+    else {
+      $have = if (Test-Path -LiteralPath $file) { (Get-Item -LiteralPath $file).Length } else { 0 }
+      Write-Host ("Связь оборвалась (код {0}), уже получено {1:N0} МБ. Продолжаю с этого места, попытка {2} из 15…" -f $LASTEXITCODE, ($have / 1MB), $try)
+      Start-Sleep -Seconds 4
+    }
+  }
+  if (-not $done) { throw 'Загрузка не удалась: связь обрывается слишком часто. Попробуйте позже.' }
   $size = (Get-Item -LiteralPath $file).Length
   if ($size -ne [int64]$item.sizeBytes) { throw "Размер файла $size байт, ожидалось $($item.sizeBytes). Установка отменена." }
   $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()

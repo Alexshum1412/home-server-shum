@@ -55,6 +55,8 @@ import type { IppTransport } from './print/ipp.ts';
 import { createPrintQueue } from './print/queue.ts';
 import { registerPrintRoutes } from './print/routes.ts';
 import { createRealtimeHub, type RealtimeHub } from './realtime/hub.ts';
+import { registerSearchRoutes } from './search/routes.ts';
+import { createUnifiedSearch } from './search/unified.ts';
 import { createServiceRegistry, type FetchLike, type ServiceRegistry } from './services/checker.ts';
 import { registerServiceRoutes } from './services/routes.ts';
 import { DEFAULT_WEB_ROOT, registerStatic, sendSpaFallback } from './static.ts';
@@ -693,6 +695,18 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     guards,
     audit,
     clock,
+  });
+  registerSearchRoutes(app, {
+    guards,
+    search: createUnifiedSearch({
+      config,
+      clock,
+      catalog: jellyfin,
+      calendar,
+      storage,
+      chatStore,
+      users,
+    }),
   });
   const printQueue = createPrintQueue({
     dataDir: config.dataDir,

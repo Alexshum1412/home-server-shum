@@ -23,6 +23,7 @@ import type { SessionUser } from '../../../shared/api.ts';
 import { useChat } from '../chat/ChatProvider.tsx';
 import { ROLE_LABEL } from '../lib/labels.ts';
 import { isActivePath, isAdminOnly, matchRoute } from '../lib/routes.ts';
+import { SearchButton } from '../search/Search.tsx';
 import { useData, useSession } from '../state.tsx';
 import { ConnectionBanner, DemoBanner } from './Banners.tsx';
 import type { IconComponent } from './icons.ts';
@@ -234,6 +235,7 @@ export function AppShell(props: { path: string; notice?: string | null; children
             <img class="brand__mark" src="/icons/icon.svg" alt="" width={32} height={32} />
             <span class="brand__name">Семейный сервер</span>
           </a>
+          <SearchButton />
           <nav class="sidenav" aria-label="Основная навигация">
             <ul class="sidenav__list">
               {[...PRIMARY, ...secondary].map((item) => (

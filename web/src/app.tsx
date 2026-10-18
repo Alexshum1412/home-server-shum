@@ -27,6 +27,7 @@ import { PhotosPage } from './pages/Photos.tsx';
 import { PrintPage } from './pages/Print.tsx';
 import { SystemPage } from './pages/System.tsx';
 import { navigate, startRouter, useLocation } from './router.ts';
+import { SearchProvider } from './search/Search.tsx';
 import { DataProvider, SessionProvider } from './state.tsx';
 
 type Boot =
@@ -194,9 +195,11 @@ export function App() {
       <DataProvider>
         <ChatProvider>
           <CallProvider>
-            <AppShell path={path} notice={notice}>
-              <Page route={route} onSessionChanged={(session) => setBoot({ status: 'authed', session })} />
-            </AppShell>
+            <SearchProvider>
+              <AppShell path={path} notice={notice}>
+                <Page route={route} onSessionChanged={(session) => setBoot({ status: 'authed', session })} />
+              </AppShell>
+            </SearchProvider>
             <CallOverlay />
           </CallProvider>
         </ChatProvider>

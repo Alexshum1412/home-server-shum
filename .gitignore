@@ -45,3 +45,6 @@ Desktop.ini
 
 # Claude Code per-machine settings
 .claude/settings.local.json
+
+# Worktrees of parallel agent runs
+.claude/worktrees/
