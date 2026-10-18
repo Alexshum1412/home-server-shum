@@ -372,7 +372,7 @@ export function createMediaLists(options: {
       return [...open, ...decided].map((entry) => ({ ...entry }));
     },
 
-    addSuggestion(who, rawTitle, rawNote) {
+    async addSuggestion(who, rawTitle, rawNote) {
       const title = rawTitle.replace(/\s+/g, ' ').trim();
       const note = rawNote.replace(/[ \t]+/g, ' ').trim();
       if (title === '') throw new MediaListError(400, 'bad_title', 'Напишите название фильма или сериала.');

@@ -46,6 +46,20 @@ function png(width, height, hue) {
   ]);
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const STARTED = Date.now();
+/** The day an item came into the library, `daysAgo` days before this test server started. */
+const added = (daysAgo) => new Date(STARTED - daysAgo * DAY_MS).toISOString();
+/**
+ * Most of the invented library is old; two titles are «new» (the last 14 days) so that the portal's
+ * «Новое» row has something to show. Every other id: 60 days ago, a minute apart so the order is fixed.
+ */
+const RECENT_DAYS = { [id(3)]: 2, [id(30)]: 5 };
+const dateCreated = (itemId, index) =>
+  RECENT_DAYS[itemId] === undefined
+    ? new Date(STARTED - 60 * DAY_MS - index * 60_000).toISOString()
+    : added(RECENT_DAYS[itemId]);
+
 const ticks = (minutes) => minutes * 60 * 10_000_000;
 const video = (codec, container, audio = 'aac') => ({
   Container: container,
@@ -190,9 +204,19 @@ export const ITEMS = [
   },
 ];
 
-const dto = (item) => {
+ITEMS.forEach((item, index) => {
+  item.DateCreated = dateCreated(item.Id, index);
+});
+
+/** The item as Jellyfin sends it. `all` is the whole library: a season or an episode knows its series. */
+const dto = (item, all, fields) => {
   const { Poster, parent, file, ...rest } = item;
-  return { ...rest, ParentId: parent, ImageTags: Poster ? { Primary: 'tag' } : {} };
+  const out = { ...rest, ParentId: parent, ImageTags: Poster ? { Primary: 'tag' } : {} };
+  // Like Jellyfin, the day of adding comes only when it is asked for.
+  if (!fields.includes('DateCreated')) out.DateCreated = undefined;
+  if (item.Type === 'Season') out.SeriesId = parent;
+  if (item.Type === 'Episode') out.SeriesId = all.find((other) => other.Id === parent)?.parent;
+  return out;
 };
 
 function wavBytes(seconds) {
@@ -223,6 +247,10 @@ export async function startFakeJellyfin(options) {
   const videoBytes = readFileSync(options.videoFile);
   const audioBytes = wavBytes(2);
   const requests = [];
+  /** This server's own copy of the library: a test may change it without touching the next test. */
+  const library = ITEMS.map((item) => ({ ...item }));
+  /** Files that are on disk but that Jellyfin has not seen yet: the next library refresh finds them. */
+  const pending = [];
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     requests.push(`${req.method} ${url.pathname}${url.search}`);
@@ -235,6 +263,8 @@ export async function startFakeJellyfin(options) {
     const q = url.searchParams;
     if (url.pathname === '/System/Info') return json({ Version: 'fake' });
     if (url.pathname === '/Library/Refresh' && req.method === 'POST') {
+      // Jellyfin finds the new files and gives them the day of today.
+      for (const item of pending.splice(0)) library.push({ ...item, DateCreated: new Date().toISOString() });
       res.writeHead(204);
       return res.end();
     }
@@ -250,19 +280,19 @@ export async function startFakeJellyfin(options) {
       });
     }
     if (url.pathname === '/Genres') {
-      const names = [...new Set(ITEMS.flatMap((item) => item.Genres ?? []))].sort();
+      const names = [...new Set(library.flatMap((item) => item.Genres ?? []))].sort();
       return json({ Items: names.map((Name) => ({ Name })) });
     }
     if (url.pathname === '/Items') {
       const types = (q.get('IncludeItemTypes') ?? '').split(',').filter(Boolean);
       const ids = (q.get('Ids') ?? '').split(',').filter(Boolean);
-      let list = ITEMS.slice();
+      let list = library.slice();
       if (ids.length > 0) list = list.filter((item) => ids.includes(item.Id));
       if (types.length > 0) list = list.filter((item) => types.includes(item.Type));
       const parent = q.get('ParentId');
       if (parent) {
         const direct = q.get('Recursive') === 'false';
-        const children = (of) => ITEMS.filter((item) => item.parent === of).map((item) => item.Id);
+        const children = (of) => library.filter((item) => item.parent === of).map((item) => item.Id);
         const all = new Set([parent]);
         if (!direct) for (const next of all) for (const child of children(next)) all.add(child);
         list = list.filter((item) => item.parent && all.has(item.parent) && item.parent !== undefined);
@@ -274,15 +304,17 @@ export async function startFakeJellyfin(options) {
       const sort = q.get('SortBy') ?? '';
       if (sort.startsWith('SortName')) list.sort((a, b) => a.Name.localeCompare(b.Name, 'ru'));
       if (sort.startsWith('IndexNumber')) list.sort((a, b) => (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0));
+      if (sort.startsWith('DateCreated'))
+        list.sort((a, b) => Date.parse(b.DateCreated ?? 0) - Date.parse(a.DateCreated ?? 0));
       const total = list.length;
       const start = Number(q.get('StartIndex') ?? 0);
       const limit = Number(q.get('Limit') ?? 100);
-      const wantSources = (q.get('Fields') ?? '').includes('MediaSources');
+      const fields = q.get('Fields') ?? '';
       return json({
         Items: list.slice(start, start + limit).map((item) => {
-          const out = dto(item);
-          if (!wantSources) out.MediaSources = undefined;
-          if (!(q.get('Fields') ?? '').includes('Overview')) out.Overview = undefined;
+          const out = dto(item, library, fields);
+          if (!fields.includes('MediaSources')) out.MediaSources = undefined;
+          if (!fields.includes('Overview')) out.Overview = undefined;
           return out;
         }),
         TotalRecordCount: total,
@@ -290,14 +322,14 @@ export async function startFakeJellyfin(options) {
     }
     const image = /^\/Items\/([0-9a-f]{32})\/Images\/Primary$/.exec(url.pathname);
     if (image) {
-      const item = ITEMS.find((i) => i.Id === image[1]);
+      const item = library.find((i) => i.Id === image[1]);
       if (!item?.Poster) return json({ error: 'none' }, 404);
       res.writeHead(200, { 'Content-Type': 'image/png' });
       return res.end(png(120, 180, Number.parseInt(item.Id.slice(-2), 16) * 9));
     }
     const stream = /^\/(Videos|Audio)\/([0-9a-f]{32})\/stream$/.exec(url.pathname);
     if (stream) {
-      const item = ITEMS.find((i) => i.Id === stream[2]);
+      const item = library.find((i) => i.Id === stream[2]);
       if (!item?.file) return json({ error: 'none' }, 404);
       const bytes = item.file === 'video' ? videoBytes : audioBytes;
       const type = item.file === 'video' ? 'video/mp4' : 'audio/wav';
@@ -321,6 +353,15 @@ export async function startFakeJellyfin(options) {
   await new Promise((resolve) => server.listen(options.port, '127.0.0.1', resolve));
   return {
     requests,
+    /** A file lands in the media folder: Jellyfin shows it only after the next library refresh. */
+    stage: (item) => {
+      pending.push({ Poster: false, ...item, DateCreated: undefined });
+    },
+    /** Changes the day an item came into the library (days before now). */
+    setAddedDaysAgo: (itemId, days) => {
+      const item = library.find((i) => i.Id === itemId);
+      if (item) item.DateCreated = new Date(Date.now() - days * DAY_MS).toISOString();
+    },
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
 }
