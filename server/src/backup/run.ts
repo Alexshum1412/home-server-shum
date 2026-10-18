@@ -1,4 +1,4 @@
-import { existsSync, promises as fsp } from 'node:fs';
+import { existsSync, promises as fsp, readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Config } from '../config.ts';
@@ -11,7 +11,8 @@ import { runTailscaleServeStatus } from '../system/tailscale.ts';
 import { statVolume } from '../system/volumes.ts';
 import { describeError } from './files.ts';
 import { pushBranch } from './git.ts';
-import { applyRetention, assertSafeTargetRoot } from './retention.ts';
+import { type OffsiteSettings, runOffsiteIfDue } from './offsite.ts';
+import { applyRetention, assertSafeTargetRoot, listSnapshots } from './retention.ts';
 import { createSnapshot, estimateNewBytes } from './snapshot.ts';
 import { type CollectedSources, collectSources, type SourceDeps, type SourceSettings } from './sources.ts';
 import { type BackupTargetStatus, recordBackupRun } from './status.ts';
@@ -38,9 +39,13 @@ export interface BackupSettings extends SourceSettings {
   readonly keep: number;
   /** null/undefined — no mirror. */
   readonly gitPush?: GitPushSettings | null;
+  /** null/undefined — no encrypted copy for outside the house. */
+  readonly offsite?: OffsiteSettings | null;
 }
 
 export const MIRROR_NAME = 'GitHub (код)';
+export const OFFSITE_NAME = 'Зашифрованная копия вне дома';
+type OffsiteStatusPatch = NonNullable<Parameters<typeof recordBackupRun>[1]['offsite']>;
 
 export interface BackupDeps extends SourceDeps, ResolveDeps {
   readonly clock: Clock;
@@ -53,6 +58,18 @@ export interface BackupRunResult {
   at: string;
   targets: BackupTargetStatus[];
   warnings: string[];
+}
+
+/** The owner's private instructions (docs/private, never in Git) travel with every backup next to .env. */
+export function privateDocFiles(repoDir: string): string[] {
+  const dir = path.join(repoDir, 'docs', 'private');
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && /\.md$/i.test(entry.name))
+      .map((entry) => path.join(dir, entry.name));
+  } catch {
+    return [];
+  }
 }
 
 /** Settings from the validated config; the project .env is included by default when it exists. */
@@ -76,9 +93,21 @@ export function backupSettingsFromConfig(
     targets: config.backupTargets,
     keep: config.backupKeep,
     repoDir: config.backupRepoDir,
-    extraFiles: config.backupExtraFiles ?? (existsSync(defaultEnv) ? [defaultEnv] : []),
+    extraFiles: config.backupExtraFiles ?? [
+      ...(existsSync(defaultEnv) ? [defaultEnv] : []),
+      ...privateDocFiles(config.backupRepoDir),
+    ],
     gitExe: config.gitExe,
     gitPush: config.backupGitPush,
+    offsite:
+      config.backupOffsiteDir === null
+        ? null
+        : {
+            dir: config.backupOffsiteDir,
+            keyFile: config.backupKeyFile,
+            keep: config.backupOffsiteKeep,
+            everyDays: config.backupOffsiteEveryDays,
+          },
   };
 }
 
@@ -171,6 +200,9 @@ export async function runBackup(settings: BackupSettings, deps: BackupDeps): Pro
         } catch (error) {
           warnings.push(`${target.name}: старые копии не удалены: ${describeError(error)}`);
         }
+        // How much room is left and how many copies are there: the status page warns before the disk is full.
+        const space = await deps.statfs(target.root).catch(() => null);
+        const held = await listSnapshots(target.root).catch(() => null);
         targets.push({
           name: target.name,
           root: target.root,
@@ -178,6 +210,9 @@ export async function runBackup(settings: BackupSettings, deps: BackupDeps): Pro
           snapshot: snapshot.name,
           sizeBytes: snapshot.sizeBytes,
           error: null,
+          freeBytes: space?.freeBytes ?? null,
+          totalBytes: space?.totalBytes ?? null,
+          snapshots: held?.length ?? null,
         });
       } catch (error) {
         targets.push(failed(target.name, target.root, describeError(error)));
@@ -222,8 +257,57 @@ export async function runBackup(settings: BackupSettings, deps: BackupDeps): Pro
     }
   }
 
+  // The encrypted copy for outside the house (only when the owner set a folder for it). It never blocks the
+  // local copies and its failure is a remark: the family data is already safe at home.
+  let offsitePatch: Partial<OffsiteStatusPatch> | null = null;
+  if (settings.offsite) {
+    const okTarget = targets.find(
+      (target) => target.ok && !target.optional && target.root && target.snapshot,
+    );
+    if (!okTarget?.root || !okTarget.snapshot) {
+      warnings.push(`${OFFSITE_NAME}: пропущена, потому что нет свежей локальной копии`);
+    } else {
+      const outcome = await runOffsiteIfDue(path.join(okTarget.root, okTarget.snapshot), settings.offsite, {
+        clock: deps.clock,
+        statfs: deps.statfs,
+        dataDir: settings.dataDir,
+        gitExe: settings.gitExe,
+        tempDir: deps.tempDir,
+      });
+      if (outcome.ran) {
+        targets.push({
+          name: OFFSITE_NAME,
+          root: settings.offsite.dir,
+          ok: outcome.ok,
+          snapshot: outcome.pack?.snapshot ?? null,
+          sizeBytes: outcome.pack?.sizeBytes ?? null,
+          error: outcome.ok ? null : outcome.message,
+          optional: true,
+        });
+        if (outcome.ok && outcome.pack) {
+          const verifiedAt = deps.clock().toISOString();
+          offsitePatch = {
+            configured: true,
+            lastPackAt: verifiedAt,
+            lastFile: outcome.pack.name,
+            sizeBytes: outcome.pack.sizeBytes,
+            verifiedAt,
+            error: null,
+          };
+        } else {
+          offsitePatch = { configured: true, error: outcome.message };
+          warnings.push(`${OFFSITE_NAME}: ${outcome.message}`);
+        }
+      } else {
+        offsitePatch = { configured: true, error: null };
+      }
+    }
+  } else {
+    offsitePatch = null;
+  }
+
   const required = targets.filter((target) => !target.optional);
   const ok = required.length > 0 && required.every((target) => target.ok);
-  await recordBackupRun(settings.dataDir, { at, ok, targets, warnings });
+  await recordBackupRun(settings.dataDir, { at, ok, targets, warnings, offsite: offsitePatch });
   return { ok, at, targets, warnings };
 }

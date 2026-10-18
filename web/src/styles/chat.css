@@ -1137,3 +1137,9 @@ fieldset.chips--set {
   padding: 0;
   border: 0;
 }
+
+/* «Через ретранслятор»: shown under the problem text of a call that could not connect directly. */
+.call__relay {
+  align-self: center;
+  margin: var(--sp-2) auto 0;
+}

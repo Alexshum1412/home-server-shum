@@ -22,13 +22,13 @@ Word и Excel сначала сохраните как PDF («Файл» → «�
 | Что | Как |
 |---|---|
 | Разрешить печать человеку | `scripts\user.cmd allow <логин> print` (забрать — `deny`) |
-| Адрес принтера | `.env`: `PRINTER_IPP_URL=https://192.168.1.139/ipp/print`; после изменения — `scripts\stop.cmd` и `scripts\start.cmd` |
+| Адрес принтера | `.env`: `PRINTER_IPP_URL=https://192.168.1.30/ipp/print`; после изменения — `scripts\stop.cmd` и `scripts\start.cmd` |
 | Лимит размера файла | `.env`: `PRINT_MAX_MB=30` |
 | Журнал | «Администрирование» → журнал: «Отправлено на печать», «Печать отменена», «Печать не удалась» |
 | Временные файлы | `C:\FamilyServer\data\dashboard\print-spool` — удаляются сами, когда задание закрыто |
 
 **Закрепите IP принтера в роутере** (резервирование DHCP для MAC `50-C2-E8-06-A0-CD`). Если адрес сменился:
-1. Узнать новый: в PowerShell `Resolve-DnsName NPID6ECE2.local`.
+1. Узнать новый: в PowerShell `Resolve-DnsName NPIAB12CD.local`.
 2. Прописать его в `PRINTER_IPP_URL`.
 3. Перезапустить портал.
 

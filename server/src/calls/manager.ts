@@ -50,6 +50,9 @@ export interface CallSettings {
   turnTtlSec: number;
 }
 
+/** Extra TURN servers asked for at the moment of a call (Cloudflare); null when the relay is unavailable. */
+export type RelayProvider = () => Promise<CallIceServer[] | null>;
+
 interface Call {
   id: string;
   conversationId: string;
@@ -68,7 +71,7 @@ interface Call {
 }
 
 export interface CallManager {
-  config(me: StoredUser): CallConfigResponse;
+  config(me: StoredUser): Promise<CallConfigResponse>;
   start(me: StoredUser, conversationId: string, video: boolean): Promise<{ call: CallInfo; busy: string[] }>;
   join(me: StoredUser, callId: string): Promise<{ call: CallInfo; peers: string[] }>;
   decline(me: StoredUser, callId: string): Promise<void>;
@@ -87,6 +90,8 @@ export interface CallManagerOptions {
   notify: NotificationCenter;
   clock: Clock;
   settings: CallSettings;
+  /** Optional second relay (Cloudflare Realtime TURN). */
+  relayProvider?: RelayProvider | null;
   ringMs?: number;
   checkMs?: number;
 }
@@ -245,7 +250,7 @@ export function createCallManager(options: CallManagerOptions): CallManager {
   }
 
   return {
-    config(me) {
+    async config(me) {
       const iceServers: CallIceServer[] = [];
       if (settings.stunUrls.length > 0) iceServers.push({ urls: [...settings.stunUrls] });
       let relay: CallConfigResponse['relay'] = settings.stunUrls.length > 0 ? 'stun' : 'none';
@@ -254,6 +259,11 @@ export function createCallManager(options: CallManagerOptions): CallManager {
         const username = `${Math.floor(clock().getTime() / 1000) + settings.turnTtlSec}:${me.id}`;
         const credential = createHmac('sha1', settings.turnSecret).update(username).digest('base64');
         iceServers.push({ urls: [...settings.turnUrls], username, credential });
+        relay = 'turn';
+      }
+      const extra = options.relayProvider ? await options.relayProvider() : null;
+      if (extra && extra.length > 0) {
+        iceServers.push(...extra);
         relay = 'turn';
       }
       return { iceServers, maxParticipants: MAX_PARTICIPANTS, relay };

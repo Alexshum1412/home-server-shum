@@ -135,7 +135,7 @@ export async function resolveTargets(
 /** Headroom on top of the snapshot size, so a backup never fills a disk to the last byte. */
 export const FREE_SPACE_MARGIN_BYTES = 50 * 1024 * 1024;
 
-export type FreeSpaceProbe = (folder: string) => Promise<{ freeBytes: number }>;
+export type FreeSpaceProbe = (folder: string) => Promise<{ freeBytes: number; totalBytes?: number }>;
 
 export async function checkFreeSpace(
   root: string,

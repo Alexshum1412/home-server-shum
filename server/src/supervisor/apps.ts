@@ -80,13 +80,17 @@ export function aria2Conf(paths: Aria2Paths, secret: string, config: Pick<Config
     'auto-file-renaming=true',
     'enable-dht=true',
     'enable-dht6=false',
+    // aria2 has no built-in DHT bootstrap nodes: a magnet link without trackers would find nobody on a fresh install.
+    'dht-entry-point=router.bittorrent.com:6881',
+    // Do not leave a copy of every .torrent (named by its hash) next to the family's downloaded files.
+    'rpc-save-upload-metadata=false',
     `dht-file-path=${path.join(paths.dataRoot, 'dht.dat')}`,
     'enable-peer-exchange=true',
     'bt-enable-lpd=false',
     'bt-max-peers=80',
     'disable-ipv6=true',
     `seed-ratio=${config.torrent.seedRatio}`,
-    'seed-time=1440',
+    `seed-time=${config.torrent.seedMinutes}`,
     `max-overall-upload-limit=${config.torrent.uploadLimitKb}K`,
     'disk-cache=32M',
     'console-log-level=warn',

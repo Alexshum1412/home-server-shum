@@ -206,6 +206,14 @@ function PrinterTile({ data }: { data: SystemResponse }) {
   );
 }
 
+const OFFSITE_LABEL: Record<NonNullable<SystemResponse['backup']['offsite']>['state'], string> = {
+  ok: 'есть, проверена',
+  stale: 'устарела',
+  failed: 'не удалась',
+  no_key: 'нет ключа',
+  not_configured: 'не настроена',
+};
+
 function BackupTile({ data }: { data: SystemResponse }) {
   const { backup } = data;
   // While the state is unknown, a missing date or `restoreTested: false` is not a fact yet.
@@ -234,7 +242,31 @@ function BackupTile({ data }: { data: SystemResponse }) {
           <dt>Восстановление проверено</dt>
           <dd>{restoreTested}</dd>
         </div>
+        {backup.offsite ? (
+          <div class="facts__row">
+            <dt>Зашифрованная копия вне дома</dt>
+            <dd>{OFFSITE_LABEL[backup.offsite.state]}</dd>
+          </div>
+        ) : null}
+        {(backup.targets ?? [])
+          .filter((place) => !place.optional)
+          .map((place) => (
+            <div class="facts__row" key={place.name}>
+              <dt>{place.name}</dt>
+              <dd>
+                {place.ok ? `копий: ${place.snapshots ?? NO_DATA}` : 'не удалось'}
+                {place.freeBytes === null
+                  ? ''
+                  : `, свободно ${formatBytes(place.freeBytes)}${place.totalBytes ? ` из ${formatBytes(place.totalBytes)}` : ''}`}
+              </dd>
+            </div>
+          ))}
       </dl>
+      {(backup.notes ?? []).map((note) => (
+        <p class="tile__text tile__text--warn" key={note}>
+          {note}
+        </p>
+      ))}
     </Tile>
   );
 }

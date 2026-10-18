@@ -147,7 +147,7 @@ describe('PUBLIC_HTTPS_URL', () => {
     for (const bad of [
       'http://family.example.org',
       'https://203.0.113.5',
-      'https://server-home.tail89d77e.ts.net',
+      'https://server-home.example.ts.net',
       'https://nas.local',
       'https://user:pass@family.example.org',
       'https://localhost',

@@ -16,6 +16,24 @@ export interface BackupTargetStatus {
   error: string | null;
   /** A mirror (the GitHub copy of the code): its failure is a remark, not a failed backup. */
   optional?: boolean;
+  /** Room left on the disk after this run, and how many complete copies it holds. */
+  freeBytes?: number | null;
+  totalBytes?: number | null;
+  snapshots?: number | null;
+}
+
+/** The encrypted copy for outside the house. */
+export interface OffsiteStatus {
+  configured: boolean;
+  lastPackAt: string | null;
+  lastFile: string | null;
+  sizeBytes: number | null;
+  /** The file was decrypted end to end and its authentication passed. */
+  verifiedAt: string | null;
+  /** A full test restore into a temporary folder passed. */
+  testedAt: string | null;
+  /** Why the last attempt failed (Russian, no secrets). */
+  error: string | null;
 }
 
 export interface BackupStatusFile {
@@ -27,6 +45,7 @@ export interface BackupStatusFile {
   restoreTestedAt: string | null;
   targets: BackupTargetStatus[];
   warnings: string[];
+  offsite: OffsiteStatus | null;
 }
 
 const isoDate = z
@@ -43,6 +62,19 @@ const targetStatusSchema = z.object({
   sizeBytes: z.number().nullable().optional(),
   error: z.string().nullable().optional(),
   optional: z.boolean().optional(),
+  freeBytes: z.number().nullable().optional(),
+  totalBytes: z.number().nullable().optional(),
+  snapshots: z.number().nullable().optional(),
+});
+
+const offsiteSchema = z.object({
+  configured: z.boolean(),
+  lastPackAt: isoDate,
+  lastFile: z.string().nullable().optional(),
+  sizeBytes: z.number().nullable().optional(),
+  verifiedAt: isoDate,
+  testedAt: isoDate,
+  error: z.string().nullable().optional(),
 });
 
 /**
@@ -57,6 +89,7 @@ export const backupStatusSchema = z.object({
   restoreTestedAt: isoDate,
   targets: z.array(targetStatusSchema).optional().catch(undefined),
   warnings: z.array(z.string()).optional().catch(undefined),
+  offsite: offsiteSchema.nullable().optional().catch(undefined),
 });
 
 export type ParsedBackupStatus = z.infer<typeof backupStatusSchema>;
@@ -80,7 +113,23 @@ function normaliseTargets(targets: ParsedBackupStatus['targets']): BackupTargetS
     sizeBytes: target.sizeBytes ?? null,
     error: target.error ?? null,
     ...(target.optional ? { optional: true } : {}),
+    ...(target.freeBytes !== undefined ? { freeBytes: target.freeBytes } : {}),
+    ...(target.totalBytes !== undefined ? { totalBytes: target.totalBytes } : {}),
+    ...(target.snapshots !== undefined ? { snapshots: target.snapshots } : {}),
   }));
+}
+
+function normaliseOffsite(offsite: ParsedBackupStatus['offsite']): OffsiteStatus | null {
+  if (!offsite) return null;
+  return {
+    configured: offsite.configured,
+    lastPackAt: offsite.lastPackAt ?? null,
+    lastFile: offsite.lastFile ?? null,
+    sizeBytes: offsite.sizeBytes ?? null,
+    verifiedAt: offsite.verifiedAt ?? null,
+    testedAt: offsite.testedAt ?? null,
+    error: offsite.error ?? null,
+  };
 }
 
 export interface BackupRunRecord {
@@ -88,6 +137,27 @@ export interface BackupRunRecord {
   ok: boolean;
   targets: BackupTargetStatus[];
   warnings: readonly string[];
+  /** Changes to the encrypted-copy status (merged into what was recorded before); null — not set up. */
+  offsite?: Partial<OffsiteStatus> | null;
+}
+
+function mergeOffsite(
+  previous: OffsiteStatus | null,
+  patch: Partial<OffsiteStatus> | null | undefined,
+): OffsiteStatus | null {
+  if (patch === null) return null;
+  if (patch === undefined) return previous;
+  return {
+    configured: true,
+    lastPackAt: null,
+    lastFile: null,
+    sizeBytes: null,
+    verifiedAt: null,
+    testedAt: null,
+    error: null,
+    ...previous,
+    ...patch,
+  };
 }
 
 /** Records a backup run (atomic write); lastSuccessAt and restoreTestedAt are carried over. */
@@ -100,6 +170,7 @@ export async function recordBackupRun(dataDir: string, run: BackupRunRecord): Pr
     restoreTestedAt: previous.restoreTestedAt ?? null,
     targets: run.targets.map((target) => ({ ...target })),
     warnings: [...run.warnings],
+    offsite: mergeOffsite(normaliseOffsite(previous.offsite), run.offsite),
   };
   await writeJsonAtomic(path.join(dataDir, BACKUP_STATUS_FILE), status);
   return status;
@@ -115,6 +186,26 @@ export async function recordRestoreTest(dataDir: string, at: string): Promise<Ba
     restoreTestedAt: at,
     targets: normaliseTargets(previous.targets),
     warnings: previous.warnings ?? [],
+    offsite: normaliseOffsite(previous.offsite),
+  };
+  await writeJsonAtomic(path.join(dataDir, BACKUP_STATUS_FILE), status);
+  return status;
+}
+
+/** Records an offsite step (a pack, a check, a test restore); everything else stays as it was. */
+export async function recordOffsite(
+  dataDir: string,
+  patch: Partial<OffsiteStatus>,
+): Promise<BackupStatusFile> {
+  const previous = await readPrevious(dataDir);
+  const status: BackupStatusFile = {
+    lastRunAt: previous.lastRunAt ?? null,
+    lastResult: previous.lastResult ?? null,
+    lastSuccessAt: previous.lastSuccessAt ?? null,
+    restoreTestedAt: previous.restoreTestedAt ?? null,
+    targets: normaliseTargets(previous.targets),
+    warnings: previous.warnings ?? [],
+    offsite: mergeOffsite(normaliseOffsite(previous.offsite), patch),
   };
   await writeJsonAtomic(path.join(dataDir, BACKUP_STATUS_FILE), status);
   return status;

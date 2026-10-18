@@ -114,6 +114,8 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
       CHAT_DIR: path.join(dataDir, 'chat'),
       BACKUP_TARGETS: path.join(dataDir, 'backups'),
       BACKUP_GIT_PUSH: 'none',
+      // The tests' own tailnet name (the real one lives only in the owner's .env).
+      PUBLIC_URL: 'https://server-home.example.ts.net',
       ...env,
     },
     'win32',

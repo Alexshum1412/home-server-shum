@@ -17,6 +17,7 @@ import { createLoginLimiter, type LoginLimiter } from './auth/rate-limit.ts';
 import { registerAuthRoutes } from './auth/routes.ts';
 import { createSessionStore, type SessionStore } from './auth/sessions.ts';
 import { createUserStore, type UserStore } from './auth/users.ts';
+import { createCloudflareTurn } from './calls/cloudflare-turn.ts';
 import { type CallManager, createCallManager } from './calls/manager.ts';
 import { registerCallRoutes } from './calls/routes.ts';
 import { registerChatRoutes } from './chat/routes.ts';
@@ -159,6 +160,8 @@ export interface BuildAppOptions {
   torrentClientInstalled?: () => boolean;
   /** Resolves tracker host names (tests). */
   resolveTrackerHost?: (host: string) => Promise<string[]>;
+  /** Replaces the call to the TURN provider (tests). */
+  callsFetch?: typeof fetch;
   /** Replaces the call to Jellyfin made by the cinema page (tests). */
   jellyfinFetch?: typeof fetch;
   /** Replaces the call to the browsers' push services (tests). */
@@ -363,6 +366,14 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     notify,
     clock,
     settings: config.calls,
+    relayProvider: config.calls.cloudflare
+      ? createCloudflareTurn({
+          settings: { ...config.calls.cloudflare, ttlSec: config.calls.turnTtlSec },
+          clock,
+          fetch: options.callsFetch,
+          onError: (message) => log.warn(message),
+        }).iceServers
+      : null,
     ringMs: options.callTimings?.ringMs,
     checkMs: options.callTimings?.checkMs,
   });
@@ -442,6 +453,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     maxBytes: config.downloadMaxFileBytes,
     minFreeBytes: config.minFreeBytes,
     seedRatio: config.torrent.seedRatio,
+    seedMinutes: config.torrent.seedMinutes,
     uploadLimitKb: config.torrent.uploadLimitKb,
     clientInstalled:
       options.torrentClientInstalled ?? (() => existsSync(path.join(config.torrent.home, 'aria2c.exe'))),

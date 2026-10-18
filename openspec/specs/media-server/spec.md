@@ -9,7 +9,7 @@
 The media server SHALL listen only on the loopback address and SHALL be reachable by family devices only through Tailscale Serve inside the tailnet. Client auto-discovery, UPnP and Funnel SHALL stay off, and no firewall rule SHALL be added for it.
 
 #### Scenario: Tailnet device
-- **WHEN** a tailnet device opens `https://server-home.tail89d77e.ts.net:8443/health`
+- **WHEN** a tailnet device opens `https://server-home.example.ts.net:8443/health`
 - **THEN** Jellyfin answers over HTTPS with a valid certificate
 
 #### Scenario: Home network or tailnet IP directly

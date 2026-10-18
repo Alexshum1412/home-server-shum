@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PUBLIC_URL, DEFAULT_TAILSCALE_EXE, loadConfig } from '../src/config.ts';
+import { DEFAULT_TAILSCALE_EXE, loadConfig } from '../src/config.ts';
 import { REPO_ROOT } from './helpers.ts';
 
 describe('loadConfig', () => {
@@ -21,7 +21,7 @@ describe('loadConfig', () => {
     expect(config.lowSpacePercent).toBe(10);
     expect(config.printerName).toBeNull();
     expect(config.tailscaleExe).toBe(DEFAULT_TAILSCALE_EXE);
-    expect(config.publicUrl).toBe(DEFAULT_PUBLIC_URL);
+    expect(config.publicUrl).toBeNull();
     expect(config.lanUrl).toBeNull();
     expect(config.cookieSecure).toBe('auto');
     expect(config.backupTargets).toEqual(['C:\\FamilyServer\\backups', 'label:reserve\\FamilyServerBackups']);

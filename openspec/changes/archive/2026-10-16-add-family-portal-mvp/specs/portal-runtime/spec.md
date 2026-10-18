@@ -54,5 +54,5 @@ The project SHALL provide documented commands to build, start in the background,
 Remote access SHALL be provided only through the private tailnet (Tailscale Serve HTTPS to the loopback port). The project SHALL NOT enable Tailscale Funnel, router port forwarding or firewall changes.
 
 #### Scenario: Tailnet access
-- **WHEN** a family device on the tailnet opens `https://server-home.tail89d77e.ts.net`
+- **WHEN** a family device on the tailnet opens `https://server-home.example.ts.net`
 - **THEN** it reaches the portal over HTTPS, while the address is not reachable from the public internet

@@ -142,7 +142,7 @@ export interface ServicesResponse {
 
 /** GET /api/connection — addresses shown on the «Подключение» help page. */
 export interface ConnectionResponse {
-  /** Main private HTTPS address inside the tailnet, e.g. "https://server-home.tail89d77e.ts.net". */
+  /** Main private HTTPS address inside the tailnet, e.g. "https://server-home.example.ts.net". */
   tailnetUrl: string | null;
   /** Address on the open internet (a protected tunnel), null when none is set up. */
   publicHttpsUrl: string | null;
@@ -213,7 +213,7 @@ export type TailscaleState = 'running' | 'stopped' | 'needs_login' | 'not_instal
 
 export interface TailscaleInfo {
   state: TailscaleState;
-  /** e.g. "server-home.tail89d77e.ts.net" (admin only, null for family). */
+  /** e.g. "server-home.example.ts.net" (admin only, null for family). */
   dnsName: string | null;
   /** Number of other tailnet devices currently online (admin only, null for family). */
   peersOnline: number | null;
@@ -241,12 +241,35 @@ export interface PrinterInfo {
 
 export type BackupState = 'not_configured' | 'ok' | 'failed' | 'stale' | 'unknown';
 
+/** One place where copies are kept (the main disk, the flash drive) as of the last run. */
+export interface BackupTargetView {
+  name: string;
+  ok: boolean;
+  /** A remark-only place (the code mirror, the encrypted copy): its failure is not a failed backup. */
+  optional: boolean;
+  lastSnapshot: string | null;
+  sizeBytes: number | null;
+  freeBytes: number | null;
+  totalBytes: number | null;
+  /** Complete copies kept there. */
+  snapshots: number | null;
+  error: string | null;
+}
+
+export type OffsiteState = 'not_configured' | 'no_key' | 'ok' | 'stale' | 'failed';
+
 export interface BackupInfo {
   state: BackupState;
   lastSuccessAt: string | null;
   /** Restore test performed and verified? Never true unless actually tested. */
   restoreTested: boolean;
   message: string;
+  /** Where the copies are and how much room is left (absent while there is no status yet). */
+  targets?: BackupTargetView[];
+  /** The encrypted copy for outside the house. */
+  offsite?: { state: OffsiteState; lastAt: string | null; tested: boolean; message: string };
+  /** Plain remarks: a disk filling up, no copy outside the house, no restore test. */
+  notes?: string[];
 }
 
 export type AlertLevel = 'info' | 'warning' | 'critical';
@@ -963,7 +986,8 @@ export interface CallInfo {
   startedAt: string;
 }
 
-export type SignalType = 'offer' | 'answer' | 'candidate';
+/** «relay»: the other side asks to retry the connection through the relay only (after a failed direct attempt). */
+export type SignalType = 'offer' | 'answer' | 'candidate' | 'relay';
 
 /** POST /api/calls/:id/signal */
 export interface SignalRequest {

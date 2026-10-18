@@ -112,7 +112,7 @@ describe('printer parser', () => {
 
   it('reports the Windows default printer as ready, from Windows only, with no ink levels', () => {
     const info = parsePrinters(printers, null);
-    expect(info.name).toBe('HP Color LaserJet MFP M283fdw (D6ECE2)');
+    expect(info.name).toBe('HP Color LaserJet MFP M283fdw (AB12CD)');
     expect(info.state).toBe('ready');
     expect(info.message).toContain('по данным Windows');
     expect(Object.keys(info).sort()).toEqual(['message', 'name', 'state']);

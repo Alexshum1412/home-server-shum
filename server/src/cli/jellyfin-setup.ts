@@ -181,7 +181,7 @@ async function main(argv: string[]): Promise<number> {
   const config = loadConfig(process.env);
   const paths = jellyfinPaths(process.env, config);
   const adminIndex = argv.indexOf('--admin');
-  const adminName = adminIndex >= 0 ? (argv[adminIndex + 1] ?? '') : 'alex';
+  const adminName = adminIndex >= 0 ? (argv[adminIndex + 1] ?? '') : 'admin';
   if (!/^[a-z0-9][a-z0-9._-]{1,31}$/.test(adminName)) {
     console.error('Имя администратора: латиница, цифры, «.», «_», «-» (2–32 символа).');
     return 2;

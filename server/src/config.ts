@@ -49,6 +49,14 @@ export interface Config {
   /** Extra files stored under config/; null → the project .env when it exists. */
   readonly backupExtraFiles: readonly string[] | null;
   readonly gitExe: string;
+  /** Folder for the encrypted copy for outside the house (BACKUP_OFFSITE_DIR); null — not set up. */
+  readonly backupOffsiteDir: string | null;
+  /** File with the key of the encrypted copies (outside Git and outside the data folder). */
+  readonly backupKeyFile: string;
+  /** How many encrypted copies are kept. */
+  readonly backupOffsiteKeep: number;
+  /** A new encrypted copy is made when the newest is older than this many days. */
+  readonly backupOffsiteEveryDays: number;
   /** BACKUP_GIT_PUSH "<remote>/<branch>": mirror the committed code there on every backup; null — off. */
   readonly backupGitPush: { readonly remote: string; readonly branch: string } | null;
   /** Root of the family files (personal folders, shared folder, downloads), see files/. */
@@ -65,6 +73,8 @@ export interface Config {
     readonly home: string;
     /** Stop sharing a finished torrent when this much has been sent compared with what was received. */
     readonly seedRatio: number;
+    /** The longest a finished torrent is shared, minutes (0 = not at all). While it is shared the file is held by the client. */
+    readonly seedMinutes: number;
     /** Upload limit, KB/s: the home connection must stay usable. */
     readonly uploadLimitKb: number;
   };
@@ -78,6 +88,8 @@ export interface Config {
     /** Shared secret of the TURN relay (coturn static-auth-secret); never sent to a browser. */
     readonly turnSecret: string | null;
     readonly turnTtlSec: number;
+    /** Cloudflare Realtime TURN: the key id and the file with its API token (the token is never in Git or the environment). */
+    readonly cloudflare: { readonly keyId: string; readonly tokenFile: string } | null;
   };
   readonly downloadMaxFileBytes: number;
   /** One file uploaded through the portal (files and photos). */
@@ -95,7 +107,6 @@ export interface Config {
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
-export const DEFAULT_PUBLIC_URL = 'https://server-home.tail89d77e.ts.net';
 export const DEFAULT_TAILSCALE_EXE = 'C:\\Program Files\\Tailscale\\tailscale.exe';
 
 /** An https:// address with a real name (not an IP address and not a home-network or tailnet name). */
@@ -167,6 +178,10 @@ const schema = z.object({
   BACKUP_EXTRA_FILES: z.string(),
   GIT_EXE: z.string().min(1),
   BACKUP_GIT_PUSH: z.string(),
+  BACKUP_OFFSITE_DIR: z.string(),
+  BACKUP_KEY_FILE: z.string().min(1),
+  BACKUP_OFFSITE_KEEP: z.coerce.number().int().min(1).max(52),
+  BACKUP_OFFSITE_EVERY_DAYS: z.coerce.number().int().min(1).max(90),
   FAMILY_FILES_DIR: z.string().min(1),
   FAMILY_PHOTOS_DIR: z.string().min(1),
   MEDIA_DIR: z.string().min(1),
@@ -174,6 +189,7 @@ const schema = z.object({
   TORRENT_RPC_URL: z.string(),
   TORRENT_HOME: z.string().min(1),
   TORRENT_SEED_RATIO: z.coerce.number().min(0).max(20),
+  TORRENT_SEED_MINUTES: z.coerce.number().int().min(0).max(1440),
   TORRENT_UPLOAD_LIMIT_KB: z.coerce.number().int().min(10).max(100_000),
   CHAT_DIR: z.string().min(1),
   CHAT_MAX_FILE_MB: z.coerce.number().min(1).max(10_000),
@@ -181,6 +197,8 @@ const schema = z.object({
   CALLS_TURN_URLS: z.string(),
   CALLS_TURN_SECRET: z.string().max(200),
   CALLS_TURN_TTL_SEC: z.coerce.number().int().min(60).max(86_400),
+  CALLS_CF_TURN_KEY_ID: z.string(),
+  CALLS_CF_TURN_TOKEN_FILE: z.string(),
   DOWNLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
   UPLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
   MIN_FREE_GB: z.coerce.number().min(0).max(10_000),
@@ -274,7 +292,8 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     LOW_SPACE_PERCENT: pick('LOW_SPACE_PERCENT', '10'),
     PRINTER_NAME: env.PRINTER_NAME?.trim() ?? '',
     TAILSCALE_EXE: pick('TAILSCALE_EXE', DEFAULT_TAILSCALE_EXE),
-    PUBLIC_URL: env.PUBLIC_URL === undefined ? DEFAULT_PUBLIC_URL : env.PUBLIC_URL.trim(),
+    // Blank = the main address is not set: the owner puts the real one into the local .env (never into Git).
+    PUBLIC_URL: env.PUBLIC_URL?.trim() ?? '',
     LAN_URL: env.LAN_URL?.trim() ?? '',
     PUBLIC_HTTPS_URL: env.PUBLIC_HTTPS_URL?.trim() ?? '',
     PUBLIC_ALLOW_ADMIN_LOGIN: pick('PUBLIC_ALLOW_ADMIN_LOGIN', '0'),
@@ -289,6 +308,10 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     BACKUP_EXTRA_FILES: env.BACKUP_EXTRA_FILES?.trim() ?? '',
     GIT_EXE: pick('GIT_EXE', 'git'),
     BACKUP_GIT_PUSH: env.BACKUP_GIT_PUSH?.trim() ?? '',
+    BACKUP_OFFSITE_DIR: env.BACKUP_OFFSITE_DIR?.trim() ?? '',
+    BACKUP_KEY_FILE: pick('BACKUP_KEY_FILE', defaultKeyFile(env, platform)),
+    BACKUP_OFFSITE_KEEP: pick('BACKUP_OFFSITE_KEEP', '4'),
+    BACKUP_OFFSITE_EVERY_DAYS: pick('BACKUP_OFFSITE_EVERY_DAYS', '7'),
     FAMILY_FILES_DIR: pick('FAMILY_FILES_DIR', defaultFamilyDir(env, platform, 'Files')),
     FAMILY_PHOTOS_DIR: pick('FAMILY_PHOTOS_DIR', defaultFamilyDir(env, platform, 'Photos')),
     MEDIA_DIR: pick('MEDIA_DIR', defaultFamilyDir(env, platform, 'Media')),
@@ -301,6 +324,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
         : path.join(os.homedir(), '.family-data', 'aria2'),
     ),
     TORRENT_SEED_RATIO: pick('TORRENT_SEED_RATIO', '1'),
+    TORRENT_SEED_MINUTES: pick('TORRENT_SEED_MINUTES', '30'),
     TORRENT_UPLOAD_LIMIT_KB: pick('TORRENT_UPLOAD_LIMIT_KB', '500'),
     CHAT_DIR: pick('CHAT_DIR', defaultFamilyDir(env, platform, 'Chat')),
     CHAT_MAX_FILE_MB: pick('CHAT_MAX_FILE_MB', '200'),
@@ -308,6 +332,8 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     CALLS_TURN_URLS: env.CALLS_TURN_URLS?.trim() ?? '',
     CALLS_TURN_SECRET: env.CALLS_TURN_SECRET?.trim() ?? '',
     CALLS_TURN_TTL_SEC: pick('CALLS_TURN_TTL_SEC', '3600'),
+    CALLS_CF_TURN_KEY_ID: env.CALLS_CF_TURN_KEY_ID?.trim() ?? '',
+    CALLS_CF_TURN_TOKEN_FILE: env.CALLS_CF_TURN_TOKEN_FILE?.trim() ?? '',
     DOWNLOAD_MAX_FILE_GB: pick('DOWNLOAD_MAX_FILE_GB', '50'),
     UPLOAD_MAX_FILE_GB: pick('UPLOAD_MAX_FILE_GB', '20'),
     MIN_FREE_GB: pick('MIN_FREE_GB', '50'),
@@ -337,6 +363,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
   const backupTargets = parseBackupTargets(v.BACKUP_TARGETS);
   const backupExtraFiles = parseExtraFiles(v.BACKUP_EXTRA_FILES);
   const backupGitPush = parseGitPush(v.BACKUP_GIT_PUSH);
+  const backupOffsiteDir = parseOffsiteDir(v.BACKUP_OFFSITE_DIR);
   const lanBind = parseLanBind(v.LAN_BIND);
   const oliviaLlmUrl = parseLoopbackUrl('OLIVIA_LLM_URL', v.OLIVIA_LLM_URL, 'http://127.0.0.1:8081/v1');
   const jellyfinUrl =
@@ -371,6 +398,10 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     backupExtraFiles: backupExtraFiles === null ? null : Object.freeze(backupExtraFiles),
     gitExe: v.GIT_EXE,
     backupGitPush: backupGitPush === null ? null : Object.freeze(backupGitPush),
+    backupOffsiteDir,
+    backupKeyFile: path.resolve(v.BACKUP_KEY_FILE),
+    backupOffsiteKeep: v.BACKUP_OFFSITE_KEEP,
+    backupOffsiteEveryDays: v.BACKUP_OFFSITE_EVERY_DAYS,
     filesDir: path.resolve(v.FAMILY_FILES_DIR),
     photosDir: path.resolve(v.FAMILY_PHOTOS_DIR),
     mediaDir: path.resolve(v.MEDIA_DIR),
@@ -381,6 +412,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
         'http://127.0.0.1:6800/jsonrpc',
       home: path.resolve(v.TORRENT_HOME),
       seedRatio: v.TORRENT_SEED_RATIO,
+      seedMinutes: v.TORRENT_SEED_MINUTES,
       uploadLimitKb: v.TORRENT_UPLOAD_LIMIT_KB,
     }),
     chatDir: path.resolve(v.CHAT_DIR),
@@ -390,6 +422,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
       turnUrls: Object.freeze(parseIceUrls('CALLS_TURN_URLS', v.CALLS_TURN_URLS, ['turn', 'turns'])),
       turnSecret: v.CALLS_TURN_SECRET === '' ? null : v.CALLS_TURN_SECRET,
       turnTtlSec: v.CALLS_TURN_TTL_SEC,
+      cloudflare: parseCloudflareTurn(v.CALLS_CF_TURN_KEY_ID, v.CALLS_CF_TURN_TOKEN_FILE),
     }),
     downloadMaxFileBytes: Math.round(v.DOWNLOAD_MAX_FILE_GB * 1024 ** 3),
     uploadMaxFileBytes: Math.round(v.UPLOAD_MAX_FILE_GB * 1024 ** 3),
@@ -406,6 +439,22 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     printerIppUrl: v.PRINTER_IPP_URL === '' ? null : v.PRINTER_IPP_URL,
     printMaxBytes: Math.round(v.PRINT_MAX_MB * 1024 ** 2),
   });
+}
+
+/** CALLS_CF_TURN_KEY_ID + CALLS_CF_TURN_TOKEN_FILE: both or none; the token file is a full path (outside the project). */
+function parseCloudflareTurn(keyId: string, tokenFile: string): { keyId: string; tokenFile: string } | null {
+  if (keyId === '' && tokenFile === '') return null;
+  if (!/^[0-9a-f]{32}$/i.test(keyId)) {
+    throw new Error(
+      `${CONFIG_ERROR}: CALLS_CF_TURN_KEY_ID: нужен идентификатор ключа Cloudflare TURN (32 шестнадцатеричных знака)`,
+    );
+  }
+  if (!isAbsoluteTargetPath(tokenFile)) {
+    throw new Error(
+      `${CONFIG_ERROR}: CALLS_CF_TURN_TOKEN_FILE: нужен полный путь к файлу с токеном (вне папки проекта)`,
+    );
+  }
+  return { keyId: keyId.toLowerCase(), tokenFile: path.resolve(tokenFile) };
 }
 
 /** CALLS_STUN_URLS / CALLS_TURN_URLS: addresses like stun:host:3478 separated by «,» or «;»; "" or "none" — none. */
@@ -450,6 +499,24 @@ function parseLanBind(value: string): string[] {
     }
   }
   return [...new Set(addresses)];
+}
+
+/** The key of the encrypted copies lives beside the other secrets of the server, not in the project folder. */
+function defaultKeyFile(env: Env, platform: NodeJS.Platform): string {
+  return platform === 'win32'
+    ? path.win32.join(systemDrive(env), 'FamilyServer', 'secrets', 'backup.key')
+    : path.join(os.homedir(), '.family-secrets', 'backup.key');
+}
+
+/** BACKUP_OFFSITE_DIR: a full path of a folder, or blank / none (not set up). */
+function parseOffsiteDir(value: string): string | null {
+  if (value === '' || value.toLowerCase() === 'none') return null;
+  if (!isAbsoluteTargetPath(value)) {
+    throw new Error(
+      `${CONFIG_ERROR}: BACKUP_OFFSITE_DIR: нужен полный путь к папке (например, E:\\FamilyOffsite)`,
+    );
+  }
+  return path.resolve(value);
 }
 
 /** "origin/main" → {remote, branch}; "" or "none" → null. Plain git names only (no options, no spaces). */

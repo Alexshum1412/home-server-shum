@@ -40,22 +40,22 @@ function get(host: string, port: number, hostHeader: string): Promise<{ status: 
 describe('LAN_BIND configuration', () => {
   it('is off by default and derives the portal address from a bound address', () => {
     expect(loadConfig({}, 'win32').lanBind).toEqual([]);
-    const config = loadConfig({ LAN_BIND: '192.168.1.252', PORT: '8070' }, 'win32');
-    expect(config.lanBind).toEqual(['192.168.1.252']);
-    expect(config.lanUrl).toBe('http://192.168.1.252:8070');
+    const config = loadConfig({ LAN_BIND: '192.168.1.20', PORT: '8070' }, 'win32');
+    expect(config.lanBind).toEqual(['192.168.1.20']);
+    expect(config.lanUrl).toBe('http://192.168.1.20:8070');
     expect(Object.isFrozen(config.lanBind)).toBe(true);
   });
 
   it('keeps an explicit LAN_URL and accepts several addresses', () => {
     const config = loadConfig(
-      { LAN_BIND: '192.168.1.252, 10.0.0.5;192.168.1.252', LAN_URL: 'http://server-home.local:8070/' },
+      { LAN_BIND: '192.168.1.20, 10.0.0.5;192.168.1.20', LAN_URL: 'http://server-home.local:8070/' },
       'win32',
     );
-    expect(config.lanBind).toEqual(['192.168.1.252', '10.0.0.5']);
+    expect(config.lanBind).toEqual(['192.168.1.20', '10.0.0.5']);
     expect(config.lanUrl).toBe('http://server-home.local:8070');
   });
 
-  it.each(['0.0.0.0', '::', '8.8.8.8', '100.116.219.8', '192.168.1.999', 'server-home', '172.32.0.1'])(
+  it.each(['0.0.0.0', '::', '8.8.8.8', '100.64.0.10', '192.168.1.999', 'server-home', '172.32.0.1'])(
     'refuses %s: only private addresses of the home network are allowed',
     (address) => {
       expect(() => loadConfig({ LAN_BIND: address }, 'win32')).toThrow(/LAN_BIND/);

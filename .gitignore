@@ -22,7 +22,12 @@ data/
 *.log
 logs/
 
+# The owner's private instructions and evidence (real addresses, device names, hardware details).
+# The public documents next to them hold placeholders only; see docs/PRIVATE_DOCS.md.
+docs/private/
+
 # Test and tool output
+artifacts/ui-review/
 test-results/
 playwright-report/
 blob-report/

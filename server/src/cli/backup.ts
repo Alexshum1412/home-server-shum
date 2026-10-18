@@ -15,12 +15,14 @@ import {
   type BackupSettings,
   backupSettingsFromConfig,
   defaultBackupDeps,
+  OFFSITE_NAME,
   runBackup,
 } from '../backup/run.ts';
 import { readManifest, verifySnapshot } from '../backup/snapshot.ts';
 import { resolveTargets } from '../backup/targets.ts';
 import { type Config, loadConfig } from '../config.ts';
 import { formatBytes } from '../lib/format.ts';
+import { commandOffsite } from './backup-offsite.ts';
 
 class CliError extends Error {
   readonly exitCode: number;
@@ -45,6 +47,8 @@ function usage(config: Config | null): string {
     '  restore <папка-копии> --to <папка>    восстановить копию в новую пустую папку (--no-repo — без кода)',
     '  test-restore                          пробное восстановление свежих копий во временную папку',
     '  prune                                 удалить старые копии сверх BACKUP_KEEP',
+    '  offsite <команда>                     зашифрованная копия вне дома: init-key | recovery-code | pack | list | verify |',
+    '                                        test-restore | restore <файл> --to <папка> (ключ — из BACKUP_KEY_FILE, --key-file или --code-stdin)',
     '',
     'Восстановление никогда не пишет в рабочую папку данных портала. Чтобы вернуть данные:',
     '  1) restore <папка-копии> --to <новая пустая папка>;',
@@ -69,8 +73,8 @@ interface ParsedArgs {
   flags: Map<string, string | true>;
 }
 
-const VALUE_FLAGS = new Set(['to']);
-const BOOLEAN_FLAGS = new Set(['no-repo', 'help']);
+const VALUE_FLAGS = new Set(['to', 'key-file']);
+const BOOLEAN_FLAGS = new Set(['no-repo', 'help', 'code-stdin']);
 
 function parseArgs(argv: string[]): ParsedArgs {
   const positional: string[] = [];
@@ -124,7 +128,13 @@ async function commandRun(settings: BackupSettings, deps: BackupDeps): Promise<n
   console.log(`Резервное копирование: мест хранения — ${settings.targets.length}${mirror}.`);
   const result = await runBackup(settings, deps);
   for (const target of result.targets) {
-    if (target.optional) {
+    if (target.optional && target.name === OFFSITE_NAME) {
+      console.log(
+        target.ok
+          ? `${OK}${target.name}: ${target.root ?? ''}`
+          : `ЗАМЕЧ. ${target.name}: ${target.error ?? 'неизвестная ошибка'}`,
+      );
+    } else if (target.optional) {
       // The GitHub mirror: only committed code; a failure is a remark, not a failed backup.
       console.log(
         target.ok
@@ -322,7 +332,7 @@ async function main(argv: string[]): Promise<number> {
     console.log(usage(null));
     throw new CliError('Не указана команда.', 2);
   }
-  const known = ['run', 'list', 'verify', 'restore', 'test-restore', 'prune'];
+  const known = ['run', 'list', 'verify', 'restore', 'test-restore', 'prune', 'offsite'];
   if (!known.includes(command)) {
     throw new CliError(`Неизвестная команда «${command}». Справка: node server/src/cli/backup.ts --help`, 2);
   }
@@ -347,6 +357,8 @@ async function main(argv: string[]): Promise<number> {
       return commandRestore(config, settings, deps, args);
     case 'test-restore':
       return commandTestRestore(settings, deps);
+    case 'offsite':
+      return commandOffsite(config, settings, deps, args);
     default:
       return commandPrune(settings, deps);
   }

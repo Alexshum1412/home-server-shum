@@ -486,7 +486,15 @@ export function createSystemCollector(options: SystemCollectorOptions): SystemCo
                 : tailscale.reason,
             },
         printer: { ...printer },
-        backup: { ...backup },
+        // Where the copies are, the room left and the encrypted copy are for the administrator only.
+        backup: isAdmin
+          ? { ...backup }
+          : {
+              state: backup.state,
+              lastSuccessAt: backup.lastSuccessAt,
+              restoreTested: backup.restoreTested,
+              message: backup.message,
+            },
         programs: { ...programs, value: programs.value ? programs.value.map((p) => ({ ...p })) : null },
         overall: overallHealth(visibleAlerts, coreMeasured),
         alerts: visibleAlerts,

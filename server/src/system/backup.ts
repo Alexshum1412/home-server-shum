@@ -1,6 +1,7 @@
 import path from 'node:path';
-import type { BackupInfo } from '../../../shared/api.ts';
+import type { BackupInfo, BackupTargetView } from '../../../shared/api.ts';
 import { BACKUP_STATUS_FILE, backupStatusSchema, type ParsedBackupStatus } from '../backup/status.ts';
+import { formatBytes } from '../lib/format.ts';
 import { readJsonFile } from '../lib/json-store.ts';
 import type { Clock } from '../lib/time.ts';
 
@@ -46,7 +47,7 @@ function failureReasons(targets: readonly StatusTarget[]): string {
  * Reads backup-status.json written by the backup job (server/src/cli/backup.ts).
  * Backup is never assumed: no file → not_configured. A run is ok only when every target is ok.
  */
-export async function readBackupStatus(dataDir: string, clock: Clock): Promise<BackupInfo> {
+async function readBackupBase(dataDir: string, clock: Clock): Promise<BackupInfo> {
   let data: unknown;
   try {
     data = await readJsonFile(path.join(dataDir, BACKUP_STATUS_FILE));
@@ -118,6 +119,124 @@ export async function readBackupStatus(dataDir: string, clock: Clock): Promise<B
     restoreTested,
     message: `${summary}${remarks}${restoreNote}`,
   };
+}
+
+/** Free room below which the status page warns: twice a copy, but never less than a gigabyte. */
+export const MIN_HEADROOM_BYTES = 1024 ** 3;
+/** An encrypted copy older than this is called out of date. */
+export const OFFSITE_STALE_MS = 21 * 24 * 60 * 60 * 1000;
+
+/** Disks that will soon be unable to take the next copy. Used by the status page and by the alerts. */
+export function capacityWarnings(targets: readonly BackupTargetView[]): string[] {
+  const warnings: string[] = [];
+  for (const target of targets) {
+    if (target.optional || target.freeBytes === null) continue;
+    const need = Math.max(2 * (target.sizeBytes ?? 0), MIN_HEADROOM_BYTES);
+    const tight = target.freeBytes < need;
+    const low =
+      target.totalBytes !== null && target.totalBytes > 0 && target.freeBytes / target.totalBytes < 0.1;
+    if (tight || low) {
+      warnings.push(
+        `На «${target.name}» осталось ${formatBytes(target.freeBytes)}${target.sizeBytes === null ? '' : `, одна копия занимает ${formatBytes(target.sizeBytes)}`}: места хватит ненадолго. Подключите носитель побольше или уменьшите BACKUP_KEEP; пока места хватает, прежние копии не удаляются.`,
+      );
+    }
+  }
+  return warnings;
+}
+
+function offsiteView(status: ParsedBackupStatus, now: Date): NonNullable<BackupInfo['offsite']> {
+  const offsite = status.offsite;
+  if (!offsite?.configured) {
+    return {
+      state: 'not_configured',
+      lastAt: null,
+      tested: false,
+      message:
+        'Зашифрованной копии вне дома нет: все копии лежат дома (диск и флешка), и не зашифрованы. Настройка — docs/runbooks/backup-restore.md.',
+    };
+  }
+  const lastAt = offsite.lastPackAt ?? null;
+  const tested = Boolean(offsite.testedAt);
+  if (offsite.error && /Ключ шифрования не найден/.test(offsite.error)) {
+    return { state: 'no_key', lastAt, tested, message: offsite.error };
+  }
+  if (offsite.error && lastAt === null) {
+    return {
+      state: 'failed',
+      lastAt,
+      tested,
+      message: `Зашифрованную копию сделать не удалось: ${offsite.error}`,
+    };
+  }
+  if (lastAt === null) {
+    return { state: 'failed', lastAt, tested, message: 'Зашифрованная копия ещё ни разу не была сделана.' };
+  }
+  const old = now.getTime() - Date.parse(lastAt) > OFFSITE_STALE_MS;
+  const when = formatWhen(lastAt, now, true);
+  if (offsite.error) {
+    return {
+      state: 'failed',
+      lastAt,
+      tested,
+      message: `Последняя зашифрованная копия: ${when}; новую сделать не удалось: ${offsite.error}`,
+    };
+  }
+  if (old) {
+    return {
+      state: 'stale',
+      lastAt,
+      tested,
+      message: `Зашифрованная копия вне дома устарела: ${when}. Подключите носитель и запустите копирование.`,
+    };
+  }
+  return {
+    state: 'ok',
+    lastAt,
+    tested,
+    message: `Последняя зашифрованная копия: ${when}, целостность проверена${tested ? ', пробное восстановление проходило' : ', пробное восстановление ещё не проходило'}. Носитель с ней должен храниться вне дома.`,
+  };
+}
+
+/** Where copies are kept, room left, and the plain remarks; added on top of the basic state. */
+async function readBackupExtras(
+  dataDir: string,
+  clock: Clock,
+): Promise<Pick<BackupInfo, 'targets' | 'offsite' | 'notes'> | null> {
+  let data: unknown;
+  try {
+    data = await readJsonFile(path.join(dataDir, BACKUP_STATUS_FILE));
+  } catch {
+    return null;
+  }
+  if (data === undefined) return null;
+  const parsed = backupStatusSchema.safeParse(data);
+  if (!parsed.success) return null;
+  const status = parsed.data;
+  const targets: BackupTargetView[] = (status.targets ?? []).map((target) => ({
+    name: target.name,
+    ok: target.ok,
+    optional: target.optional === true,
+    lastSnapshot: target.snapshot ?? null,
+    sizeBytes: target.sizeBytes ?? null,
+    freeBytes: target.freeBytes ?? null,
+    totalBytes: target.totalBytes ?? null,
+    snapshots: target.snapshots ?? null,
+    error: target.error ?? null,
+  }));
+  const offsite = offsiteView(status, clock());
+  const notes = [...capacityWarnings(targets)];
+  if (offsite.state !== 'ok') notes.push(offsite.message);
+  return { targets, offsite, notes };
+}
+
+/**
+ * The backup state for the status page: the basic state (never assumed: no file means «not configured») plus
+ * where the copies are, how much room is left and what the owner should do about the copy for outside the house.
+ */
+export async function readBackupStatus(dataDir: string, clock: Clock): Promise<BackupInfo> {
+  const base = await readBackupBase(dataDir, clock);
+  const extras = await readBackupExtras(dataDir, clock);
+  return extras ? { ...base, ...extras } : base;
 }
 
 function unreadable(): BackupInfo {

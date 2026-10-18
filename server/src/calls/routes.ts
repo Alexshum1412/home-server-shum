@@ -17,7 +17,7 @@ export interface CallRouteDeps {
 const startBody = z.object({ conversationId: z.string().max(40), video: z.boolean() });
 const signalBody = z.object({
   to: z.string().max(64),
-  type: z.enum(['offer', 'answer', 'candidate']),
+  type: z.enum(['offer', 'answer', 'candidate', 'relay']),
   data: z.unknown(),
 });
 const idParam = z.string().regex(/^[0-9a-f-]{36}$/);

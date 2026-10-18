@@ -14,6 +14,7 @@ export interface CallsApi {
   toggleMute: () => void;
   toggleCamera: () => void;
   dismissMessage: () => void;
+  retryViaRelay: () => void;
 }
 
 const CallsContext = createContext<CallsApi | null>(null);
@@ -56,6 +57,7 @@ export function CallProvider(props: { children: ComponentChildren }) {
       toggleMute: () => engine.toggleMute(),
       toggleCamera: () => engine.toggleCamera(),
       dismissMessage: () => engine.clearMessage(),
+      retryViaRelay: () => engine.retryViaRelay(),
     }),
     [state, engine],
   );

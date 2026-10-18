@@ -23,13 +23,13 @@
 |---|---|---|
 | PWA: manifest, иконки, service worker | Implemented | установка на домашний экран — только по HTTPS-адресу tailnet |
 | Инструкция установки на iOS/Android/Windows | Implemented | страница «Подключение» и README |
-| HTTPS через Tailscale Serve | Implemented | включён 16.10.2026: `https://server-home.tail89d77e.ts.net` (tailnet only, без Funnel) → `127.0.0.1:8070`; с этого ПК проверены TLS, `/api/health` 200, заголовки и CSRF-защита за прокси |
+| HTTPS через Tailscale Serve | Implemented | включён 16.10.2026: `https://server-home.example.ts.net` (tailnet only, без Funnel) → `127.0.0.1:8070`; с этого ПК проверены TLS, `/api/health` 200, заголовки и CSRF-защита за прокси |
 | Проверка со второго устройства | Not configured | нужен телефон/ноутбук владельца с включённым Tailscale — см. `docs/runbooks/network.md` |
 | LAN-резерв | Not configured | требует правила Firewall (админ) — решение владельца |
 | Реальные проверки доступности служб | Implemented | фоновые проверки с таймаутом 3 с |
 | Страница диагностики подключения | Implemented | «Подключение» + «Состояние системы» |
 | Роли family/admin | Implemented | проверки на сервере, e2e |
-| Первый администратор | Implemented (17.10.2026) | `alex`, временный пароль `--generate-password` (смена при первом входе); «Мой профиль» — смена своего пароля |
+| Первый администратор | Implemented (17.10.2026) | администратор создан, временный пароль `--generate-password` (смена при первом входе); «Мой профиль» — смена своего пароля |
 | Автозапуск и перезапуск после сбоя | Implemented (17.10.2026) | задача «FamilyServer» (S4U: при включении ПК, при входе, сторож 5 мин) → супервизор `server/src/supervisor`; проверено — см. `docs/runbooks/start-stop.md`. Реальная перезагрузка — ручная проверка владельца |
 
 ## P2 — медиатека и файлы

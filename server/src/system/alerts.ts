@@ -12,6 +12,7 @@ import type {
   VolumeInfo,
 } from '../../../shared/api.ts';
 import { formatBytes } from '../lib/format.ts';
+import { capacityWarnings } from './backup.ts';
 import { freePercent } from './volumes.ts';
 
 export type AlertAudience = 'all' | 'admin';
@@ -86,6 +87,30 @@ export function buildAlerts(inputs: AlertInputs): AudienceAlert[] {
       audience: 'all',
       title: 'Резервная копия устарела',
       text: 'Свежей копии семейных файлов нет больше недели — новые фотографии и документы не защищены. Сообщите администратору.',
+    });
+  }
+  const roomWarnings = capacityWarnings(backup.targets ?? []);
+  if (roomWarnings.length > 0) {
+    alerts.push({
+      id: 'backup-capacity',
+      level: 'warning',
+      audience: 'admin',
+      title: 'Резервным копиям заканчивается место',
+      text: roomWarnings.join(' '),
+    });
+  }
+  if (
+    backup.offsite &&
+    (backup.offsite.state === 'failed' ||
+      backup.offsite.state === 'no_key' ||
+      backup.offsite.state === 'stale')
+  ) {
+    alerts.push({
+      id: 'backup-offsite',
+      level: 'warning',
+      audience: 'admin',
+      title: 'Зашифрованная копия вне дома не обновляется',
+      text: backup.offsite.message,
     });
   }
 

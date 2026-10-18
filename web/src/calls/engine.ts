@@ -39,6 +39,8 @@ export interface CallViewState {
   /** Why the call ended, for the short farewell line. */
   endedText: string | null;
   relay: CallConfigResponse['relay'];
+  /** A relay exists, the link is bad and the relay has not been tried yet: the screen offers the button. */
+  canRelay: boolean;
 }
 
 const IDLE: CallViewState = {
@@ -52,6 +54,7 @@ const IDLE: CallViewState = {
   message: null,
   endedText: null,
   relay: 'none',
+  canRelay: false,
 };
 
 interface Peer {
@@ -62,9 +65,17 @@ interface Peer {
   queue: RTCIceCandidateInit[];
   link: RemoteView['link'];
   route: CallRoute | null;
-  restarted: boolean;
+  /** New network paths asked for since the last good connection. */
+  restarts: number;
+  lastRestartAt: number;
   weOffer: boolean;
 }
+
+/** How many times a broken link is mended before the person is told; a good connection resets the count. */
+const MAX_RESTARTS = 3;
+const RESTART_GAP_MS = 4000;
+/** The answering side cannot restart by itself: it waits this long for the other side before giving up. */
+const WAIT_FOR_OFFERER_MS = 15_000;
 
 const END_TEXT: Record<CallEndReason, string> = {
   hangup: 'Звонок завершён.',
@@ -120,11 +131,25 @@ export class CallEngine {
   private endTimer: ReturnType<typeof setTimeout> | undefined;
   private statsTimer: ReturnType<typeof setInterval> | undefined;
   private lastSignalFailure = 0;
+  /** After «через ретранслятор»: new connections gather only relay paths. */
+  private relayOnly = false;
 
   constructor(
     private readonly myId: () => string,
     private readonly hooks: CallEngineHooks,
-  ) {}
+  ) {
+    // A phone that comes back online (Wi-Fi to mobile data) needs new network paths: the offering side asks for them.
+    if (typeof window !== 'undefined') window.addEventListener('online', this.onOnline);
+  }
+
+  private readonly onOnline = (): void => {
+    for (const peer of this.peers.values()) {
+      if (peer.weOffer && peer.link !== 'failed') {
+        peer.lastRestartAt = 0;
+        this.restartIce(peer);
+      }
+    }
+  };
 
   // --- state -------------------------------------------------------------------------------
 
@@ -142,7 +167,9 @@ export class CallEngine {
 
   private publishRemotes(): void {
     const names = new Map(this.state.call?.participants.map((p) => [p.id, p.displayName]));
+    const bad = [...this.peers.values()].some((peer) => peer.link === 'failed' || peer.link === 'unstable');
     this.set({
+      canRelay: this.state.relay === 'turn' && !this.relayOnly && bad,
       remotes: [...this.peers.values()].map((peer) => ({
         userId: peer.userId,
         name: names.get(peer.userId) ?? 'Собеседник',
@@ -405,7 +432,10 @@ export class CallEngine {
   private async connectTo(userId: string, weOffer: boolean): Promise<Peer> {
     const existing = this.peers.get(userId);
     if (existing) return existing;
-    const connection = new RTCPeerConnection({ iceServers: this.iceServers });
+    const connection = new RTCPeerConnection({
+      iceServers: this.iceServers,
+      iceTransportPolicy: this.relayOnly ? 'relay' : 'all',
+    });
     const peer: Peer = {
       userId,
       connection,
@@ -414,7 +444,8 @@ export class CallEngine {
       queue: [],
       link: 'connecting',
       route: null,
-      restarted: false,
+      restarts: 0,
+      lastRestartAt: 0,
       weOffer,
     };
     this.peers.set(userId, peer);
@@ -469,6 +500,18 @@ export class CallEngine {
         await peer.connection.setRemoteDescription(data as RTCSessionDescriptionInit);
         peer.remoteReady = true;
         await this.flush(peer);
+      } else if (type === 'relay') {
+        // The other person pressed «через ретранслятор»: we follow with our side.
+        const peer = this.peers.get(from);
+        if (!peer) return;
+        this.relayOnly = true;
+        this.useRelay(peer);
+        if (peer.weOffer) {
+          peer.restarts = 0;
+          peer.lastRestartAt = Date.now();
+          await this.offer(peer, true);
+        }
+        this.set({ message: 'Пробуем соединиться через ретранслятор…' });
       } else {
         const peer = this.peers.get(from);
         if (!peer) return;
@@ -509,6 +552,8 @@ export class CallEngine {
     const state = peer.connection.connectionState;
     if (state === 'connected') {
       peer.link = 'connected';
+      peer.restarts = 0;
+      if (this.state.message !== null && this.state.phase === 'active') this.set({ message: null });
       if (this.state.phase === 'connecting' || this.state.phase === 'outgoing') {
         this.hooks.ring(null);
         this.set({ phase: 'active', message: null });
@@ -519,29 +564,79 @@ export class CallEngine {
       peer.link = 'unstable';
       // Short breaks mend themselves; the offering side asks for fresh network paths after a moment.
       setTimeout(() => {
-        if (peer.connection.connectionState === 'disconnected' && peer.weOffer && !peer.restarted) {
-          peer.restarted = true;
-          void this.offer(peer, true);
-        }
+        if (peer.connection.connectionState === 'disconnected') this.restartIce(peer);
       }, 3000);
     } else if (state === 'failed') {
-      if (peer.weOffer && !peer.restarted) {
-        peer.restarted = true;
-        peer.link = 'unstable';
-        void this.offer(peer, true);
-      } else {
-        peer.link = 'failed';
-        this.set({ message: this.failureHint() });
-      }
+      if (this.restartIce(peer)) peer.link = 'unstable';
+      else this.giveUp(peer);
     }
     this.publishRemotes();
   }
 
+  /**
+   * Asks for new network paths. The offering side does it itself (up to MAX_RESTARTS times, not more often than
+   * every few seconds); the answering side can only wait for the other one. Returns false when the tries are over.
+   */
+  private restartIce(peer: Peer): boolean {
+    if (peer.restarts >= MAX_RESTARTS) return false;
+    const now = Date.now();
+    if (now - peer.lastRestartAt < RESTART_GAP_MS) return true;
+    peer.restarts += 1;
+    peer.lastRestartAt = now;
+    if (peer.weOffer) {
+      void this.offer(peer, true);
+    } else {
+      setTimeout(() => {
+        if (this.peers.get(peer.userId) === peer && peer.connection.connectionState !== 'connected') {
+          if (peer.restarts >= MAX_RESTARTS) this.giveUp(peer);
+          else this.restartIce(peer);
+        }
+      }, WAIT_FOR_OFFERER_MS);
+    }
+    return true;
+  }
+
+  private giveUp(peer: Peer): void {
+    peer.link = 'failed';
+    this.set({ message: this.failureHint() });
+    this.publishRemotes();
+  }
+
+  private useRelay(peer: Peer): void {
+    try {
+      peer.connection.setConfiguration({
+        ...peer.connection.getConfiguration(),
+        iceTransportPolicy: 'relay',
+      });
+    } catch (error) {
+      console.warn('Не удалось переключить соединение на ретранслятор', error);
+    }
+  }
+
+  /** The person pressed «Через ретранслятор»: both sides gather only relay paths and the offering side starts over. */
+  retryViaRelay(): void {
+    if (this.state.relay !== 'turn' || this.relayOnly) return;
+    this.relayOnly = true;
+    this.set({ message: 'Пробуем соединиться через ретранслятор…', canRelay: false });
+    for (const peer of this.peers.values()) {
+      this.useRelay(peer);
+      if (peer.weOffer) {
+        peer.restarts = 0;
+        peer.lastRestartAt = Date.now();
+        void this.offer(peer, true);
+      } else {
+        void this.send(peer.userId, 'relay', {});
+      }
+    }
+  }
+
   private failureHint(): string {
     const hint =
-      this.state.relay === 'turn'
-        ? ''
-        : ' Включите Tailscale на обоих устройствах: через него звонок соединяется напрямую.';
+      this.state.relay === 'turn' && !this.relayOnly
+        ? ' Нажмите «Через ретранслятор»: звонок пойдёт окольным путём, это чуть дольше, зато надёжнее.'
+        : this.state.relay === 'turn'
+          ? ' Ретранслятор тоже не помог: проверьте интернет на обоих устройствах.'
+          : ' Включите Tailscale на обоих устройствах: через него звонок соединяется напрямую.';
     return `Не удаётся соединиться с собеседником.${hint}`;
   }
 
@@ -598,10 +693,12 @@ export class CallEngine {
     this.peers.clear();
     clearInterval(this.statsTimer);
     this.statsTimer = undefined;
-    this.state = { ...this.state, remotes: [] };
+    this.relayOnly = false;
+    this.state = { ...this.state, remotes: [], canRelay: false };
   }
 
   dispose(): void {
+    if (typeof window !== 'undefined') window.removeEventListener('online', this.onOnline);
     clearTimeout(this.endTimer);
     this.hooks.ring(null);
     this.closePeers();

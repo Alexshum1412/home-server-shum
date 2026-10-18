@@ -6,7 +6,7 @@
 
 ```text
  Телефон / ноутбук родственника (Tailscale включён)
-        │  https://server-home.tail89d77e.ts.net  (только tailnet, сертификат Let's Encrypt)
+        │  https://server-home.example.ts.net  (только tailnet, сертификат Let's Encrypt)
         ▼
  ┌──────────────────────── домашний ПК (Windows 10) ─────────────────────────┐
  │ tailscaled ── Tailscale Serve :443 ──► 127.0.0.1:8070                    │

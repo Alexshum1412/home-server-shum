@@ -91,7 +91,7 @@ function Incoming() {
 }
 
 function Screen() {
-  const { state, hangup, toggleMute, toggleCamera } = useCalls();
+  const { state, hangup, toggleMute, toggleCamera, retryViaRelay } = useCalls();
   const call = state.call;
   if (!call) return null;
   const others = call.participants.filter(
@@ -121,6 +121,11 @@ function Screen() {
         <p class="call__problem" role="alert">
           {state.message}
         </p>
+      ) : null}
+      {state.canRelay ? (
+        <button type="button" class="button button--secondary call__relay" onClick={retryViaRelay}>
+          Через ретранслятор
+        </button>
       ) : null}
       <div class={`call__grid call__grid--${Math.min(Math.max(state.remotes.length, 1), 4)}`}>
         {state.remotes.length === 0 ? (

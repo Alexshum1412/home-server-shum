@@ -68,9 +68,7 @@ describe('local language model settings', () => {
   });
 
   it('removes addresses and folders from what is sent, and cleans what comes back', () => {
-    const sent = depersonalise(
-      'Диск C:\\FamilyData\\Photos на 192.168.1.252 и server-home.tail89d77e.ts.net',
-    );
+    const sent = depersonalise('Диск C:\\FamilyData\\Photos на 192.168.1.20 и server-home.example.ts.net');
     expect(sent).not.toMatch(/FamilyData|192\.168|ts\.net/);
     const answer = cleanAnswer(`Привет\u0007 <script>alert(1)</script>\`\`\`rm -rf\`\`\`${'я'.repeat(3000)}`);
     expect(answer).not.toMatch(/<script>|```/);

@@ -38,14 +38,14 @@
    - «локальные» сети — loopback и `100.64.0.0/10` (tailnet);
    - доверенный прокси — `127.0.0.1`.
 
-   Семья открывает **`https://server-home.tail89d77e.ts.net:8443`**: Tailscale Serve, только tailnet, Funnel выключен.
+   Семья открывает **`https://server-home.example.ts.net:8443`**: Tailscale Serve, только tailnet, Funnel выключен.
    - Отдельный порт, а не путь `/jellyfin`: так не нужен BaseUrl, а BaseUrl ломает часть клиентов (из документации Jellyfin).
    - Брандмауэр Windows не менялся.
 4. **Запуск.**
    - Супервизор (ADR в OpenSpec `add-first-admin-and-autostart`) запускает Jellyfin, если найден `jellyfin.exe`.
    - Мягкая остановка — `POST /System/Shutdown` с ключом API «FamilyServer». Ключ лежит в `C:\FamilyServer\data\dashboard\jellyfin-api.json`, не в Git.
 5. **Первичная настройка** — `scripts\jellyfin-setup.cmd`, повторный запуск безопасен:
-   - мастер: русский язык, администратор `alex` со случайным паролем, показанным один раз;
+   - мастер: русский язык, администратор со случайным паролем, показанным один раз;
    - библиотеки **без** trickplay-превью и картинок глав: они пережимают каждый фильм целиком и на i5-6400 заняли бы часы.
 6. **Перекодирование.**
    - NVENC GTX 960 (`HardwareAccelerationType=nvenc`).

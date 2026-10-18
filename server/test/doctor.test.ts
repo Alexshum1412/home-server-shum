@@ -87,14 +87,14 @@ describe('independent diagnosis', () => {
   it('accepts the configured home-network address and asks for the firewall rule', async () => {
     const system = await snapshot();
     const checks = evaluate(
-      inputs(system, { lanBind: ['192.168.1.252'], portalBoundTo: ['127.0.0.1', '192.168.1.252'] }),
+      inputs(system, { lanBind: ['192.168.1.20'], portalBoundTo: ['127.0.0.1', '192.168.1.20'] }),
     );
     expect(level(checks, 'listen')).toBe('ok');
     expect(level(checks, 'lan')).toBe('warn');
     const withRule = evaluate(
       inputs(system, {
-        lanBind: ['192.168.1.252'],
-        portalBoundTo: ['127.0.0.1', '192.168.1.252'],
+        lanBind: ['192.168.1.20'],
+        portalBoundTo: ['127.0.0.1', '192.168.1.20'],
         host: { ...HOST, lanRule: true },
       }),
     );

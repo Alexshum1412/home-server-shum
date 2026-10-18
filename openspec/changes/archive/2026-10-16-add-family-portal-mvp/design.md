@@ -2,7 +2,7 @@
 
 ## Context
 
-Чистая Windows 10 Home 22H2, без Docker/WSL2, один рабочий диск 2 ТБ, Tailscale 1.104.1 работает (`server-home.tail89d77e.ts.net`, HTTPS-сертификаты в tailnet разрешены). Стек выбран в `docs/decisions/0001-stack.md`: Node.js 24 LTS + TypeScript, Fastify, Preact + Vite. Контракт API — `shared/api.ts` (единственный источник типов для сервера и клиента).
+Чистая Windows 10 Home 22H2, без Docker/WSL2, один рабочий диск 2 ТБ, Tailscale 1.104.1 работает (`server-home.example.ts.net`, HTTPS-сертификаты в tailnet разрешены). Стек выбран в `docs/decisions/0001-stack.md`: Node.js 24 LTS + TypeScript, Fastify, Preact + Vite. Контракт API — `shared/api.ts` (единственный источник типов для сервера и клиента).
 
 ## Goals / Non-Goals
 
@@ -52,7 +52,7 @@ scripts/                      start/stop/status/serve PowerShell + .cmd-обёр
 | `LOW_SPACE_PERCENT` | `10` | порог предупреждения |
 | `PRINTER_NAME` | пусто → принтер по умолчанию | какой принтер показывать |
 | `TAILSCALE_EXE` | `C:\Program Files\Tailscale\tailscale.exe` | путь к CLI |
-| `PUBLIC_URL` | `https://server-home.tail89d77e.ts.net` | показывается на странице «Подключение» |
+| `PUBLIC_URL` | `https://server-home.example.ts.net` | показывается на странице «Подключение» |
 | `LAN_URL` | пусто | резервный адрес в LAN, если включён |
 
 ### D3. Данные (каталог данных)

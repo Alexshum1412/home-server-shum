@@ -32,5 +32,5 @@
 
 - Новый код: `server/`, `web/`, `shared/`, `scripts/`, `tests/`; зависимости npm (Fastify, Preact, Vite, Vitest, Playwright, Biome).
 - Данные приложения — вне репозитория (`%LOCALAPPDATA%\FamilyDashboard`).
-- Сеть: новый порт `127.0.0.1:8070`; Tailscale Serve `https://server-home.tail89d77e.ts.net` → `127.0.0.1:8070`. Публичных портов и Funnel нет; правила Firewall не меняются.
+- Сеть: новый порт `127.0.0.1:8070`; Tailscale Serve `https://server-home.example.ts.net` → `127.0.0.1:8070`. Публичных портов и Funnel нет; правила Firewall не меняются.
 - Ничего не меняется на дисках, в ОС и в настройках безопасности Windows.

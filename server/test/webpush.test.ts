@@ -132,7 +132,7 @@ describe('push endpoints', () => {
     'http://fcm.googleapis.com/x',
     'https://127.0.0.1/x',
     'https://localhost:8096/x',
-    'https://192.168.1.139/x',
+    'https://192.168.1.30/x',
     'https://evil.example.com/x',
     'https://fcm.googleapis.com.evil.com/x',
     'https://fcm.googleapis.com:8443/x',

@@ -5,7 +5,7 @@
   scripts\lan-mode.cmd status   - показать, включён ли запасной адрес (ничего не меняет)
   scripts\lan-mode.cmd on       - включить: правило брандмауэра + LAN_BIND/LAN_URL в .env + перезапуск портала
   scripts\lan-mode.cmd off      - выключить: убрать правило и строки из .env + перезапуск портала
-  Параметры: -Address 192.168.1.252 (если адресов несколько), -Yes (не спрашивать подтверждение)
+  Параметры: -Address 192.168.1.20 (если адресов несколько), -Yes (не спрашивать подтверждение)
 
   Что делает «on», по шагам (и больше ничего):
     1. Создаёт ОДНО правило входящих подключений Windows Firewall «Family Dashboard (LAN, <порт>)»:
@@ -122,7 +122,7 @@ if ($Action -eq 'on') {
   if (-not $Address) {
     $found = @(Get-LanCandidates)
     if ($found.Count -eq 1) { $Address = $found[0] }
-    elseif ($found.Count -eq 0) { Write-Host 'Адрес этого ПК в домашней сети не найден. Укажите его: -Address 192.168.1.252' -ForegroundColor Red; exit 1 }
+    elseif ($found.Count -eq 0) { Write-Host 'Адрес этого ПК в домашней сети не найден. Укажите его: -Address 192.168.1.20' -ForegroundColor Red; exit 1 }
     else { Write-Host ('Найдено несколько адресов: ' + ($found -join ', ') + '. Выберите нужный: -Address <адрес>') -ForegroundColor Yellow; exit 1 }
   }
   if (-not (Test-PrivateLanAddress $Address)) {

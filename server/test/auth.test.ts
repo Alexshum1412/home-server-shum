@@ -424,7 +424,7 @@ describe('access control', () => {
     const cookie = await cookieFor(t.app, FAMILY);
     const res = await t.app.inject({ url: '/api/connection', headers: { cookie } });
     expect(res.json()).toEqual({
-      tailnetUrl: 'https://server-home.tail89d77e.ts.net',
+      tailnetUrl: 'https://server-home.example.ts.net',
       lanUrl: null,
       lanProblem: null,
       localUrl: 'http://127.0.0.1:8070',

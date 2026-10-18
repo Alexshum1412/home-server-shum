@@ -5,7 +5,7 @@
 - [x] 1.1 Download the official Jellyfin 12.2 ZIP, verify SHA-256 against repo.jellyfin.org, unpack to `C:\FamilyServer\apps\jellyfin`; verified (hash `ab247745…d83f`)
 - [x] 1.2 `network.xml`: loopback-only, no auto-discovery/UPnP, tailnet as local subnet, loopback as proxy; verified (`Get-NetTCPConnection`: only 127.0.0.1:8096, no UDP 7359)
 - [x] 1.3 Media folders `C:\FamilyData\Media\*` with an ACL of PC, SYSTEM and Administrators only
-- [x] 1.4 `scripts\serve-tailnet.cmd -Jellyfin` → `https://server-home.tail89d77e.ts.net:8443` (tailnet only); verified: 200 `Healthy` over HTTPS, LAN and tailnet IP on 8096 refused
+- [x] 1.4 `scripts\serve-tailnet.cmd -Jellyfin` → `https://server-home.example.ts.net:8443` (tailnet only); verified: 200 `Healthy` over HTTPS, LAN and tailnet IP on 8096 refused
 
 ## 2. Run and set up
 

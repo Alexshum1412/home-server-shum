@@ -216,7 +216,7 @@ describe('request guards', () => {
       `http://localhost:${t.config.port}`,
       `http://127.0.0.1:${t.config.port}`,
       `http://[::1]:${t.config.port}`,
-      'https://server-home.tail89d77e.ts.net',
+      'https://server-home.example.ts.net',
     ];
     for (const origin of origins) {
       const res = await t.app.inject({
@@ -236,8 +236,8 @@ describe('request guards', () => {
       method: 'POST',
       url: '/api/login',
       headers: {
-        origin: 'https://server-home.tail89d77e.ts.net',
-        'x-forwarded-host': 'server-home.tail89d77e.ts.net',
+        origin: 'https://server-home.example.ts.net',
+        'x-forwarded-host': 'server-home.example.ts.net',
       },
       payload,
     });
@@ -317,11 +317,11 @@ describe('host allowlist (DNS rebinding)', () => {
       { host: `LocalHost:${port}` },
       { host: `[::1]:${port}` },
       // Tailscale Serve may forward the tailnet name as the raw Host...
-      { host: 'server-home.tail89d77e.ts.net' },
-      { host: 'Server-Home.tail89d77e.ts.net' },
-      { host: 'server-home.tail89d77e.ts.net:443' },
+      { host: 'server-home.example.ts.net' },
+      { host: 'Server-Home.example.ts.net' },
+      { host: 'server-home.example.ts.net:443' },
       // ...or the loopback port with the tailnet name in X-Forwarded-Host.
-      { host: `127.0.0.1:${port}`, 'x-forwarded-host': 'server-home.tail89d77e.ts.net' },
+      { host: `127.0.0.1:${port}`, 'x-forwarded-host': 'server-home.example.ts.net' },
       // npm run dev: the Vite dev server forwards the browser's Host unchanged.
       { host: '127.0.0.1:5173' },
       { host: 'localhost:5173' },
@@ -339,20 +339,20 @@ describe('host allowlist (DNS rebinding)', () => {
       { headers: { host: 'localhost:80' } },
       { headers: { host: 'localhost' } },
       { headers: { host: '127.0.0.1' } },
-      { headers: { host: `server-home.tail89d77e.ts.net:${port}` } },
+      { headers: { host: `server-home.example.ts.net:${port}` } },
       { headers: { host: `127.0.0.1:${port}.evil.test` } },
       { headers: { host: `192.168.1.10:${port}` } }, // LAN_URL is not configured
       { headers: { host: `127.0.0.1:${port}`, 'x-forwarded-host': 'evil.test' } },
       {
         headers: {
           host: `127.0.0.1:${port}`,
-          'x-forwarded-host': 'evil.test, server-home.tail89d77e.ts.net',
+          'x-forwarded-host': 'evil.test, server-home.example.ts.net',
         },
       },
       {
         headers: {
           host: `127.0.0.1:${port}`,
-          'x-forwarded-host': 'server-home.tail89d77e.ts.net, evil.test',
+          'x-forwarded-host': 'server-home.example.ts.net, evil.test',
         },
       },
       // The dev-server address is accepted only from the local Vite proxy.
@@ -373,7 +373,7 @@ describe('host allowlist (DNS rebinding)', () => {
       expect(ok.statusCode).toBe(200);
       const tailnet = await lan.app.inject({
         url: '/api/health',
-        headers: { host: 'server-home.tail89d77e.ts.net' },
+        headers: { host: 'server-home.example.ts.net' },
       });
       expect(tailnet.statusCode).toBe(421);
     } finally {
@@ -534,7 +534,7 @@ describe('session cookie attributes', () => {
     });
     expect(viaForwardedProto.res.cookies.find((c) => c.name === 'fd_session')?.secure).toBe(true);
     const viaTsNetHost = await login(t.app, ADMIN.username, ADMIN.password, {
-      host: 'server-home.tail89d77e.ts.net',
+      host: 'server-home.example.ts.net',
     });
     expect(viaTsNetHost.res.cookies.find((c) => c.name === 'fd_session')?.secure).toBe(true);
   });

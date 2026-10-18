@@ -100,6 +100,7 @@ export interface TorrentManagerOptions {
   maxBytes: number;
   minFreeBytes: number;
   seedRatio: number;
+  seedMinutes: number;
   uploadLimitKb: number;
   /** The client program exists on this PC (to tell «not installed» from «not running»). */
   clientInstalled: () => boolean;
@@ -468,7 +469,7 @@ export function createTorrentManager(options: TorrentManagerOptions): TorrentMan
       dir: record.dir,
       'select-file': record.selected.join(','),
       'seed-ratio': String(options.seedRatio),
-      'seed-time': '1440',
+      'seed-time': String(options.seedMinutes),
       'max-upload-limit': `${options.uploadLimitKb}K`,
       'allow-overwrite': 'false',
       'auto-file-renaming': 'true',
