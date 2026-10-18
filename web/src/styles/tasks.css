@@ -1,0 +1,227 @@
+/*
+ * Family tasks («Дела»): lists of things to do, shopping lists, the home page block. Colours and
+ * sizes come from tokens.css only; a state is always an icon plus a word, colour is the third cue.
+ */
+
+/* --- the lists to choose from ------------------------------------------------------------------ */
+
+.task-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3) var(--sp-4);
+}
+
+.task-views {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-view {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--tap-min);
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-pill);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.task-view:hover {
+  background: var(--c-surface-2);
+}
+
+/* The open list: a heavier outline and an underline, not only a tint. */
+.task-view[aria-current="page"] {
+  border-color: var(--c-accent);
+  background: var(--c-selected);
+  box-shadow: inset 0 -3px 0 var(--c-accent);
+  font-weight: var(--fw-bold);
+}
+
+.task-view__count {
+  color: var(--c-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.task-list-head {
+  margin-top: var(--sp-2);
+}
+
+.task-list-actions {
+  margin-top: var(--sp-2);
+}
+
+/* --- quick add --------------------------------------------------------------------------------- */
+
+.task-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-3) var(--sp-4);
+  align-items: end;
+  padding: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  background: var(--c-surface);
+}
+
+.task-add__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.task-add__private {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 40rem) {
+  .task-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.task-kind {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.task-kind .check {
+  align-items: flex-start;
+}
+
+/* --- the tasks --------------------------------------------------------------------------------- */
+
+.task-count {
+  color: var(--c-text-muted);
+  font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-regular);
+}
+
+.tasks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+  align-items: start;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
+
+.task--overdue {
+  border-color: var(--c-bad);
+}
+
+/* A big target for a small box: the whole square is the label of the checkbox. */
+.task__check {
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  margin: calc(-1 * var(--sp-2)) 0 calc(-1 * var(--sp-2)) calc(-1 * var(--sp-3));
+  cursor: pointer;
+}
+
+.task__check input {
+  width: 1.5rem;
+  height: 1.5rem;
+  accent-color: var(--c-accent);
+}
+
+.task__body {
+  min-width: 0;
+}
+
+.task__title {
+  font-weight: var(--fw-semibold);
+  overflow-wrap: anywhere;
+}
+
+.task--done .task__title {
+  color: var(--c-text-muted);
+  text-decoration: line-through;
+}
+
+.task__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  margin-top: var(--sp-1);
+  color: var(--c-text-muted);
+  font-size: var(--fs-sm);
+}
+
+.task__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  overflow-wrap: anywhere;
+}
+
+.task__chip svg {
+  flex: none;
+}
+
+.task__chip--bad {
+  color: var(--c-bad);
+  font-weight: var(--fw-medium);
+}
+
+.task__chip--ok {
+  color: var(--c-ok);
+}
+
+.task__note {
+  margin-top: var(--sp-1);
+  color: var(--c-text-muted);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.task__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-1);
+}
+
+@media (max-width: 40rem) {
+  .task {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .task__actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}
+
+/* The home page block: no actions, a little less air. */
+.task--compact {
+  padding-block: var(--sp-2);
+}

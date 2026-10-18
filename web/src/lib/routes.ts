@@ -9,6 +9,7 @@ export type RouteId =
   | 'downloads'
   | 'calendar'
   | 'notes'
+  | 'tasks'
   | 'notifications'
   | 'olivia'
   | 'print'
@@ -39,6 +40,7 @@ export const ROUTES: readonly RouteDef[] = [
   { id: 'downloads', path: '/downloads', title: 'Загрузки' },
   { id: 'calendar', path: '/calendar', title: 'Календарь' },
   { id: 'notes', path: '/notes', title: 'Заметки' },
+  { id: 'tasks', path: '/tasks', title: 'Дела' },
   { id: 'notifications', path: '/notifications', title: 'Уведомления' },
   { id: 'olivia', path: '/olivia', title: 'Оливия' },
   { id: 'print', path: '/print', title: 'Печать' },

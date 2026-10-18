@@ -3,7 +3,6 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { TaskInput } from '../../shared/api.ts';
 import { REMOVED_OWNER } from '../src/planner/calendar.ts';
-import { dueWords } from '../src/planner/task-reminders.ts';
 import {
   ALL_DAY_REMINDER_TIME,
   daysInMonth,
@@ -14,6 +13,7 @@ import {
   occurrence,
   reminderWindow,
 } from '../src/planner/task-dates.ts';
+import { dueWords } from '../src/planner/task-reminders.ts';
 import {
   checkListInput,
   checkManyTitles,
@@ -181,7 +181,9 @@ describe('what a request may say', () => {
     expect(() => checkListInput({ name: 'я'.repeat(61), kind: 'todo', private: false })).toThrow(/60/);
     expect(checkManyTitles(['молоко', '  ', 'хлеб\t'])).toEqual(['молоко', 'хлеб']);
     expect(() => checkManyTitles(['', ' '])).toThrow(/Напишите/);
-    expect(() => checkManyTitles(Array.from({ length: MAX_MANY + 1 }, (_, i) => `п${i}`))).toThrow(/не больше/);
+    expect(() => checkManyTitles(Array.from({ length: MAX_MANY + 1 }, (_, i) => `п${i}`))).toThrow(
+      /не больше/,
+    );
     expect(() => checkManyTitles(['я'.repeat(121)])).toThrow(/длиннее/);
   });
 });
@@ -227,10 +229,17 @@ describe('privacy: a private task or list is the author’s alone', () => {
     const { store } = await setup();
     const shared = await store.create(MAMA, task({ title: 'Общее' }), null);
     // An administrator changing a shared task cannot make it private: the author decides that.
-    const changed = await store.update(PAPA, shared.id, task({ title: 'Общее (правка)', private: true }), null);
+    const changed = await store.update(
+      PAPA,
+      shared.id,
+      task({ title: 'Общее (правка)', private: true }),
+      null,
+    );
     expect(changed).toMatchObject({ title: 'Общее (правка)', private: false, owner: 'mama', canEdit: true });
     // The author can.
-    expect((await store.update(MAMA, shared.id, task({ title: 'Общее', private: true }), null)).private).toBe(true);
+    expect((await store.update(MAMA, shared.id, task({ title: 'Общее', private: true }), null)).private).toBe(
+      true,
+    );
     expect(await titles(store, PAPA)).toEqual([]);
   });
 
@@ -256,7 +265,13 @@ describe('who may change what', () => {
     expect(ticked).toMatchObject({ done: true, doneBy: 'son', doneByName: 'Сын', canEdit: false });
     expect(ticked.doneAt).toBe(new Date(2026, 9, 16, 10, 0).toISOString());
     const unticked = await store.setDone(PAPA, t.id, false);
-    expect(unticked).toMatchObject({ done: false, doneAt: null, doneBy: null, doneByName: null, canEdit: true });
+    expect(unticked).toMatchObject({
+      done: false,
+      doneAt: null,
+      doneBy: null,
+      doneByName: null,
+      canEdit: true,
+    });
 
     const forbidden = (run: Promise<unknown>) =>
       run.then(
@@ -280,7 +295,9 @@ describe('who may change what', () => {
     const t = await store.create(MAMA, task({ title: 'Забрать посылку', assignee: 'son' }), 'Сын');
     expect(t).toMatchObject({ assignee: 'son', assigneeName: 'Сын' });
     expect((await store.setDone(SON, t.id, true)).done).toBe(true);
-    await expect(store.update(SON, t.id, task({ title: 'Забрать посылку позже' }), 'Сын')).rejects.toMatchObject({
+    await expect(
+      store.update(SON, t.id, task({ title: 'Забрать посылку позже' }), 'Сын'),
+    ).rejects.toMatchObject({
       status: 403,
     });
     await expect(store.remove(SON, t.id)).rejects.toMatchObject({ status: 403 });
@@ -295,11 +312,15 @@ describe('who may change what', () => {
       code: 'private_assignee',
     });
     const secret = await store.createList(MAMA, { name: 'Тайна', kind: 'todo', private: true });
-    await expect(store.create(MAMA, task({ listId: secret.id, assignee: 'son' }), 'Сын')).rejects.toMatchObject({
+    await expect(
+      store.create(MAMA, task({ listId: secret.id, assignee: 'son' }), 'Сын'),
+    ).rejects.toMatchObject({
       code: 'private_assignee',
     });
     const t = await store.create(MAMA, task({ assignee: 'son' }), 'Сын');
-    await expect(store.update(MAMA, t.id, task({ private: true, assignee: 'son' }), 'Сын')).rejects.toMatchObject({
+    await expect(
+      store.update(MAMA, t.id, task({ private: true, assignee: 'son' }), 'Сын'),
+    ).rejects.toMatchObject({
       code: 'private_assignee',
     });
   });
@@ -332,7 +353,11 @@ describe('repeating tasks', () => {
 
   it('do not happen twice when two people tick the same occurrence', async () => {
     const { store } = await setup(clockAt(2026, 10, 16));
-    const t = await store.create(MAMA, task({ title: 'Полить цветы', due: '2026-10-16', repeat: 'weekly' }), null);
+    const t = await store.create(
+      MAMA,
+      task({ title: 'Полить цветы', due: '2026-10-16', repeat: 'weekly' }),
+      null,
+    );
     expect((await store.setDone(MAMA, t.id, true, '2026-10-16')).due).toBe('2026-10-23');
     // the second person still saw the old date on their screen
     expect((await store.setDone(SON, t.id, true, '2026-10-16')).due).toBe('2026-10-23');
@@ -351,9 +376,17 @@ describe('repeating tasks', () => {
 
   it('continue from today when they were late, and from their own date when they were early', async () => {
     const { store } = await setup(clockAt(2026, 10, 16));
-    const late = await store.create(MAMA, task({ title: 'Позавчера', due: '2026-10-14', repeat: 'daily' }), null);
+    const late = await store.create(
+      MAMA,
+      task({ title: 'Позавчера', due: '2026-10-14', repeat: 'daily' }),
+      null,
+    );
     expect((await store.setDone(MAMA, late.id, true)).due).toBe('2026-10-17');
-    const early = await store.create(MAMA, task({ title: 'Через неделю', due: '2026-10-23', repeat: 'weekly' }), null);
+    const early = await store.create(
+      MAMA,
+      task({ title: 'Через неделю', due: '2026-10-23', repeat: 'weekly' }),
+      null,
+    );
     expect((await store.setDone(MAMA, early.id, true)).due).toBe('2026-10-30');
     const lateMonthly = await store.create(
       MAMA,
@@ -365,8 +398,16 @@ describe('repeating tasks', () => {
 
   it('end when there is no next time within the years the portal accepts', async () => {
     const { store } = await setup(clockAt(2200, 12, 31));
-    const t = await store.create(MAMA, task({ title: 'Последнее', due: '2200-12-31', repeat: 'yearly' }), null);
-    expect(await store.setDone(MAMA, t.id, true)).toMatchObject({ done: true, repeat: 'none', doneByName: 'Мама' });
+    const t = await store.create(
+      MAMA,
+      task({ title: 'Последнее', due: '2200-12-31', repeat: 'yearly' }),
+      null,
+    );
+    expect(await store.setDone(MAMA, t.id, true)).toMatchObject({
+      done: true,
+      repeat: 'none',
+      doneByName: 'Мама',
+    });
   });
 
   it('are never «done» after an edit, and the day of the month is taken from the first date', async () => {
@@ -375,7 +416,12 @@ describe('repeating tasks', () => {
     await store.setDone(MAMA, t.id, true); // → 28 February
     clock.advance(28 * 24 * 3600 * 1000);
     // an edit that does not touch the schedule keeps the 31st as the anchor …
-    await store.update(MAMA, t.id, task({ title: 'Счета за месяц', due: '2026-02-28', repeat: 'monthly' }), null);
+    await store.update(
+      MAMA,
+      t.id,
+      task({ title: 'Счета за месяц', due: '2026-02-28', repeat: 'monthly' }),
+      null,
+    );
     expect((await store.setDone(MAMA, t.id, true)).due).toBe('2026-03-31');
     // … a new date starts a new series
     await store.update(MAMA, t.id, task({ title: 'Счета', due: '2026-03-15', repeat: 'monthly' }), null);
@@ -385,9 +431,17 @@ describe('repeating tasks', () => {
 
   it('are ordinary tasks again when the repeat is switched off', async () => {
     const { store } = await setup(clockAt(2026, 10, 16));
-    const t = await store.create(MAMA, task({ title: 'Было повторяющимся', due: '2026-10-16', repeat: 'daily' }), null);
+    const t = await store.create(
+      MAMA,
+      task({ title: 'Было повторяющимся', due: '2026-10-16', repeat: 'daily' }),
+      null,
+    );
     await store.update(MAMA, t.id, task({ title: t.title, due: '2026-10-16' }), null);
-    expect(await store.setDone(MAMA, t.id, true)).toMatchObject({ done: true, due: '2026-10-16', repeat: 'none' });
+    expect(await store.setDone(MAMA, t.id, true)).toMatchObject({
+      done: true,
+      due: '2026-10-16',
+      repeat: 'none',
+    });
   });
 });
 
@@ -410,7 +464,13 @@ describe('lists', () => {
   it('makes shared and private lists of both kinds and puts tasks into them', async () => {
     const { store } = await setup();
     const shop = await store.createList(MAMA, { name: 'Покупки', kind: 'shopping', private: false });
-    expect(shop).toMatchObject({ name: 'Покупки', kind: 'shopping', private: false, owner: 'mama', canEdit: true });
+    expect(shop).toMatchObject({
+      name: 'Покупки',
+      kind: 'shopping',
+      private: false,
+      owner: 'mama',
+      canEdit: true,
+    });
     const added = await store.createMany(SON, shop.id, ['молоко', 'хлеб', 'яйца']);
     expect(added.map((t) => [t.title, t.listId, t.owner, t.private])).toEqual([
       ['молоко', shop.id, 'son', false],
@@ -481,7 +541,9 @@ describe('lists', () => {
     const other = await store.createList(MAMA, { name: 'Ёлка', kind: 'todo', private: false });
     await expect(store.renameList(MAMA, other.id, 'елка')).resolves.toMatchObject({ name: 'елка' });
     const shared = (await store.list(MAMA)).lists.find((l) => l.name === 'Покупки' && !l.private);
-    await expect(store.renameList(MAMA, shared?.id ?? '', 'Елка')).rejects.toMatchObject({ code: 'name_taken' });
+    await expect(store.renameList(MAMA, shared?.id ?? '', 'Елка')).rejects.toMatchObject({
+      code: 'name_taken',
+    });
   });
 
   it('is renamed and deleted by its author or an administrator, deleting its items with it', async () => {
@@ -514,7 +576,11 @@ describe('limits', () => {
     const { store } = await setup();
     const shop = await store.createList(MAMA, { name: 'Покупки', kind: 'shopping', private: false });
     for (let batch = 0; batch < MAX_TASKS_PER_USER / MAX_MANY; batch += 1) {
-      await store.createMany(MAMA, shop.id, Array.from({ length: MAX_MANY }, (_, i) => `товар ${batch}-${i}`));
+      await store.createMany(
+        MAMA,
+        shop.id,
+        Array.from({ length: MAX_MANY }, (_, i) => `товар ${batch}-${i}`),
+      );
     }
     await expect(store.create(MAMA, task({ title: 'ещё одно' }), null)).rejects.toMatchObject({
       status: 409,
@@ -522,22 +588,38 @@ describe('limits', () => {
     });
     await expect(store.createMany(MAMA, shop.id, ['ещё'])).rejects.toMatchObject({ code: 'too_many_own' });
     // somebody else is not affected, and clearing makes room again
-    await expect(store.create(SON, task({ title: 'сыну можно' }), null)).resolves.toMatchObject({ owner: 'son' });
+    await expect(store.create(SON, task({ title: 'сыну можно' }), null)).resolves.toMatchObject({
+      owner: 'son',
+    });
     const all = (await store.list(MAMA)).tasks;
     await store.setDone(MAMA, all[0]?.id ?? '', true);
     await store.clearDone(MAMA, shop.id);
-    await expect(store.create(MAMA, task({ title: 'теперь можно' }), null)).resolves.toMatchObject({ owner: 'mama' });
+    await expect(store.create(MAMA, task({ title: 'теперь можно' }), null)).resolves.toMatchObject({
+      owner: 'mama',
+    });
   });
 
   it('says how many more fit when a batch is too big', async () => {
     const { store } = await setup();
     const shop = await store.createList(MAMA, { name: 'Покупки', kind: 'shopping', private: false });
     for (let batch = 0; batch < 9; batch += 1) {
-      await store.createMany(MAMA, shop.id, Array.from({ length: MAX_MANY }, (_, i) => `п ${batch}-${i}`));
+      await store.createMany(
+        MAMA,
+        shop.id,
+        Array.from({ length: MAX_MANY }, (_, i) => `п ${batch}-${i}`),
+      );
     }
-    await store.createMany(MAMA, shop.id, Array.from({ length: 40 }, (_, i) => `ещё ${i}`));
+    await store.createMany(
+      MAMA,
+      shop.id,
+      Array.from({ length: 40 }, (_, i) => `ещё ${i}`),
+    );
     await expect(
-      store.createMany(MAMA, shop.id, Array.from({ length: 11 }, (_, i) => `лишнее ${i}`)),
+      store.createMany(
+        MAMA,
+        shop.id,
+        Array.from({ length: 11 }, (_, i) => `лишнее ${i}`),
+      ),
     ).rejects.toThrow(/ещё 10/);
     expect((await store.list(MAMA)).tasks).toHaveLength(490); // all or none
   });
@@ -547,11 +629,15 @@ describe('limits', () => {
     for (let i = 0; i < MAX_LISTS_PER_USER; i += 1) {
       await store.createList(MAMA, { name: `Список ${i}`, kind: 'todo', private: false });
     }
-    await expect(store.createList(MAMA, { name: 'Лишний', kind: 'todo', private: false })).rejects.toMatchObject({
+    await expect(
+      store.createList(MAMA, { name: 'Лишний', kind: 'todo', private: false }),
+    ).rejects.toMatchObject({
       status: 409,
       code: 'too_many_own',
     });
-    await expect(store.createList(SON, { name: 'Свой', kind: 'todo', private: false })).resolves.toMatchObject({
+    await expect(
+      store.createList(SON, { name: 'Свой', kind: 'todo', private: false }),
+    ).resolves.toMatchObject({
       owner: 'son',
     });
 
@@ -601,7 +687,9 @@ describe('the file', () => {
     const { store, dir, clock } = await setup();
     await store.create(MAMA, task({ title: 'Переживёт перезапуск', due: '2026-10-20' }), null);
     const again = createTasksStore(dir, { clock });
-    expect((await again.list(MAMA)).tasks).toMatchObject([{ title: 'Переживёт перезапуск', due: '2026-10-20' }]);
+    expect((await again.list(MAMA)).tasks).toMatchObject([
+      { title: 'Переживёт перезапуск', due: '2026-10-20' },
+    ]);
   });
 
   it('is refused with plain words when it is damaged, and never overwritten', async () => {
@@ -630,7 +718,9 @@ describe('the file', () => {
 
   it('serialises writes: many at once all arrive', async () => {
     const { store } = await setup();
-    await Promise.all(Array.from({ length: 20 }, (_, i) => store.create(MAMA, task({ title: `дело ${i}` }), null)));
+    await Promise.all(
+      Array.from({ length: 20 }, (_, i) => store.create(MAMA, task({ title: `дело ${i}` }), null)),
+    );
     expect((await store.list(MAMA)).tasks).toHaveLength(20);
   });
 });
@@ -692,17 +782,29 @@ describe('reminders', () => {
 
   it('are not told for done tasks, for tasks without a reminder, or when they are hopelessly late', async () => {
     const { store, clock } = await setup(clockAt(2026, 10, 16, 8, 0));
-    const done = await store.create(MAMA, task({ title: 'Сделано', due: '2026-10-16', dueTime: '09:00', remindBefore: 0 }), null);
+    const done = await store.create(
+      MAMA,
+      task({ title: 'Сделано', due: '2026-10-16', dueTime: '09:00', remindBefore: 0 }),
+      null,
+    );
     await store.setDone(MAMA, done.id, true);
     await store.create(MAMA, task({ title: 'Без напоминания', due: '2026-10-16', dueTime: '09:00' }), null);
     await store.create(MAMA, task({ title: 'Без срока', remindBefore: null }), null);
-    await store.create(MAMA, task({ title: 'Вовремя', due: '2026-10-16', dueTime: '09:00', remindBefore: 0 }), null);
+    await store.create(
+      MAMA,
+      task({ title: 'Вовремя', due: '2026-10-16', dueTime: '09:00', remindBefore: 0 }),
+      null,
+    );
     clock.advance(60 * 60_000); // 09:00
     // the one with «0 minutes» fires; the done one, the one without a reminder and without a date do not
     expect((await store.dueReminders(clock())).map((j) => j.title)).toEqual(['Вовремя']);
 
     const { store: lateStore, clock: lateClock } = await setup(clockAt(2026, 10, 16, 8, 0));
-    await lateStore.create(MAMA, task({ title: 'Проспали', due: '2026-10-16', dueTime: '09:00', remindBefore: 0 }), null);
+    await lateStore.create(
+      MAMA,
+      task({ title: 'Проспали', due: '2026-10-16', dueTime: '09:00', remindBefore: 0 }),
+      null,
+    );
     lateClock.advance(4 * 60 * 60_000); // 12:00 — more than the grace period after 09:00
     expect(await lateStore.dueReminders(lateClock())).toEqual([]);
     lateClock.advance(-150 * 60_000); // 09:30 — still within the grace period
@@ -720,11 +822,19 @@ describe('reminders', () => {
 
     // a server that was off all day still tells it in the evening, but not on the next day
     const evening = await setup(clockAt(2026, 10, 16, 7, 0));
-    await evening.store.create(MAMA, task({ title: 'Поздравить', due: '2026-10-16', remindBefore: 60 }), null);
+    await evening.store.create(
+      MAMA,
+      task({ title: 'Поздравить', due: '2026-10-16', remindBefore: 60 }),
+      null,
+    );
     evening.clock.advance(14 * 3600_000); // 21:00
     expect((await evening.store.dueReminders(evening.clock())).map((j) => j.title)).toEqual(['Поздравить']);
     const nextDay = await setup(clockAt(2026, 10, 16, 7, 0));
-    await nextDay.store.create(MAMA, task({ title: 'Поздравить', due: '2026-10-16', remindBefore: 60 }), null);
+    await nextDay.store.create(
+      MAMA,
+      task({ title: 'Поздравить', due: '2026-10-16', remindBefore: 60 }),
+      null,
+    );
     nextDay.clock.advance(17 * 3600_000 + 30 * 60_000); // 00:30 the day after
     expect(await nextDay.store.dueReminders(nextDay.clock())).toEqual([]);
   });
@@ -743,14 +853,26 @@ describe('reminders', () => {
     expect(await store.dueReminders(clock())).toEqual([]);
 
     // a changed date is a new occurrence
-    await store.update(MAMA, t.id, task({ title: 'Таблетки', due: '2026-10-17', dueTime: '09:15', repeat: 'daily', remindBefore: 0 }), null);
+    await store.update(
+      MAMA,
+      t.id,
+      task({ title: 'Таблетки', due: '2026-10-17', dueTime: '09:15', repeat: 'daily', remindBefore: 0 }),
+      null,
+    );
     clock.advance(15 * 60_000);
     expect((await store.dueReminders(clock())).map((j) => j.key)).toEqual(['2026-10-17T09:15']);
     // another person gets the same occurrence again
     await store.update(
       MAMA,
       t.id,
-      task({ title: 'Таблетки', due: '2026-10-17', dueTime: '09:15', repeat: 'daily', remindBefore: 0, assignee: 'son' }),
+      task({
+        title: 'Таблетки',
+        due: '2026-10-17',
+        dueTime: '09:15',
+        repeat: 'daily',
+        remindBefore: 0,
+        assignee: 'son',
+      }),
       'Сын',
     );
     expect(await store.dueReminders(clock())).toMatchObject([{ assignee: 'son', key: '2026-10-17T09:15' }]);
@@ -761,7 +883,7 @@ describe('a removed account', () => {
   it('takes its private tasks and lists along; shared ones stay but belong to nobody', async () => {
     const { store } = await setup();
     const secret = await store.createList(MAMA, { name: 'Тайна', kind: 'todo', private: true });
-    await store.create(MAMA, task({ title: 'Личное' , private: true }), null);
+    await store.create(MAMA, task({ title: 'Личное', private: true }), null);
     await store.create(MAMA, task({ title: 'В тайном списке', listId: secret.id }), null);
     const shared = await store.create(MAMA, task({ title: 'Общее' }), null);
     await store.createList(MAMA, { name: 'Общий список', kind: 'todo', private: false });

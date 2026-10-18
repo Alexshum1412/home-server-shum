@@ -106,7 +106,11 @@ const listSchema = z.object({
   createdAt: z.string(),
 });
 
-const fileSchema = z.object({ version: z.literal(1), tasks: z.array(taskSchema), lists: z.array(listSchema) });
+const fileSchema = z.object({
+  version: z.literal(1),
+  tasks: z.array(taskSchema),
+  lists: z.array(listSchema),
+});
 
 type StoredTask = z.infer<typeof taskSchema>;
 type StoredList = z.infer<typeof listSchema>;
@@ -134,7 +138,8 @@ export interface RawTaskInput {
   listId: string | null;
 }
 
-const blank = (value: string | null): string | null => (value === null || value.trim() === '' ? null : value.trim());
+const blank = (value: string | null): string | null =>
+  value === null || value.trim() === '' ? null : value.trim();
 
 /** One line, no control characters. */
 function cleanTitle(value: string): string {
@@ -177,7 +182,11 @@ export function checkTaskInput(raw: RawTaskInput): TaskInput {
   };
 }
 
-export function checkListInput(raw: { name: string; kind: 'todo' | 'shopping'; private: boolean }): TaskListInput {
+export function checkListInput(raw: {
+  name: string;
+  kind: 'todo' | 'shopping';
+  private: boolean;
+}): TaskListInput {
   const name = cleanTitle(raw.name);
   if (name === '') throw new TaskError(400, 'bad_list', 'Дайте списку название.');
   if (name.length > LIST_NAME_MAX) {
@@ -242,7 +251,8 @@ export function createTasksStore(dataDir: string, options: { clock: Clock }) {
     return { tasks: parsed.data.tasks, lists: parsed.data.lists };
   }
 
-  const write = (data: TasksFile) => writeJsonAtomic(file, { version: 1, tasks: data.tasks, lists: data.lists });
+  const write = (data: TasksFile) =>
+    writeJsonAtomic(file, { version: 1, tasks: data.tasks, lists: data.lists });
 
   const listsById = (lists: readonly StoredList[]) => new Map(lists.map((list) => [list.id, list]));
   const listVisible = (list: StoredList, viewer: Viewer) => !list.private || list.owner === viewer.username;
@@ -252,7 +262,8 @@ export function createTasksStore(dataDir: string, options: { clock: Clock }) {
     const list = task.listId === null ? undefined : lists.get(task.listId);
     return list === undefined || listVisible(list, viewer);
   };
-  const mayChange = (task: { owner: string }, viewer: Viewer) => task.owner === viewer.username || viewer.isAdmin;
+  const mayChange = (task: { owner: string }, viewer: Viewer) =>
+    task.owner === viewer.username || viewer.isAdmin;
 
   const notFoundTask = () => new TaskError(404, 'not_found', 'Такого дела нет.');
   const notFoundList = () => new TaskError(404, 'not_found', 'Такого списка нет.');
@@ -339,7 +350,9 @@ export function createTasksStore(dataDir: string, options: { clock: Clock }) {
       const data = await read();
       const lists = listsById(data.lists);
       return {
-        tasks: data.tasks.filter((task) => taskVisible(task, lists, viewer)).map((task) => taskView(task, lists, viewer)),
+        tasks: data.tasks
+          .filter((task) => taskVisible(task, lists, viewer))
+          .map((task) => taskView(task, lists, viewer)),
         lists: data.lists
           .filter((list) => listVisible(list, viewer))
           .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
@@ -447,7 +460,11 @@ export function createTasksStore(dataDir: string, options: { clock: Clock }) {
         }
         const list = placeIn(lists, input.listId, viewer, existing.owner);
         // Only the author decides who sees a task; an administrator changing it keeps it as it was.
-        const isPrivate = list ? list.private : existing.owner === viewer.username ? input.private : existing.private;
+        const isPrivate = list
+          ? list.private
+          : existing.owner === viewer.username
+            ? input.private
+            : existing.private;
         if (isPrivate && input.assignee !== null) {
           throw new TaskError(400, 'private_assignee', 'Личное дело нельзя поручить другому человеку.');
         }
@@ -498,7 +515,8 @@ export function createTasksStore(dataDir: string, options: { clock: Clock }) {
         let updated: StoredTask;
         if (existing.repeat !== 'none' && existing.due !== null) {
           if (done) {
-            if (occurrence !== undefined && occurrence !== null && occurrence !== existing.due) return unchanged();
+            if (occurrence !== undefined && occurrence !== null && occurrence !== existing.due)
+              return unchanged();
             const today = localMoment(clock()).day;
             const next = nextOccurrence(
               existing.repeatFrom ?? existing.due,
@@ -551,7 +569,14 @@ export function createTasksStore(dataDir: string, options: { clock: Clock }) {
           return unchanged();
         } else {
           updated = done
-            ? { ...existing, done: true, doneAt: now, doneBy: viewer.username, doneByName: viewer.displayName, updatedAt: now }
+            ? {
+                ...existing,
+                done: true,
+                doneAt: now,
+                doneBy: viewer.username,
+                doneByName: viewer.displayName,
+                updatedAt: now,
+              }
             : { ...existing, done: false, doneAt: null, doneBy: null, doneByName: null, updatedAt: now };
         }
         const next = data.tasks.slice();
@@ -662,9 +687,12 @@ export function createTasksStore(dataDir: string, options: { clock: Clock }) {
           (task) => task.done && task.listId === listId && taskVisible(task, lists, viewer),
         );
         const mayRemove = (task: StoredTask) =>
-          viewer.isAdmin || task.owner === viewer.username || (list !== null && list.owner === viewer.username);
+          viewer.isAdmin ||
+          task.owner === viewer.username ||
+          (list !== null && list.owner === viewer.username);
         const doomed = new Set(scope.filter(mayRemove).map((task) => task.id));
-        if (doomed.size > 0) await write({ ...data, tasks: data.tasks.filter((task) => !doomed.has(task.id)) });
+        if (doomed.size > 0)
+          await write({ ...data, tasks: data.tasks.filter((task) => !doomed.has(task.id)) });
         return { removed: doomed.size, kept: scope.length - doomed.size };
       });
     },
@@ -747,7 +775,9 @@ export function createTasksStore(dataDir: string, options: { clock: Clock }) {
           .filter((task) => !(task.owner === username && task.private))
           .map((task) => {
             const base =
-              task.assignee === username ? { ...task, assignee: null, assigneeName: null, remindedFor: null } : task;
+              task.assignee === username
+                ? { ...task, assignee: null, assigneeName: null, remindedFor: null }
+                : task;
             return base.owner === username ? { ...base, owner: REMOVED_OWNER } : base;
           });
         const lists = data.lists
@@ -755,8 +785,11 @@ export function createTasksStore(dataDir: string, options: { clock: Clock }) {
           .map((list) => (list.owner === username ? { ...list, owner: REMOVED_OWNER } : list));
         await write({ tasks, lists });
         return {
-          deleted: mineTasks.filter((task) => task.private).length + mineLists.filter((list) => list.private).length,
-          kept: mineTasks.filter((task) => !task.private).length + mineLists.filter((list) => !list.private).length,
+          deleted:
+            mineTasks.filter((task) => task.private).length + mineLists.filter((list) => list.private).length,
+          kept:
+            mineTasks.filter((task) => !task.private).length +
+            mineLists.filter((list) => !list.private).length,
         };
       });
     },
@@ -783,7 +816,9 @@ function assertFreeName(
     throw new TaskError(
       409,
       'name_taken',
-      isPrivate ? 'У вас уже есть личный список с таким названием.' : 'Общий список с таким названием уже есть.',
+      isPrivate
+        ? 'У вас уже есть личный список с таким названием.'
+        : 'Общий список с таким названием уже есть.',
     );
   }
 }
@@ -795,6 +830,11 @@ export type TaskStore = ReturnType<typeof createTasksStore>;
  * of `query` (open ones first). A private task of another person is never among them, administrators
  * included.
  */
-export function searchTasks(store: TaskStore, viewer: Viewer, query: string, limit = 5): Promise<TaskSearchHit[]> {
+export function searchTasks(
+  store: TaskStore,
+  viewer: Viewer,
+  query: string,
+  limit = 5,
+): Promise<TaskSearchHit[]> {
   return store.searchTasks(viewer, query, limit);
 }

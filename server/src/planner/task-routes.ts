@@ -13,13 +13,7 @@ import { currentUser, type Guards } from '../auth/guards.ts';
 import { isDisabled, type UserStore } from '../auth/users.ts';
 import { sendError } from '../lib/http.ts';
 import { isRealDate } from './dates.ts';
-import {
-  checkListInput,
-  checkManyTitles,
-  checkTaskInput,
-  TaskError,
-  type TaskStore,
-} from './tasks.ts';
+import { checkListInput, checkManyTitles, checkTaskInput, TaskError, type TaskStore } from './tasks.ts';
 
 export interface TaskRouteDeps {
   tasks: TaskStore;
@@ -260,7 +254,8 @@ export function registerTaskRoutes(app: FastifyInstance, deps: TaskRouteDeps): v
     if (!params.success) return noList(reply);
     try {
       const result: ClearDoneResponse = await tasks.clearDone(writer(request), params.data.id);
-      if (result.removed > 0) await log(request, `Дела: убрано купленного и выполненного — ${result.removed}`);
+      if (result.removed > 0)
+        await log(request, `Дела: убрано купленного и выполненного — ${result.removed}`);
       return result;
     } catch (error) {
       return fail(reply, error);

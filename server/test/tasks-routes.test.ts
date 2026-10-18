@@ -93,7 +93,13 @@ describe('family tasks: access', () => {
       payload: 'title=%D0%A5%D0%BB%D0%B5%D0%B1',
     });
     expect(form.statusCode).toBe(415);
-    const crossSite = await post(t, mama, '/api/tasks', { title: 'Хлеб' }, { 'sec-fetch-site': 'cross-site' });
+    const crossSite = await post(
+      t,
+      mama,
+      '/api/tasks',
+      { title: 'Хлеб' },
+      { 'sec-fetch-site': 'cross-site' },
+    );
     expect(crossSite.statusCode).toBe(403);
     expect(await titlesOf(t, mama)).toEqual([]);
   });
@@ -184,7 +190,9 @@ describe('family tasks: adding and showing', () => {
     expect(await bad({ title: 'x', due: '2026-10-20', remindBefore: 99999 })).toContain('за неделю');
     expect(await bad({ title: 'x', assignee: 'nobody' })).toContain('Такого человека');
     expect(await bad({ title: 'x', private: true, assignee: 'son' })).toContain('Личное дело');
-    expect(await bad({ title: 'x', listId: '00000000-0000-4000-8000-000000000009' })).toContain('Такого списка');
+    expect(await bad({ title: 'x', listId: '00000000-0000-4000-8000-000000000009' })).toContain(
+      'Такого списка',
+    );
     expect(await bad({ title: 'я'.repeat(121) })).toContain('120');
     expect(await titlesOf(t, mama)).toEqual([]);
     expect((await post(t, mama, '/api/tasks/not-an-id/update', { title: 'x' })).statusCode).toBe(404);
@@ -196,7 +204,9 @@ describe('family tasks: adding and showing', () => {
     await post(t, mama, '/api/tasks', { title: 'Сегодня', due: '2026-10-16', dueTime: '18:00' });
     await post(t, mama, '/api/tasks', { title: 'Завтра', due: '2026-10-17' });
     await post(t, mama, '/api/tasks', { title: 'Без срока' });
-    const done = (await post(t, mama, '/api/tasks', { title: 'Сделано', due: '2026-10-16' })).json<TaskView>();
+    const done = (
+      await post(t, mama, '/api/tasks', { title: 'Сделано', due: '2026-10-16' })
+    ).json<TaskView>();
     await post(t, mama, `/api/tasks/${done.id}/done`, { done: true });
     const today = await tasksOf(t, mama, '?until=2026-10-16');
     expect(today.tasks.map((x) => x.title)).toEqual(['Вчера', 'Сегодня']);
@@ -208,7 +218,9 @@ describe('family tasks: adding and showing', () => {
   it('keeps the journal free of what the tasks say', async () => {
     const { t, mama, admin } = await setup();
     await post(t, mama, '/api/tasks', { title: 'СЕКРЕТНЫЙ-ПОДАРОК', private: true });
-    const list = (await post(t, mama, '/api/tasks/lists', { name: 'СЕКРЕТНЫЙ-СПИСОК', private: true })).json<TaskListView>();
+    const list = (
+      await post(t, mama, '/api/tasks/lists', { name: 'СЕКРЕТНЫЙ-СПИСОК', private: true })
+    ).json<TaskListView>();
     await post(t, mama, `/api/tasks/lists/${list.id}/rename`, { name: 'СЕКРЕТНЫЙ-СПИСОК-2' });
     await t.app.dashboard.audit.idle();
     const entries = (await get(t, admin, '/api/admin/audit?limit=50')).json<AuditResponse>().entries;
@@ -221,7 +233,9 @@ describe('family tasks: adding and showing', () => {
 describe('family tasks: privacy', () => {
   it('shows a private task and a private list to their author only — an administrator is no exception', async () => {
     const { t, mama, son, admin } = await setup();
-    const secret = (await post(t, mama, '/api/tasks', { title: 'Подарок папе', private: true })).json<TaskView>();
+    const secret = (
+      await post(t, mama, '/api/tasks', { title: 'Подарок папе', private: true })
+    ).json<TaskView>();
     const list = (
       await post(t, mama, '/api/tasks/lists', { name: 'Тайный список', kind: 'todo', private: true })
     ).json<TaskListView>();
@@ -273,7 +287,12 @@ describe('family tasks: who may change what', () => {
 
     const ticked = await post(t, son, `/api/tasks/${made.id}/done`, { done: true });
     expect(ticked.statusCode).toBe(200);
-    expect(ticked.json<TaskView>()).toMatchObject({ done: true, doneBy: 'son', doneByName: 'Сын', canEdit: false });
+    expect(ticked.json<TaskView>()).toMatchObject({
+      done: true,
+      doneBy: 'son',
+      doneByName: 'Сын',
+      canEdit: false,
+    });
     expect(ticked.json<TaskView>().doneAt).toBe(t.clock().toISOString());
     const unticked = await post(t, admin, `/api/tasks/${made.id}/done`, { done: false });
     expect(unticked.json<TaskView>()).toMatchObject({ done: false, doneBy: null, doneAt: null });
@@ -282,7 +301,11 @@ describe('family tasks: who may change what', () => {
     expect((await post(t, son, `/api/tasks/${made.id}/delete`)).statusCode).toBe(403);
     const edited = await post(t, admin, `/api/tasks/${made.id}/update`, { title: 'Вынести мусор до восьми' });
     expect(edited.statusCode).toBe(200);
-    expect(edited.json<TaskView>()).toMatchObject({ title: 'Вынести мусор до восьми', owner: 'mama', canEdit: true });
+    expect(edited.json<TaskView>()).toMatchObject({
+      title: 'Вынести мусор до восьми',
+      owner: 'mama',
+      canEdit: true,
+    });
     expect((await post(t, admin, `/api/tasks/${made.id}/delete`)).statusCode).toBe(204);
     expect(await titlesOf(t, mama)).toEqual([]);
     expect((await post(t, mama, `/api/tasks/${made.id}/delete`)).statusCode).toBe(404);
@@ -290,8 +313,13 @@ describe('family tasks: who may change what', () => {
 
   it('lets the person a task is given to change its done state only', async () => {
     const { t, mama, son } = await setup();
-    const made = (await post(t, mama, '/api/tasks', { title: 'Забрать посылку', assignee: 'son' })).json<TaskView>();
-    expect((await post(t, son, `/api/tasks/${made.id}/update`, { title: 'Забрать позже', assignee: 'son' })).statusCode).toBe(403);
+    const made = (
+      await post(t, mama, '/api/tasks', { title: 'Забрать посылку', assignee: 'son' })
+    ).json<TaskView>();
+    expect(
+      (await post(t, son, `/api/tasks/${made.id}/update`, { title: 'Забрать позже', assignee: 'son' }))
+        .statusCode,
+    ).toBe(403);
     expect((await post(t, son, `/api/tasks/${made.id}/done`, { done: true })).statusCode).toBe(200);
   });
 
@@ -300,11 +328,15 @@ describe('family tasks: who may change what', () => {
     const made = (
       await post(t, mama, '/api/tasks', { title: 'Оплатить счета', due: '2026-10-31', repeat: 'monthly' })
     ).json<TaskView>();
-    const first = (await post(t, son, `/api/tasks/${made.id}/done`, { done: true, occurrence: '2026-10-31' })).json<TaskView>();
+    const first = (
+      await post(t, son, `/api/tasks/${made.id}/done`, { done: true, occurrence: '2026-10-31' })
+    ).json<TaskView>();
     expect(first).toMatchObject({ done: false, due: '2026-11-30', lastDoneByName: 'Сын', canUndo: true });
     expect(first.lastDoneAt).toBe(t.clock().toISOString());
     // a second person who still saw the old date does not skip another month
-    const slow = (await post(t, mama, `/api/tasks/${made.id}/done`, { done: true, occurrence: '2026-10-31' })).json<TaskView>();
+    const slow = (
+      await post(t, mama, `/api/tasks/${made.id}/done`, { done: true, occurrence: '2026-10-31' })
+    ).json<TaskView>();
     expect(slow.due).toBe('2026-11-30');
     const back = (await post(t, mama, `/api/tasks/${made.id}/done`, { done: false })).json<TaskView>();
     expect(back).toMatchObject({ due: '2026-10-31', canUndo: false, lastDoneAt: null });
@@ -319,7 +351,10 @@ describe('family tasks: lists', () => {
     ).json<TaskListView>();
     expect(shop).toMatchObject({ name: 'Покупки', kind: 'shopping', private: false, canEdit: true });
 
-    const many = await post(t, son, '/api/tasks/many', { listId: shop.id, titles: ['молоко', '', ' хлеб ', 'яйца'] });
+    const many = await post(t, son, '/api/tasks/many', {
+      listId: shop.id,
+      titles: ['молоко', '', ' хлеб ', 'яйца'],
+    });
     expect(many.statusCode, many.body).toBe(201);
     const items = many.json<CreateManyTasksResponse>().tasks;
     expect(items.map((x) => [x.title, x.listId, x.owner])).toEqual([
@@ -335,7 +370,9 @@ describe('family tasks: lists', () => {
     expect(cleared.json<ClearDoneResponse>()).toEqual({ removed: 2, kept: 0 });
     expect(await titlesOf(t, son)).toEqual(['яйца']);
 
-    expect((await post(t, son, `/api/tasks/lists/${shop.id}/rename`, { name: 'Магазин' })).statusCode).toBe(403);
+    expect((await post(t, son, `/api/tasks/lists/${shop.id}/rename`, { name: 'Магазин' })).statusCode).toBe(
+      403,
+    );
     const renamed = await post(t, admin, `/api/tasks/lists/${shop.id}/rename`, { name: 'Магазин' });
     expect(renamed.json<TaskListView>().name).toBe('Магазин');
     expect((await post(t, son, `/api/tasks/lists/${shop.id}/delete`)).statusCode).toBe(403);
@@ -350,7 +387,10 @@ describe('family tasks: lists', () => {
     const one = (await post(t, mama, '/api/tasks', { title: 'раз' })).json<TaskView>();
     await post(t, mama, '/api/tasks', { title: 'два' });
     await post(t, mama, `/api/tasks/${one.id}/done`, { done: true });
-    expect((await post(t, mama, '/api/tasks/clear-done')).json<ClearDoneResponse>()).toEqual({ removed: 1, kept: 0 });
+    expect((await post(t, mama, '/api/tasks/clear-done')).json<ClearDoneResponse>()).toEqual({
+      removed: 1,
+      kept: 0,
+    });
     expect(await titlesOf(t, mama)).toEqual(['два']);
   });
 
@@ -359,19 +399,30 @@ describe('family tasks: lists', () => {
     const empty = await post(t, mama, '/api/tasks/lists', { name: '   ' });
     expect(empty.statusCode).toBe(400);
     expect(empty.json<ApiError>().message).toContain('название');
-    const shop = (await post(t, mama, '/api/tasks/lists', { name: 'Покупки', kind: 'shopping' })).json<TaskListView>();
+    const shop = (
+      await post(t, mama, '/api/tasks/lists', { name: 'Покупки', kind: 'shopping' })
+    ).json<TaskListView>();
     const twice = await post(t, son, '/api/tasks/lists', { name: 'покупки' });
     expect(twice.statusCode).toBe(409);
     expect(twice.json<ApiError>().message).toContain('уже есть');
 
-    expect((await post(t, mama, '/api/tasks/many', { listId: shop.id, titles: [' ', ''] })).statusCode).toBe(400);
+    expect((await post(t, mama, '/api/tasks/many', { listId: shop.id, titles: [' ', ''] })).statusCode).toBe(
+      400,
+    );
     const tooMany = await post(t, mama, '/api/tasks/many', {
       listId: shop.id,
       titles: Array.from({ length: 51 }, (_, i) => `п ${i}`),
     });
     expect(tooMany.statusCode).toBe(400);
     expect(tooMany.json<ApiError>().message).toContain('50');
-    expect((await post(t, mama, '/api/tasks/many', { listId: '00000000-0000-4000-8000-000000000009', titles: ['x'] })).statusCode).toBe(404);
+    expect(
+      (
+        await post(t, mama, '/api/tasks/many', {
+          listId: '00000000-0000-4000-8000-000000000009',
+          titles: ['x'],
+        })
+      ).statusCode,
+    ).toBe(404);
     expect((await post(t, mama, '/api/tasks/lists/not-an-id/rename', { name: 'x' })).statusCode).toBe(404);
     expect(await titlesOf(t, mama)).toEqual([]);
   });
@@ -474,7 +525,14 @@ describe('family tasks: reminders', () => {
       JSON.stringify({
         version: 1,
         prefs: {
-          [mamaUser.id]: { messages: false, calls: true, downloads: true, alerts: false, print: true, previews: true },
+          [mamaUser.id]: {
+            messages: false,
+            calls: true,
+            downloads: true,
+            alerts: false,
+            print: true,
+            previews: true,
+          },
         },
         feed: {},
         subs: {},

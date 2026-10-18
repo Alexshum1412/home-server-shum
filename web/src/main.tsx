@@ -6,6 +6,7 @@ import './styles/components.css';
 import './styles/pages.css';
 import './styles/chat.css';
 import './styles/cinema.css';
+import './styles/tasks.css';
 import { render } from 'preact';
 import { App } from './app.tsx';
 import { applyTheme } from './lib/theme.ts';
