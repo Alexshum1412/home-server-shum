@@ -18,6 +18,7 @@ const dataDir = mkdtempSync(join(tmpdir(), `family-dashboard-e2e-${mode}-`));
 // «cinema» is the real mode plus a stand-in for Jellyfin (fake data, a generated test video): the
 // catalogue page is checked against it. Every other mode never reaches any Jellyfin.
 const fakeJellyfinPort = 8097;
+const fakeAria2Port = 8098;
 if (mode === 'cinema') {
   const { startFakeJellyfin, FAKE_KEY } = await import('./fake-jellyfin.mjs');
   await startFakeJellyfin({
@@ -37,6 +38,19 @@ if (mode === 'cinema') {
       : service,
   );
   writeFileSync(join(dataDir, 'services.json'), JSON.stringify({ version: 1, services }, null, 2));
+  // The torrent client is a stand-in too: it moves a download forward every time the portal looks.
+  const { startFakeAria2 } = await import('../../server/test/fixtures/fake-aria2.ts');
+  const { makeTorrent } = await import('../../server/test/fixtures/torrent-builder.ts');
+  const { E2E_TORRENT } = await import('./torrent-fixture.ts');
+  const secret = 'e'.repeat(64);
+  writeFileSync(join(dataDir, 'aria2-rpc.json'), JSON.stringify({ secret }));
+  const sample = makeTorrent(E2E_TORRENT);
+  await startFakeAria2({
+    secret,
+    port: fakeAria2Port,
+    autoAdvance: true,
+    metadata: [{ infoHash: sample.infoHash, torrent: sample.bytes }],
+  });
 }
 const env = {
   ...process.env,
@@ -46,6 +60,9 @@ const env = {
   DASHBOARD_DEMO: mode === 'demo' ? '1' : '0',
   // Never the real Jellyfin of this PC (a test data folder has no key for it anyway).
   JELLYFIN_URL: mode === 'cinema' ? `http://127.0.0.1:${fakeJellyfinPort}` : 'http://127.0.0.1:8099',
+  // The torrent client of the cinema mode is the stand-in below; nobody else reaches a real one.
+  TORRENT_RPC_URL: `http://127.0.0.1:${mode === 'cinema' ? fakeAria2Port : 8100}/jsonrpc`,
+  TORRENT_HOME: join(dataDir, 'no-torrent-client'),
   LOG_LEVEL: 'warn',
   LAN_URL: '',
   // No real printer for tests.

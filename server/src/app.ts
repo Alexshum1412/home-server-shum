@@ -1,4 +1,4 @@
-import { promises as fsp } from 'node:fs';
+import { existsSync, promises as fsp } from 'node:fs';
 import path from 'node:path';
 import fastifyCookie from '@fastify/cookie';
 import Fastify, {
@@ -23,8 +23,10 @@ import { registerChatRoutes } from './chat/routes.ts';
 import { type ChatService, createChatService } from './chat/service.ts';
 import { createChatStore } from './chat/store.ts';
 import type { Config } from './config.ts';
+import { createAria2, ensureAria2Secret } from './downloads/aria2.ts';
 import { createDownloadManager, type DownloadManager, statfsFree } from './downloads/manager.ts';
 import { registerDownloadRoutes } from './downloads/routes.ts';
+import { createTorrentManager, type TorrentManager } from './downloads/torrents.ts';
 import { registerFileRoutes } from './files/routes.ts';
 import { createStorage } from './files/storage.ts';
 import { createJellyfinClient } from './jellyfin/client.ts';
@@ -40,6 +42,8 @@ import { createNotificationCenter, type NotificationCenter } from './notify/cent
 import { registerNotifyRoutes } from './notify/routes.ts';
 import type { PushFetch } from './notify/webpush.ts';
 import type { ActionDeps } from './olivia/actions.ts';
+import { createAssistant } from './olivia/assistant/assistant.ts';
+import { registerAssistantRoutes } from './olivia/assistant/routes.ts';
 import type { LlmFetch } from './olivia/llm.ts';
 import { registerOliviaRoutes } from './olivia/routes.ts';
 import { createCalendarStore } from './planner/calendar.ts';
@@ -111,6 +115,7 @@ export interface AppContext {
   collector: SystemCollector;
   guards: Guards;
   downloads: DownloadManager;
+  torrents: TorrentManager;
   hub: RealtimeHub;
   notify: NotificationCenter;
   chat: ChatService;
@@ -146,6 +151,12 @@ export interface BuildAppOptions {
   oliviaLlmFetch?: LlmFetch;
   /** How long a call rings and how often absent people are dropped (tests make this fast). */
   callTimings?: { ringMs?: number; checkMs?: number };
+  /** Replaces the calls to the torrent client (tests). */
+  torrentFetch?: typeof fetch;
+  /** Tells the portal whether the torrent client program exists on this PC (tests). */
+  torrentClientInstalled?: () => boolean;
+  /** Resolves tracker host names (tests). */
+  resolveTrackerHost?: (host: string) => Promise<string[]>;
   /** Replaces the call to Jellyfin made by the cinema page (tests). */
   jellyfinFetch?: typeof fetch;
   /** Replaces the call to the browsers' push services (tests). */
@@ -371,6 +382,14 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
       )
       .catch(() => undefined);
   };
+  const recordDownloadEvent = (event: {
+    action: 'download.add' | 'download.done' | 'download.fail' | 'download.cancel';
+    actor: string;
+    detail: string;
+  }): void => {
+    void audit.write({ action: event.action, actor: event.actor, ip: null, detail: event.detail });
+    tellOwner(event);
+  };
   const downloads = createDownloadManager({
     dataDir: config.dataDir,
     filesRoot: config.filesDir,
@@ -380,11 +399,58 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     allowAddress: options.downloadAllowAddress,
     freeBytes: options.freeBytes,
     log: (message) => log.warn(message),
-    onEvent: (event) => {
-      void audit.write({ action: event.action, actor: event.actor, ip: null, detail: event.detail });
-      tellOwner(event);
-    },
+    onEvent: recordDownloadEvent,
   });
+  const progress = createProgressStore({
+    dataDir: config.dataDir,
+    clock,
+    onError: (message) => log.warn(message),
+  });
+  await progress.load();
+  // The key is read from the file made by scripts\jellyfin-setup.cmd; a re-read every half minute
+  // follows a regenerated key without a restart.
+  let keyRead = { at: 0, value: null as string | null };
+  const jellyfin = createJellyfinClient({
+    baseUrl: config.jellyfinUrl,
+    apiKey: () => {
+      if (Date.now() - keyRead.at > 30_000) {
+        keyRead = {
+          at: Date.now(),
+          value: readJellyfinApiKey(path.join(config.dataDir, 'jellyfin-api.json')),
+        };
+      }
+      return keyRead.value;
+    },
+    fetch: options.jellyfinFetch,
+  });
+  const aria2Secret = await ensureAria2Secret(config.dataDir).catch((error: unknown) => {
+    log.warn(`Ключ торрент-клиента не создан: ${(error as Error).message}`);
+    return null;
+  });
+  const torrents = createTorrentManager({
+    dataDir: config.dataDir,
+    filesRoot: config.filesDir,
+    mediaRoot: config.mediaDir,
+    aria2: createAria2({
+      url: config.torrent.rpcUrl,
+      secret: () => aria2Secret,
+      fetch: options.torrentFetch,
+    }),
+    metadataDir: path.join(config.dataDir, 'torrent-meta'),
+    maxBytes: config.downloadMaxFileBytes,
+    minFreeBytes: config.minFreeBytes,
+    seedRatio: config.torrent.seedRatio,
+    uploadLimitKb: config.torrent.uploadLimitKb,
+    clientInstalled:
+      options.torrentClientInstalled ?? (() => existsSync(path.join(config.torrent.home, 'aria2c.exe'))),
+    freeBytes,
+    clock,
+    onEvent: recordDownloadEvent,
+    onLibraryChanged: () => jellyfin.refreshLibrary(),
+    resolveHost: options.resolveTrackerHost,
+    log: (message) => log.warn(message),
+  });
+  await torrents.load();
   const context: AppContext = {
     config,
     clock,
@@ -399,6 +465,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     collector,
     guards,
     downloads,
+    torrents,
     hub,
     notify,
     chat,
@@ -556,28 +623,6 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     freeBytes,
   });
   const calendar = createCalendarStore(config.dataDir, { clock });
-  const progress = createProgressStore({
-    dataDir: config.dataDir,
-    clock,
-    onError: (message) => log.warn(message),
-  });
-  await progress.load();
-  // The key is read from the file made by scripts\jellyfin-setup.cmd; a re-read every half minute
-  // follows a regenerated key without a restart.
-  let keyRead = { at: 0, value: null as string | null };
-  const jellyfin = createJellyfinClient({
-    baseUrl: config.jellyfinUrl,
-    apiKey: () => {
-      if (Date.now() - keyRead.at > 30_000) {
-        keyRead = {
-          at: Date.now(),
-          value: readJellyfinApiKey(path.join(config.dataDir, 'jellyfin-api.json')),
-        };
-      }
-      return keyRead.value;
-    },
-    fetch: options.jellyfinFetch,
-  });
   const retireAccount = async (username: string, userId: string): Promise<string> => {
     progress.forget(userId);
     await calls.dropUser(userId);
@@ -606,7 +651,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     calls,
     retireAccount,
   });
-  registerDownloadRoutes(app, { config, clock, guards, downloads });
+  registerDownloadRoutes(app, { config, clock, guards, downloads, torrents });
   registerNotifyRoutes(app, { guards, hub, center: notify, sessions, audit });
   registerChatRoutes(app, { chat, guards, audit, clock });
   registerCallRoutes(app, { calls, guards, audit, clock });
@@ -649,11 +694,31 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     actionDeps: options.oliviaActionDeps,
     llmFetch: options.oliviaLlmFetch,
   });
+  registerAssistantRoutes(app, {
+    config,
+    clock,
+    guards,
+    audit,
+    assistant: createAssistant({
+      config,
+      clock,
+      registry,
+      collector,
+      catalog: jellyfin,
+      progress,
+      downloads,
+      torrents,
+      calendar,
+      llm: config.oliviaLlm,
+      llmFetch: options.oliviaLlmFetch ?? fetch,
+    }),
+  });
   await registerStatic(app, webRoot);
 
   // --- lifecycle ----------------------------------------------------------------------------
   app.addHook('onClose', async () => {
     calls.stop();
+    torrents.stop();
     hub.closeAll();
     registry.stop();
     collector.stop();
@@ -671,6 +736,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
       registry.start();
       collector.start();
       await downloads.load();
+      torrents.start();
     });
   }
 

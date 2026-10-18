@@ -1,0 +1,33 @@
+{
+  "_comment": "Pinned third-party components for scripts/install-component.ps1. A download is refused when the size or the SHA-256 differs. sha256 null = not pinned yet: the script refuses to install (pin it after checking the file against the release page).",
+  "aria2": {
+    "title": "aria2 1.37.0 (торрент-клиент)",
+    "kind": "zip",
+    "url": "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip",
+    "sizeBytes": 2475379,
+    "sha256": null,
+    "destination": "apps\\aria2",
+    "mainFile": "aria2c.exe",
+    "licence": "GPL-2.0-or-later"
+  },
+  "llama": {
+    "title": "llama.cpp b11717, сборка для процессора (запуск локальной модели)",
+    "kind": "zip",
+    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11717/llama-b11717-bin-win-cpu-x64.zip",
+    "sizeBytes": 19662390,
+    "sha256": "ccb5971d01c039bb90ff90957678adada36b9eba639f2e6d6697a09fc75a1404",
+    "destination": "apps\\llama",
+    "mainFile": "llama-server.exe",
+    "licence": "MIT"
+  },
+  "model": {
+    "title": "Qwen2.5-1.5B-Instruct, квантование Q4_K_M (языковая модель Оливии)",
+    "kind": "file",
+    "url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+    "sizeBytes": 1117320736,
+    "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+    "destination": "data\\models",
+    "mainFile": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+    "licence": "Apache-2.0"
+  }
+}

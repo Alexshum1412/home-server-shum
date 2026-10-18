@@ -22,6 +22,7 @@ import { LoginPage } from './pages/Login.tsx';
 import { NotesPage } from './pages/Notes.tsx';
 import { NotFoundPage } from './pages/NotFound.tsx';
 import { NotificationsPage } from './pages/Notifications.tsx';
+import { OliviaPage } from './pages/Olivia.tsx';
 import { PhotosPage } from './pages/Photos.tsx';
 import { PrintPage } from './pages/Print.tsx';
 import { SystemPage } from './pages/System.tsx';
@@ -44,6 +45,8 @@ function Page(props: { route: RouteId; onSessionChanged: (session: SessionRespon
       return <ChatPage />;
     case 'notifications':
       return <NotificationsPage />;
+    case 'olivia':
+      return <OliviaPage />;
     case 'photos':
       return <PhotosPage />;
     case 'files':

@@ -114,6 +114,8 @@ export interface JellyfinClient {
     id: string,
     resume: (id: string) => Resume | undefined,
   ): Promise<Omit<CatalogDetailResponse, 'jellyfinUrl'>>;
+  /** Asks Jellyfin to look for new files now (after a download into the media library). */
+  refreshLibrary(): Promise<void>;
   /** The picture of an item (a poster), as a ready response to pass on. */
   image(id: string, width: number): Promise<Response>;
   /** The media file as it is on disk, for a browser that can play it; honours a Range header. */
@@ -189,7 +191,12 @@ export function createJellyfinClient(settings: JellyfinSettings): JellyfinClient
 
   async function call(
     path: string,
-    init: { headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number | null } = {},
+    init: {
+      method?: string;
+      headers?: Record<string, string>;
+      signal?: AbortSignal;
+      timeoutMs?: number | null;
+    } = {},
   ): Promise<Response> {
     const key = settings.apiKey();
     if (!key) {
@@ -205,6 +212,7 @@ export function createJellyfinClient(settings: JellyfinSettings): JellyfinClient
     let response: Response;
     try {
       response = await doFetch(`${settings.baseUrl}${path}`, {
+        method: init.method ?? 'GET',
         headers: { Authorization: `MediaBrowser Token="${key}"`, ...init.headers },
         signal: signals.length > 0 ? AbortSignal.any(signals) : undefined,
       });
@@ -396,6 +404,10 @@ export function createJellyfinClient(settings: JellyfinSettings): JellyfinClient
         media,
         children,
       };
+    },
+
+    async refreshLibrary() {
+      await call('/Library/Refresh', { method: 'POST' });
     },
 
     async image(id, width) {

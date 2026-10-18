@@ -14,6 +14,7 @@ import {
   Printer,
   ShieldCheck,
   Smartphone,
+  Sparkles,
   UserRound,
 } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
@@ -45,6 +46,7 @@ const PRIMARY: readonly NavItem[] = [
 
 /** Under «Ещё» on phones. */
 const SECONDARY: readonly NavItem[] = [
+  { path: '/olivia', label: 'Оливия', icon: Sparkles },
   { path: '/notifications', label: 'Уведомления', icon: Bell },
   { path: '/calendar', label: 'Календарь', icon: CalendarDays },
   { path: '/notes', label: 'Заметки', icon: NotebookPen },

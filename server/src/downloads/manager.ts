@@ -29,7 +29,9 @@ const CHECK_TTL_MS = 10 * 60_000;
 const SPACE_CHECK_EVERY_BYTES = 16 * 1024 * 1024;
 export const MAX_TASKS_PER_USER = 20;
 
-export interface StoredTask extends DownloadTaskView {
+/** What is kept on disk; the view adds what is the same for every link download (kind, folder label). */
+export interface StoredTask
+  extends Omit<DownloadTaskView, 'kind' | 'torrent' | 'destinationLabel' | 'inLibrary'> {
   /** Final file path once completed (inside the owner's folder). */
   filePath: string | null;
   etag: string | null;
@@ -313,7 +315,13 @@ export function createDownloadManager(options: DownloadManagerOptions) {
 
   function visible(task: StoredTask): DownloadTaskView {
     const { filePath: _f, etag: _e, lastModified: _l, ...view } = task;
-    return view;
+    return {
+      ...view,
+      kind: 'link',
+      torrent: null,
+      destinationLabel: 'Файлы → Личное → Загрузки',
+      inLibrary: false,
+    };
   }
 
   async function add(owner: string, checkId: string): Promise<DownloadTaskView> {

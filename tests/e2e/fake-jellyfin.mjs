@@ -234,6 +234,10 @@ export async function startFakeJellyfin(options) {
     if (req.headers.authorization !== `MediaBrowser Token="${key}"`) return json({ error: 'no' }, 401);
     const q = url.searchParams;
     if (url.pathname === '/System/Info') return json({ Version: 'fake' });
+    if (url.pathname === '/Library/Refresh' && req.method === 'POST') {
+      res.writeHead(204);
+      return res.end();
+    }
     if (url.pathname === '/Library/MediaFolders') {
       return json({
         Items: [

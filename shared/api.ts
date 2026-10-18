@@ -417,6 +417,12 @@ export type RefreshResponse = ServicesResponse;
 
 export type DownloadState = 'queued' | 'downloading' | 'paused' | 'completed' | 'failed' | 'canceled';
 
+/** A direct link (the portal's own queue) or a torrent (through the torrent client on this PC). */
+export type DownloadKind = 'link' | 'torrent';
+
+/** Where a finished download is put. */
+export type DownloadDestination = 'personal' | 'movies' | 'series' | 'cartoons' | 'music';
+
 export interface DownloadTaskView {
   id: string;
   /** Login of the family member who added it. */
@@ -435,6 +441,23 @@ export interface DownloadTaskView {
   completedAt: string | null;
   /** Bytes per second over the last second, while downloading. */
   speedBps: number | null;
+  kind: DownloadKind;
+  /** Torrents only: sending out, peers and the time left (null when it cannot be told honestly). */
+  torrent: {
+    seeding: boolean;
+    uploadedBytes: number;
+    uploadSpeedBps: number | null;
+    seeders: number | null;
+    connections: number | null;
+    etaSec: number | null;
+    /** Ratio sent / received; the client stops sharing at TORRENT_SEED_RATIO. */
+    ratio: number | null;
+    fileCount: number;
+  } | null;
+  /** Where the files go, in words («Файлы → Личное → Загрузки», «Общая медиатека → Фильмы»). */
+  destinationLabel: string;
+  /** The finished files are in the shared media library (Jellyfin was asked to look for them). */
+  inLibrary: boolean;
 }
 
 /** GET /api/downloads — own tasks (admins: everyone's). */
@@ -445,6 +468,7 @@ export interface DownloadsResponse {
   limits: { maxFileBytes: number; minFreeBytes: number; freeBytes: number | null };
   /** Where the files of this user land, in words: «Файлы → Личное → Загрузки». */
   folderLabel: string;
+  torrentEngine: TorrentEngineView;
 }
 
 /**
@@ -455,6 +479,11 @@ export interface DownloadsResponse {
  */
 export interface DownloadCheckResponse {
   checkId: string;
+  kind: DownloadKind;
+  /** A magnet link needs a moment to learn what it contains: poll GET /api/downloads/check/:id. */
+  status: 'ready' | 'pending' | 'failed';
+  /** Russian reason when `status` is failed. */
+  error: string | null;
   url: string;
   host: string;
   fileName: string;
@@ -462,6 +491,20 @@ export interface DownloadCheckResponse {
   contentType: string | null;
   /** The site supports pause/resume. */
   resumable: boolean;
+  /** Torrent: what is inside, and what will not be downloaded (programs and scripts). */
+  files: Array<{ path: string; sizeBytes: number; skipped: boolean }>;
+  /** Torrent: the number of files and the size that will really be downloaded. */
+  willDownload: { files: number; sizeBytes: number } | null;
+  /** The places the person may choose for the result. */
+  destinations: Array<{ id: DownloadDestination; label: string }>;
+}
+
+/** The state of the torrent client on this PC, in plain words. */
+export interface TorrentEngineView {
+  state: 'ok' | 'down' | 'not_installed';
+  message: string;
+  /** What to do, Russian; null when everything is fine. */
+  hint: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1009,4 +1052,39 @@ export interface CatalogProgressRequest {
   id: string;
   positionSec: number;
   durationSec: number;
+}
+
+// ---------------------------------------------------------------------------------------------
+// «Оливия» for the whole family: a helper that finds, shows and explains — never acts alone
+// ---------------------------------------------------------------------------------------------
+
+/** POST /api/olivia/ask */
+export interface OliviaAskRequest {
+  message: string;
+}
+
+export type OliviaCard =
+  | { kind: 'link'; label: string; href: string }
+  | { kind: 'media'; item: CatalogItem; href: string }
+  | { kind: 'file'; name: string; where: string; sizeBytes: number | null; href: string; isFolder: boolean }
+  | { kind: 'task'; task: DownloadTaskView }
+  /** A download she prepared; it starts only when the person presses the button. */
+  | { kind: 'download-check'; check: DownloadCheckResponse }
+  | { kind: 'event'; when: string; title: string };
+
+export interface OliviaAnswer {
+  reply: string;
+  /** Who understood the question: the local language model, or the built-in rules. */
+  via: 'model' | 'rules';
+  /** What she did to answer (for the person's trust and for tests), e.g. «search_media». */
+  tool: string;
+  cards: OliviaCard[];
+  /** Why the model was not used, when it is set up but did not help. */
+  note: string | null;
+}
+
+/** GET /api/olivia/status — can she be asked, and with what. */
+export interface OliviaStatusResponse {
+  enabled: boolean;
+  model: { configured: boolean; reachable: boolean; name: string | null; message: string };
 }

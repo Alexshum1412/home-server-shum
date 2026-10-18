@@ -49,6 +49,15 @@ export interface Config {
   readonly mediaDir: string;
   /** Jellyfin on this PC, read by the cinema page (loopback only). */
   readonly jellyfinUrl: string;
+  /** The torrent client (aria2) on this PC: its RPC address (loopback only), its folder and sharing limits. */
+  readonly torrent: {
+    readonly rpcUrl: string;
+    readonly home: string;
+    /** Stop sharing a finished torrent when this much has been sent compared with what was received. */
+    readonly seedRatio: number;
+    /** Upload limit, KB/s: the home connection must stay usable. */
+    readonly uploadLimitKb: number;
+  };
   /** Family chat: messages, attachments (part of the daily backup). */
   readonly chatDir: string;
   readonly chatMaxAttachmentBytes: number;
@@ -120,6 +129,10 @@ const schema = z.object({
   FAMILY_PHOTOS_DIR: z.string().min(1),
   MEDIA_DIR: z.string().min(1),
   JELLYFIN_URL: z.string(),
+  TORRENT_RPC_URL: z.string(),
+  TORRENT_HOME: z.string().min(1),
+  TORRENT_SEED_RATIO: z.coerce.number().min(0).max(20),
+  TORRENT_UPLOAD_LIMIT_KB: z.coerce.number().int().min(10).max(100_000),
   CHAT_DIR: z.string().min(1),
   CHAT_MAX_FILE_MB: z.coerce.number().min(1).max(10_000),
   CALLS_STUN_URLS: z.string(),
@@ -233,6 +246,15 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     FAMILY_PHOTOS_DIR: pick('FAMILY_PHOTOS_DIR', defaultFamilyDir(env, platform, 'Photos')),
     MEDIA_DIR: pick('MEDIA_DIR', defaultFamilyDir(env, platform, 'Media')),
     JELLYFIN_URL: pick('JELLYFIN_URL', 'http://127.0.0.1:8096'),
+    TORRENT_RPC_URL: pick('TORRENT_RPC_URL', 'http://127.0.0.1:6800/jsonrpc'),
+    TORRENT_HOME: pick(
+      'TORRENT_HOME',
+      platform === 'win32'
+        ? `${systemDrive(env)}\\FamilyServer\\apps\\aria2`
+        : path.join(os.homedir(), '.family-data', 'aria2'),
+    ),
+    TORRENT_SEED_RATIO: pick('TORRENT_SEED_RATIO', '1'),
+    TORRENT_UPLOAD_LIMIT_KB: pick('TORRENT_UPLOAD_LIMIT_KB', '500'),
     CHAT_DIR: pick('CHAT_DIR', defaultFamilyDir(env, platform, 'Chat')),
     CHAT_MAX_FILE_MB: pick('CHAT_MAX_FILE_MB', '200'),
     CALLS_STUN_URLS: env.CALLS_STUN_URLS?.trim() ?? '',
@@ -301,6 +323,14 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     photosDir: path.resolve(v.FAMILY_PHOTOS_DIR),
     mediaDir: path.resolve(v.MEDIA_DIR),
     jellyfinUrl,
+    torrent: Object.freeze({
+      rpcUrl:
+        parseLoopbackUrl('TORRENT_RPC_URL', v.TORRENT_RPC_URL, 'http://127.0.0.1:6800/jsonrpc') ??
+        'http://127.0.0.1:6800/jsonrpc',
+      home: path.resolve(v.TORRENT_HOME),
+      seedRatio: v.TORRENT_SEED_RATIO,
+      uploadLimitKb: v.TORRENT_UPLOAD_LIMIT_KB,
+    }),
     chatDir: path.resolve(v.CHAT_DIR),
     chatMaxAttachmentBytes: Math.round(v.CHAT_MAX_FILE_MB * 1024 ** 2),
     calls: Object.freeze({

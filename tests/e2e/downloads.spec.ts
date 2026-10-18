@@ -6,7 +6,7 @@ test.describe('downloads', () => {
     await signIn(page, 'family', '/downloads');
     await expect(page.getByRole('heading', { level: 1, name: 'Загрузки' })).toBeVisible();
     await expect(page.getByText('Загрузки доступны по разрешению администратора')).toBeVisible();
-    await expect(page.getByLabel('Прямая ссылка на файл')).toHaveCount(0);
+    await expect(page.getByLabel('Ссылка на файл или магнитная ссылка')).toHaveCount(0);
     const res = await page.request.post('/api/downloads/check', {
       data: { url: 'https://example.com/a.pdf' },
     });
@@ -17,13 +17,13 @@ test.describe('downloads', () => {
     page,
   }) => {
     await signIn(page, 'admin', '/downloads');
-    const field = page.getByLabel('Прямая ссылка на файл');
+    const field = page.getByLabel('Ссылка на файл или магнитная ссылка');
     await field.fill('http://127.0.0.1:8071/api/health');
-    await page.getByRole('button', { name: 'Проверить ссылку' }).click();
+    await page.getByRole('button', { name: 'Проверить' }).click();
     await expect(page.getByRole('alert').filter({ hasText: 'внутрь домашней сети' })).toBeVisible();
 
     await field.fill('ftp://example.com/file.iso');
-    await page.getByRole('button', { name: 'Проверить ссылку' }).click();
+    await page.getByRole('button', { name: 'Проверить' }).click();
     await expect(page.getByRole('alert').filter({ hasText: 'только ссылки http' })).toBeVisible();
     await expect(page.getByText('Скачать этот файл?')).toHaveCount(0);
   });

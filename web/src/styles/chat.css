@@ -1020,3 +1020,120 @@ button.people__row:hover:not(:disabled) {
   color: var(--c-text-muted);
   font-weight: var(--fw-regular);
 }
+
+/* --- «Оливия» ------------------------------------------------------------------------------------- */
+
+.olivia {
+  display: grid;
+  gap: var(--sp-4);
+}
+
+.olivia__log {
+  display: grid;
+  gap: var(--sp-3);
+  align-content: start;
+  min-height: 14rem;
+  max-height: calc(var(--viewport-h) - 26rem);
+  padding: var(--sp-4);
+  overflow-y: auto;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  background: var(--c-surface);
+}
+
+.olivia-turn {
+  display: grid;
+  gap: var(--sp-2);
+  max-width: 44rem;
+}
+
+.olivia-turn--me {
+  justify-self: end;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-lg);
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+.olivia-turn__who {
+  color: var(--c-text-muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+}
+
+.olivia-turn--me .olivia-turn__who {
+  color: var(--c-on-accent);
+}
+
+.olivia-turn__text {
+  white-space: pre-line;
+}
+
+.olivia-turn__cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+
+.olivia-turn--wait {
+  color: var(--c-text-muted);
+}
+
+.olivia-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface-2);
+  color: inherit;
+  text-decoration: none;
+}
+
+a.olivia-card:hover {
+  border-color: var(--c-accent);
+}
+
+.olivia-card--poster {
+  width: 8rem;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.olivia-card--check {
+  display: grid;
+  width: min(30rem, 100%);
+}
+
+.olivia-card--event {
+  gap: var(--sp-2);
+}
+
+.olivia-card__text {
+  display: grid;
+  min-width: 0;
+}
+
+.olivia-card__title {
+  font-weight: var(--fw-semibold);
+  overflow-wrap: anywhere;
+}
+
+.olivia__form {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.olivia__input {
+  flex: 1;
+  min-width: 0;
+}
+
+fieldset.chips--set {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

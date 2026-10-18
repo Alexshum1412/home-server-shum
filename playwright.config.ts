@@ -27,7 +27,7 @@ export default defineConfig({
   projects: [
     {
       name: 'real',
-      testIgnore: /(demo|chat|calls|cinema)\.spec\.ts/,
+      testIgnore: /(demo|chat|calls|cinema|torrents|olivia-assistant)\.spec\.ts/,
       use: { baseURL: 'http://127.0.0.1:8071' },
     },
     // Chat and calls run one after the other, after everything else: both hold several browser
@@ -45,7 +45,11 @@ export default defineConfig({
       use: { baseURL: 'http://127.0.0.1:8071' },
     },
     { name: 'demo', testMatch: /demo\.spec\.ts/, use: { baseURL: 'http://127.0.0.1:8072' } },
-    { name: 'cinema', testMatch: /cinema\.spec\.ts/, use: { baseURL: 'http://127.0.0.1:8073' } },
+    {
+      name: 'cinema',
+      testMatch: /(cinema|torrents|olivia-assistant)\.spec\.ts/,
+      use: { baseURL: 'http://127.0.0.1:8073' },
+    },
   ],
   webServer: [
     {
