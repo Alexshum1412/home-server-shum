@@ -338,9 +338,33 @@ export interface UsersResponse {
       /** Still has the generated first-sign-in password (expires at passwordExpiresAt). */
       temporaryPassword: boolean;
       passwordExpiresAt: string | null;
+      /** Switched off by an administrator: cannot sign in, every session is closed. */
+      disabled: boolean;
+      /** Open sessions (devices) of the person. */
+      sessions: number;
     }
   >;
 }
+
+/** One sign-in (a device) of the signed-in person. */
+export interface SessionInfo {
+  /** Opaque id to revoke it with. */
+  id: string;
+  /** «Chrome · Windows», «Safari · iPhone». */
+  label: string;
+  createdAt: string;
+  lastSeenAt: string;
+  /** The one that made this request. */
+  current: boolean;
+}
+
+/** GET /api/sessions */
+export interface SessionsResponse {
+  sessions: SessionInfo[];
+}
+
+/** POST /api/sessions/revoke — one device by id, or every other device. */
+export type RevokeSessionRequest = { id: string } | { others: true };
 
 /**
  * POST /api/admin/users (admin only) — creates an account. The password is always generated: the
@@ -705,4 +729,284 @@ export interface SaveNoteResponse {
   name: string;
   revision: string;
   modifiedAt: string;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Family chat, calls and notifications
+// ---------------------------------------------------------------------------------------------
+
+export interface ChatPerson {
+  id: string;
+  displayName: string;
+}
+
+export type ChatAttachmentKind = 'image' | 'video' | 'audio' | 'file';
+
+export interface ChatAttachment {
+  name: string;
+  sizeBytes: number;
+  mime: string;
+  kind: ChatAttachmentKind;
+}
+
+/** Text made by the server for events in a chat (joins, calls); never typed by a person. */
+export type ChatSystemKind =
+  | 'created'
+  | 'member-added'
+  | 'member-left'
+  | 'member-removed'
+  | 'call'
+  /** A call nobody answered: the only call line that counts as unread. */
+  | 'call-missed';
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  /** Position in the conversation, 1, 2, 3 … */
+  seq: number;
+  at: string;
+  /** null — a system message. */
+  senderId: string | null;
+  senderName: string;
+  /** Empty for a deleted message. */
+  text: string;
+  attachment: ChatAttachment | null;
+  deleted: boolean;
+  system: ChatSystemKind | null;
+  /** The sender's own id for this message (only the sender gets it back); lets the page match its draft. */
+  clientId: string | null;
+}
+
+/** family — one room for everybody; direct — two people; group — chosen people. */
+export type ChatKind = 'family' | 'direct' | 'group';
+
+export interface ChatConversation {
+  id: string;
+  kind: ChatKind;
+  /** Name of the group, or the other person for a direct chat. */
+  title: string;
+  members: ChatPerson[];
+  ownerId: string | null;
+  unread: number;
+  updatedAt: string;
+  last: { at: string; preview: string; senderName: string } | null;
+  /** Position up to which each member has read (for «прочитано»). */
+  reads: Record<string, number>;
+  canManage: boolean;
+}
+
+/** GET /api/chat/conversations */
+export interface ChatListResponse {
+  me: ChatPerson;
+  conversations: ChatConversation[];
+  /** Everybody the person can start a chat with. */
+  people: ChatPerson[];
+  maxAttachmentBytes: number;
+}
+
+/** GET /api/chat/conversations/:id/messages?before=&limit= — oldest first. */
+export interface ChatMessagesResponse {
+  messages: ChatMessage[];
+  /** True when older messages exist. */
+  more: boolean;
+}
+
+export interface CallIceServer {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
+/** GET /api/calls/config */
+export interface CallConfigResponse {
+  iceServers: CallIceServer[];
+  maxParticipants: number;
+  /** What the server could arrange for a call between different networks; shown to the person as a hint. */
+  relay: 'none' | 'stun' | 'turn';
+}
+
+export type CallState = 'ringing' | 'active' | 'ended';
+export type CallEndReason = 'hangup' | 'declined' | 'missed' | 'cancelled' | 'busy' | 'failed';
+
+export interface CallInfo {
+  id: string;
+  conversationId: string;
+  video: boolean;
+  initiator: ChatPerson;
+  /** Everybody who was asked to join, with whether they joined. */
+  participants: Array<ChatPerson & { joined: boolean; declined: boolean }>;
+  state: CallState;
+  endReason: CallEndReason | null;
+  startedAt: string;
+}
+
+export type SignalType = 'offer' | 'answer' | 'candidate';
+
+/** POST /api/calls/:id/signal */
+export interface SignalRequest {
+  to: string;
+  type: SignalType;
+  data: unknown;
+}
+
+export type NotificationKind =
+  | 'message'
+  | 'call'
+  | 'download'
+  | 'backup'
+  | 'disk'
+  | 'service'
+  | 'print'
+  | 'system';
+
+export interface NotificationView {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  /** Page of the portal to open. */
+  url: string;
+  at: string;
+  read: boolean;
+}
+
+/** What a person wants to be told about (this applies to every device of the person). */
+export interface NotificationPrefs {
+  messages: boolean;
+  calls: boolean;
+  downloads: boolean;
+  alerts: boolean;
+  print: boolean;
+  /** Show the text of a message in the notification (otherwise only «Новое сообщение»). */
+  previews: boolean;
+}
+
+/** GET /api/notifications */
+export interface NotificationsResponse {
+  notifications: NotificationView[];
+  unread: number;
+  prefs: NotificationPrefs;
+  push: {
+    /** False: the server could not make its push keys; the phone then gets notifications only while the portal is open. */
+    available: boolean;
+    publicKey: string | null;
+    /** Devices of this person that are subscribed. */
+    devices: number;
+  };
+}
+
+/** POST /api/notifications/subscribe — the PushSubscription of this browser. */
+export interface PushSubscriptionRequest {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  /** Short label of the device (browser and system), shown in the settings. */
+  label?: string;
+}
+
+/** Server-sent events on GET /api/events. */
+export type RealtimeEvent =
+  | { type: 'hello'; at: string }
+  | { type: 'message'; message: ChatMessage }
+  | { type: 'conversation'; conversationId: string }
+  | { type: 'read'; conversationId: string; userId: string; seq: number }
+  | { type: 'call'; call: CallInfo }
+  | { type: 'signal'; callId: string; from: string; signal: SignalType; data: unknown }
+  | { type: 'notification'; notification: NotificationView };
+
+// ---------------------------------------------------------------------------------------------
+// Media catalogue (Jellyfin, read through the portal)
+// ---------------------------------------------------------------------------------------------
+
+export type CatalogKind =
+  | 'movie'
+  | 'series'
+  | 'season'
+  | 'episode'
+  | 'track'
+  | 'album'
+  /** A whole audiobook (a folder of chapters). */
+  | 'book'
+  /** One chapter of an audiobook. */
+  | 'audiobook'
+  | 'video'
+  | 'other';
+
+export interface CatalogItem {
+  /** Jellyfin item id (32 hex characters). */
+  id: string;
+  title: string;
+  kind: CatalogKind;
+  year: number | null;
+  genres: string[];
+  runtimeMin: number | null;
+  /** Community rating 0–10, when known. */
+  rating: number | null;
+  hasPoster: boolean;
+  /** Series name, for a season or an episode. */
+  seriesTitle: string | null;
+  season: number | null;
+  episode: number | null;
+  /** Where the person stopped, from this portal's own record (never from another person). */
+  resumeSec: number | null;
+  durationSec: number | null;
+}
+
+export interface CatalogLibrary {
+  id: string;
+  name: string;
+  kind: 'movies' | 'tvshows' | 'music' | 'books' | 'homevideos' | 'other';
+}
+
+/** GET /api/catalog — the start page of the cinema. */
+export interface CatalogHomeResponse {
+  /** False with `reason` when Jellyfin does not answer; the page then offers the fallback player. */
+  available: boolean;
+  reason: string | null;
+  libraries: CatalogLibrary[];
+  continueWatching: CatalogItem[];
+  latest: CatalogItem[];
+  genres: string[];
+  /** Address of Jellyfin's own web page for the family (tailnet), or null. */
+  jellyfinUrl: string | null;
+}
+
+/** GET /api/catalog/items?library=&q=&genre=&sort=&start= */
+export interface CatalogItemsResponse {
+  items: CatalogItem[];
+  total: number;
+  start: number;
+}
+
+export type CatalogPlayback =
+  /** The browser can play the file as it is (portal serves it). */
+  | 'direct'
+  /** Probably plays in Chrome/Edge, not everywhere (e.g. Matroska). */
+  | 'maybe'
+  /** Needs Jellyfin (transcoding): offer the Jellyfin link. */
+  | 'jellyfin';
+
+/** GET /api/catalog/items/:id */
+export interface CatalogDetailResponse {
+  item: CatalogItem;
+  overview: string | null;
+  container: string | null;
+  videoCodec: string | null;
+  audioCodec: string | null;
+  width: number | null;
+  height: number | null;
+  playback: CatalogPlayback;
+  /** Why the browser cannot play it directly (Russian), when `playback` is not `direct`. */
+  playbackNote: string | null;
+  /** Audio or video: which element to use. */
+  media: 'video' | 'audio' | null;
+  /** Seasons of a series, episodes of a season, tracks of an album. */
+  children: CatalogItem[];
+  jellyfinUrl: string | null;
+}
+
+/** POST /api/catalog/progress */
+export interface CatalogProgressRequest {
+  id: string;
+  positionSec: number;
+  durationSec: number;
 }

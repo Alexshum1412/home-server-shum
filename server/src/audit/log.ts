@@ -26,9 +26,15 @@ export type AuditAction =
   | 'user.reset_password'
   | 'user.access'
   | 'user.remove'
+  | 'user.disable'
+  | 'user.enable'
+  | 'user.sign_out'
+  | 'session.revoke'
   | 'print.submit'
   | 'print.cancel'
   | 'print.fail'
+  | 'call.start'
+  | 'push.subscribe'
   | 'services.refresh'
   | 'diagnostics.export';
 

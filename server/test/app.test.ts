@@ -46,7 +46,7 @@ describe('runtime basics', () => {
       expect(res.headers['referrer-policy'], url).toBe('no-referrer');
       expect(res.headers['cross-origin-opener-policy'], url).toBe('same-origin');
       expect(res.headers['x-robots-tag'], url).toBe('noindex, nofollow');
-      expect(String(res.headers['permissions-policy']), url).toContain('camera=()');
+      expect(String(res.headers['permissions-policy']), url).toContain('camera=(self)');
     }
     expect(CONTENT_SECURITY_POLICY).toContain("frame-ancestors 'none'");
     expect(CONTENT_SECURITY_POLICY).toContain("script-src 'self'");
@@ -61,7 +61,8 @@ describe('runtime basics', () => {
     );
     expect(res.headers['x-frame-options']).toBe('DENY');
     const permissions = String(res.headers['permissions-policy']);
-    for (const feature of ['camera=()', 'microphone=()', 'geolocation=()']) {
+    // Calls need the camera and the microphone, but only for the portal's own pages.
+    for (const feature of ['camera=(self)', 'microphone=(self)', 'geolocation=()']) {
       expect(permissions).toContain(feature);
     }
   });

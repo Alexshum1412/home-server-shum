@@ -3,11 +3,13 @@
 export type RouteId =
   | 'home'
   | 'cinema'
+  | 'chat'
   | 'photos'
   | 'files'
   | 'downloads'
   | 'calendar'
   | 'notes'
+  | 'notifications'
   | 'print'
   | 'system'
   | 'help'
@@ -30,11 +32,13 @@ export const APP_NAME = 'Семейный сервер';
 export const ROUTES: readonly RouteDef[] = [
   { id: 'home', path: '/', title: 'Главная' },
   { id: 'cinema', path: '/cinema', title: 'Кинотеатр' },
+  { id: 'chat', path: '/chat', title: 'Чат' },
   { id: 'photos', path: '/photos', title: 'Фото' },
   { id: 'files', path: '/files', title: 'Файлы' },
   { id: 'downloads', path: '/downloads', title: 'Загрузки' },
   { id: 'calendar', path: '/calendar', title: 'Календарь' },
   { id: 'notes', path: '/notes', title: 'Заметки' },
+  { id: 'notifications', path: '/notifications', title: 'Уведомления' },
   { id: 'print', path: '/print', title: 'Печать' },
   { id: 'system', path: '/system', title: 'Состояние системы' },
   { id: 'help', path: '/help', title: 'Подключение' },

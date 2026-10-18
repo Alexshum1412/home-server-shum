@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { SessionResponse, SetupStateResponse } from '../../../shared/api.ts';
+import type { SessionResponse, SessionsResponse, SetupStateResponse } from '../../../shared/api.ts';
 import type { AuditLog } from '../audit/log.ts';
 import type { Config } from '../config.ts';
+import { deviceLabel } from '../lib/device.ts';
 import { sendError } from '../lib/http.ts';
 import { type Clock, ceilMinutes, isoNow } from '../lib/time.ts';
 import { clearSessionCookie, currentUser, type Guards, setSessionCookie } from './guards.ts';
@@ -15,8 +16,9 @@ import {
   verifyPassword,
 } from './passwords.ts';
 import { LOGIN_WINDOW_MS, type LoginLimiter } from './rate-limit.ts';
-import { SESSION_COOKIE, type SessionStore } from './sessions.ts';
+import { SESSION_COOKIE, type SessionStore, shortId } from './sessions.ts';
 import {
+  isDisabled,
   needsPasswordChange,
   normaliseUsername,
   type StoredUser,
@@ -29,6 +31,8 @@ import {
 export const CREATE_ADMIN_COMMAND = 'scripts\\user.cmd add <логин> --name "<Имя>" --role admin';
 export const TEMPORARY_EXPIRED_MESSAGE =
   'Срок временного пароля истёк. Попросите администратора выдать новый на домашнем компьютере.';
+export const ACCOUNT_DISABLED_MESSAGE =
+  'Эта учётная запись отключена администратором. Если это ошибка, попросите его включить её снова.';
 export const INVALID_CREDENTIALS_MESSAGE = 'Неверное имя пользователя или пароль';
 export const USERS_UNAVAILABLE_MESSAGE =
   'Не удаётся прочитать список пользователей на сервере. Сообщите администратору.';
@@ -48,6 +52,11 @@ const loginSchema = z.object({
   username: z.string().max(64),
   password: z.string().max(PASSWORD_MAX_LENGTH),
 });
+
+const revokeSchema = z.union([
+  z.object({ id: z.string().min(8).max(64) }),
+  z.object({ others: z.literal(true) }),
+]);
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().max(PASSWORD_MAX_LENGTH),
@@ -160,7 +169,16 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
       await audit.write({ action: 'login.failure', actor, ip, detail: 'временный пароль истёк' });
       return sendError(reply, 403, 'temporary_password_expired', TEMPORARY_EXPIRED_MESSAGE);
     }
-    const { token } = await sessions.create(user.id, attemptStartedAt);
+    if (isDisabled(user)) {
+      // Told only after the password matched: an outsider learns nothing about the account.
+      await audit.write({ action: 'login.failure', actor, ip, detail: 'учётная запись отключена' });
+      return sendError(reply, 403, 'account_disabled', ACCOUNT_DISABLED_MESSAGE);
+    }
+    const { token } = await sessions.create(
+      user.id,
+      attemptStartedAt,
+      deviceLabel(request.headers['user-agent']),
+    );
     // logins.json, not users.json: the server never rewrites the file the CLI edits.
     await logins.record(user.id, isoNow(deps.clock)).catch((error: unknown) => {
       request.log.warn({ err: error }, 'Не удалось сохранить время входа');
@@ -192,6 +210,53 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
   app.get('/api/session', { preHandler: guards.requireSignedIn }, async (request) =>
     sessionBody(currentUser(request)),
   );
+
+  /** The devices signed in as this person; «lost phone» → end that one from another device. */
+  app.get('/api/sessions', { preHandler: guards.requireUser }, async (request) => {
+    const user = currentUser(request);
+    const here = sessions.lookup(request.cookies[SESSION_COOKIE] ?? '')?.tokenHash;
+    const body: SessionsResponse = {
+      sessions: sessions.listFor(user.id).map((session) => ({
+        id: shortId(session),
+        label: session.label ?? 'Устройство',
+        createdAt: session.createdAt,
+        lastSeenAt: session.lastSeenAt,
+        current: session.tokenHash === here,
+      })),
+    };
+    return body;
+  });
+
+  app.post('/api/sessions/revoke', { preHandler: guards.requireUser }, async (request, reply) => {
+    const user = currentUser(request);
+    const parsed = revokeSchema.safeParse(request.body);
+    if (!parsed.success) return sendError(reply, 400, 'bad_request', 'Выберите устройство.');
+    const here = sessions.lookup(request.cookies[SESSION_COOKIE] ?? '')?.tokenHash;
+    const choice = parsed.data;
+    let ended: number;
+    if ('others' in choice) {
+      ended = await sessions.deleteForUser(user.id, here);
+    } else {
+      const target = sessions.listFor(user.id).find((session) => shortId(session) === choice.id.slice(0, 16));
+      if (target?.tokenHash === here) {
+        return sendError(
+          reply,
+          400,
+          'current',
+          'Это устройство, с которого вы сейчас работаете. Чтобы выйти, нажмите «Выйти».',
+        );
+      }
+      ended = (await sessions.deleteByShortId(user.id, choice.id)) ? 1 : 0;
+      if (ended === 0) return sendError(reply, 404, 'not_found', 'Этого устройства уже нет в списке.');
+    }
+    await audit.write({
+      action: 'session.revoke',
+      actor: user.username,
+      ip: request.ip,
+      detail: 'others' in choice ? `все остальные устройства (${ended})` : 'одно устройство',
+    });
+    return reply.code(204).send();
+  });
 
   app.post('/api/password', { preHandler: guards.requireSignedIn }, async (request, reply) => {
     const user = currentUser(request);

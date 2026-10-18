@@ -1,5 +1,6 @@
 import {
   Activity,
+  Bell,
   CalendarDays,
   Clapperboard,
   Download,
@@ -8,6 +9,7 @@ import {
   House,
   Images,
   LogOut,
+  MessagesSquare,
   NotebookPen,
   Printer,
   ShieldCheck,
@@ -17,6 +19,7 @@ import {
 import type { ComponentChildren } from 'preact';
 import { useEffect, useId, useRef, useState } from 'preact/hooks';
 import type { SessionUser } from '../../../shared/api.ts';
+import { useChat } from '../chat/ChatProvider.tsx';
 import { ROLE_LABEL } from '../lib/labels.ts';
 import { isActivePath, isAdminOnly, matchRoute } from '../lib/routes.ts';
 import { useData, useSession } from '../state.tsx';
@@ -27,18 +30,22 @@ interface NavItem {
   path: string;
   label: string;
   icon: IconComponent;
+  /** Shorter text for the bottom bar, where six items share a phone's width. */
+  short?: string;
 }
 
 /** Always visible: in the bottom tab bar on phones. */
 const PRIMARY: readonly NavItem[] = [
   { path: '/', label: 'Главная', icon: House },
-  { path: '/cinema', label: 'Кинотеатр', icon: Clapperboard },
+  { path: '/cinema', label: 'Кинотеатр', icon: Clapperboard, short: 'Кино' },
+  { path: '/chat', label: 'Чат', icon: MessagesSquare },
   { path: '/photos', label: 'Фото', icon: Images },
   { path: '/files', label: 'Файлы', icon: FolderOpen },
 ];
 
 /** Under «Ещё» on phones. */
 const SECONDARY: readonly NavItem[] = [
+  { path: '/notifications', label: 'Уведомления', icon: Bell },
   { path: '/calendar', label: 'Календарь', icon: CalendarDays },
   { path: '/notes', label: 'Заметки', icon: NotebookPen },
   { path: '/downloads', label: 'Загрузки', icon: Download },
@@ -49,10 +56,24 @@ const SECONDARY: readonly NavItem[] = [
   { path: '/account', label: 'Мой профиль', icon: UserRound },
 ];
 
-function NavLink(props: { item: NavItem; path: string; class: string; onClick?: () => void }) {
+/** Number of things waiting in a section (unread messages, unseen notifications). */
+function useBadges(): Record<string, number> {
+  const { unread, notifications } = useChat();
+  return { '/chat': unread, '/notifications': notifications?.unread ?? 0 };
+}
+
+function NavLink(props: {
+  item: NavItem;
+  path: string;
+  class: string;
+  badges: Record<string, number>;
+  compact?: boolean;
+  onClick?: () => void;
+}) {
   const { item } = props;
   const Icon = item.icon;
   const active = isActivePath(props.path, item.path);
+  const count = props.badges[item.path] ?? 0;
   return (
     <a
       class={props.class}
@@ -60,8 +81,16 @@ function NavLink(props: { item: NavItem; path: string; class: string; onClick?: 
       aria-current={active ? 'page' : undefined}
       onClick={props.onClick}
     >
-      <Icon size={22} aria-hidden="true" />
-      <span>{item.label}</span>
+      <span class="navicon">
+        <Icon size={22} aria-hidden="true" />
+        {count > 0 ? (
+          <span class="navicon__badge">
+            {count > 99 ? '99+' : count}
+            <span class="visually-hidden"> новых</span>
+          </span>
+        ) : null}
+      </span>
+      <span>{props.compact ? (item.short ?? item.label) : item.label}</span>
     </a>
   );
 }
@@ -86,6 +115,7 @@ function TabBar(props: {
   path: string;
   secondary: readonly NavItem[];
   user: SessionUser;
+  badges: Record<string, number>;
   onLogout: () => void;
 }) {
   // The sheet is "open at" a path, so any navigation closes it automatically.
@@ -131,7 +161,7 @@ function TabBar(props: {
       <ul class="tabbar__list">
         {PRIMARY.map((item) => (
           <li key={item.path}>
-            <NavLink item={item} path={props.path} class="tabbar__link" />
+            <NavLink item={item} path={props.path} class="tabbar__link" badges={props.badges} compact />
           </li>
         ))}
         <li>
@@ -143,7 +173,14 @@ function TabBar(props: {
             aria-controls={sheetId}
             onClick={() => setOpenAt(open ? null : props.path)}
           >
-            <Ellipsis size={22} aria-hidden="true" />
+            <span class="navicon">
+              <Ellipsis size={22} aria-hidden="true" />
+              {(props.badges.more ?? 0) > 0 ? (
+                <span class="navicon__badge navicon__badge--dot">
+                  <span class="visually-hidden">Есть новое</span>
+                </span>
+              ) : null}
+            </span>
             <span>Ещё</span>
           </button>
         </li>
@@ -153,7 +190,13 @@ function TabBar(props: {
         <ul class="sheet__list">
           {props.secondary.map((item) => (
             <li key={item.path}>
-              <NavLink item={item} path={props.path} class="sheet__link" onClick={() => setOpenAt(null)} />
+              <NavLink
+                item={item}
+                path={props.path}
+                class="sheet__link"
+                badges={props.badges}
+                onClick={() => setOpenAt(null)}
+              />
             </li>
           ))}
         </ul>
@@ -174,6 +217,8 @@ export function AppShell(props: { path: string; notice?: string | null; children
     system.data?.demo === true ||
     services.data?.services.some((service) => service.demo) === true;
   const secondary = SECONDARY.filter((item) => isAdmin || !isAdminOnly(matchRoute(item.path)));
+  const badges = useBadges();
+  const moreCount = secondary.reduce((sum, item) => sum + (badges[item.path] ?? 0), 0);
   const onLogout = () => void logout();
 
   return (
@@ -191,7 +236,7 @@ export function AppShell(props: { path: string; notice?: string | null; children
             <ul class="sidenav__list">
               {[...PRIMARY, ...secondary].map((item) => (
                 <li key={item.path}>
-                  <NavLink item={item} path={props.path} class="sidenav__link" />
+                  <NavLink item={item} path={props.path} class="sidenav__link" badges={badges} />
                 </li>
               ))}
             </ul>
@@ -210,7 +255,13 @@ export function AppShell(props: { path: string; notice?: string | null; children
           </div>
           {props.children}
         </main>
-        <TabBar path={props.path} secondary={secondary} user={session.user} onLogout={onLogout} />
+        <TabBar
+          path={props.path}
+          secondary={secondary}
+          user={session.user}
+          badges={{ ...badges, more: moreCount }}
+          onLogout={onLogout}
+        />
       </div>
     </>
   );

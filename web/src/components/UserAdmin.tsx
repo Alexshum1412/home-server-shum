@@ -1,4 +1,4 @@
-import { KeyRound, Trash2, UserPlus, Users } from 'lucide-preact';
+import { KeyRound, LogOut, Power, Trash2, UserPlus, Users } from 'lucide-preact';
 import { useId, useRef, useState } from 'preact/hooks';
 import {
   PERMISSIONS,
@@ -254,6 +254,35 @@ function ManageUser(props: {
       props.onSecret(await apiPost<TemporaryPasswordResponse>(`${base}/reset-password`, {}));
       props.onChanged();
     });
+  const setDisabled = (disable: boolean) =>
+    run(async () => {
+      if (
+        disable &&
+        !window.confirm(
+          `Отключить «${user.displayName}»? Вход закроется, а все его устройства выйдут сразу. Файлы и переписка останутся, позже его можно включить.`,
+        )
+      ) {
+        return;
+      }
+      await apiPost(`${base}/${disable ? 'disable' : 'enable'}`, {});
+      toast.showOk(
+        disable ? `«${user.displayName}» отключён.` : `«${user.displayName}» снова может входить.`,
+      );
+      props.onChanged();
+    });
+  const signOutEverywhere = () =>
+    run(async () => {
+      if (
+        !window.confirm(
+          `Выйти на всех устройствах «${user.displayName}»? Пароль останется прежним, человеку нужно будет войти заново. Так закрывают доступ потерянному телефону.`,
+        )
+      ) {
+        return;
+      }
+      await apiPost(`${base}/sign-out`, {});
+      toast.showOk(`Устройства «${user.displayName}» вышли из портала.`);
+      props.onChanged();
+    });
   const remove = () =>
     run(async () => {
       if (
@@ -322,6 +351,24 @@ function ManageUser(props: {
               <KeyRound size={18} aria-hidden="true" />
               Выдать новый временный пароль
             </button>
+            <button
+              type="button"
+              class="button button--secondary"
+              disabled={busy || user.sessions === 0}
+              onClick={() => void signOutEverywhere()}
+            >
+              <LogOut size={18} aria-hidden="true" />
+              Выйти на всех устройствах{user.sessions > 0 ? ` (${user.sessions})` : ''}
+            </button>
+            <button
+              type="button"
+              class="button button--secondary"
+              disabled={busy}
+              onClick={() => void setDisabled(!user.disabled)}
+            >
+              <Power size={18} aria-hidden="true" />
+              {user.disabled ? 'Включить снова' : 'Отключить'}
+            </button>
             <button type="button" class="button button--quiet" disabled={busy} onClick={() => void remove()}>
               <Trash2 size={18} aria-hidden="true" />
               Удалить
@@ -361,7 +408,10 @@ export function UsersBlock(props: { toast: ToastApi }) {
             <tbody>
               {users.data.users.map((user) => (
                 <tr key={user.id}>
-                  <th scope="row">{user.displayName}</th>
+                  <th scope="row">
+                    {user.displayName}
+                    {user.disabled ? <span class="table__sub"> · отключён</span> : null}
+                  </th>
                   <td class="table__nowrap" data-label="Логин">
                     {user.username}
                   </td>
@@ -403,11 +453,11 @@ export function UsersBlock(props: { toast: ToastApi }) {
         Пользователи
       </h2>
       <p class="section-lead">
-        Здесь можно добавить человека, выдать новый временный пароль, изменить права или удалить пользователя.
-        Пароли вы не придумываете и не видите: портал создаёт временный пароль, человек входит с ним один раз
-        и сразу задаёт свой. То же самое можно сделать на домашнем компьютере командой{' '}
-        <code>scripts\user.cmd</code> (add, list, passwd, role, allow, deny, remove) — это запасной путь, если
-        портал не открывается.
+        Здесь можно добавить человека, выдать новый временный пароль, изменить права, отключить вход
+        (например, для потерянного телефона) или удалить пользователя. Пароли вы не придумываете и не видите:
+        портал создаёт временный пароль, человек входит с ним один раз и сразу задаёт свой. То же самое можно
+        сделать на домашнем компьютере командой <code>scripts\user.cmd</code> (add, list, passwd, role, allow,
+        deny, disable, enable, remove) — это запасной путь, если портал не открывается.
       </p>
       {secret ? <SecretPanel secret={secret} onClose={() => setSecret(null)} /> : null}
       <AddUserForm

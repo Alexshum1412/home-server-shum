@@ -15,12 +15,37 @@ if (!existsSync(join(root, 'dist', 'web', 'index.html'))) {
 }
 
 const dataDir = mkdtempSync(join(tmpdir(), `family-dashboard-e2e-${mode}-`));
+// «cinema» is the real mode plus a stand-in for Jellyfin (fake data, a generated test video): the
+// catalogue page is checked against it. Every other mode never reaches any Jellyfin.
+const fakeJellyfinPort = 8097;
+if (mode === 'cinema') {
+  const { startFakeJellyfin, FAKE_KEY } = await import('./fake-jellyfin.mjs');
+  await startFakeJellyfin({
+    port: fakeJellyfinPort,
+    videoFile: join(root, 'tests', 'e2e', 'fixture-video.mp4'),
+  });
+  writeFileSync(join(dataDir, 'jellyfin-api.json'), JSON.stringify({ apiKey: FAKE_KEY }));
+  // The cinema service is «set up»: Jellyfin's own page for the family has an address (never opened by a test).
+  const { DEFAULT_SERVICES } = await import('../../server/src/services/config.ts');
+  const services = DEFAULT_SERVICES.map((service) =>
+    service.kind === 'media'
+      ? {
+          ...service,
+          openUrl: 'https://jellyfin.example.test:8443',
+          healthUrl: `http://127.0.0.1:${fakeJellyfinPort}/health`,
+        }
+      : service,
+  );
+  writeFileSync(join(dataDir, 'services.json'), JSON.stringify({ version: 1, services }, null, 2));
+}
 const env = {
   ...process.env,
   DASHBOARD_DATA_DIR: dataDir,
   HOST: '127.0.0.1',
   PORT: port,
   DASHBOARD_DEMO: mode === 'demo' ? '1' : '0',
+  // Never the real Jellyfin of this PC (a test data folder has no key for it anyway).
+  JELLYFIN_URL: mode === 'cinema' ? `http://127.0.0.1:${fakeJellyfinPort}` : 'http://127.0.0.1:8099',
   LOG_LEVEL: 'warn',
   LAN_URL: '',
   // No real printer for tests.
@@ -31,6 +56,8 @@ const env = {
   MIN_FREE_GB: '1',
   // The media library of the fallback player is a throwaway folder as well (see below).
   MEDIA_DIR: join(dataDir, 'media'),
+  // The chat keeps its messages and attachments in the throwaway folder too.
+  CHAT_DIR: join(dataDir, 'chat'),
   // No home-network listener, no language model in tests.
   LAN_BIND: '',
   OLIVIA_LLM_URL: '',
@@ -70,6 +97,10 @@ const users = [
   ['e2e-family', 'Тестовая семья', 'family', 'e2e-family-password-1'],
   ['e2e-temp', 'Новичок', 'family', 'e2e-temp-password-1'],
   ['e2e-change', 'Меняющий', 'family', 'e2e-change-password-1'],
+  ['e2e-chat', 'Собеседник', 'family', 'e2e-chat-password-1'],
+  // Two more people who only call each other: calls and chat tests run in parallel and must not share accounts.
+  ['e2e-caller', 'Звонящий', 'family', 'e2e-caller-password-1'],
+  ['e2e-callee', 'Отвечающий', 'family', 'e2e-callee-password-1'],
 ];
 for (const [username, name, role, password] of users) {
   const r = spawnSync(

@@ -3,7 +3,7 @@
  * Caches only the app shell and hashed build assets. API responses are never
  * cached: everything under /api/ always goes to the network.
  */
-const CACHE = 'family-shell-v3';
+const CACHE = 'family-shell-v4';
 const SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -137,6 +137,80 @@ async function cacheFirst(request) {
   if (cacheable(response)) await cache.put(request, response.clone());
   return response;
 }
+
+/*
+ * Notifications from the server (Web Push). The text is already short and safe to show; a click
+ * opens the page named in it (only a path of this site, never another address).
+ */
+function safePath(value) {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) return '/';
+  return value;
+}
+
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = {};
+  }
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      // The person is looking at the portal right now: the page shows the news itself.
+      if (windows.some((client) => client.visibilityState === 'visible' && client.focused)) return;
+      await self.registration.showNotification(String(data.title || 'Семейный сервер').slice(0, 120), {
+        body: String(data.body || '').slice(0, 300),
+        tag: String(data.tag || data.kind || 'family'),
+        renotify: true,
+        icon: '/icons/icon-192.png',
+        badge: '/icons/favicon-32.png',
+        data: { url: safePath(data.url) },
+        requireInteraction: data.kind === 'call',
+      });
+    })(),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const path = safePath(event.notification.data?.url);
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const client of windows) {
+        if (new URL(client.url).origin === self.location.origin) {
+          await client.focus();
+          client.postMessage({ type: 'open', path });
+          return;
+        }
+      }
+      await self.clients.openWindow(path);
+    })(),
+  );
+});
+
+/* The browser replaced the subscription (expired, cleared): subscribe again and tell the server. */
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    (async () => {
+      const old = event.oldSubscription;
+      const key = old?.options?.applicationServerKey;
+      if (!key) return;
+      const subscription = await self.registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: key,
+      });
+      const json = subscription.toJSON();
+      await fetch('/api/notifications/subscribe', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
+      });
+    })().catch(() => {}),
+  );
+});
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;

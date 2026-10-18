@@ -67,6 +67,7 @@ export function backupSettingsFromConfig(
     familyTrees: [
       { prefix: 'family/files', dir: config.filesDir },
       { prefix: 'family/photos', dir: config.photosDir },
+      { prefix: 'family/chat', dir: config.chatDir },
       // Films and series can be found again; home videos cannot.
       { prefix: 'family/home-video', dir: path.join(mediaRoot, 'Домашнее видео') },
     ],

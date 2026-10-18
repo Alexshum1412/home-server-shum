@@ -11,7 +11,9 @@ export default defineConfig({
   outputDir: 'test-results',
   fullyParallel: false,
   workers: 2,
-  retries: 0,
+  // A runner crash on this PC (the Windows antivirus engine and the memory service crash now and then) must not
+  // fail a test that is fine; a test that only passes on retry is listed as «flaky».
+  retries: 1,
   timeout: 30_000,
   expect: { timeout: 7_000 },
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
@@ -23,8 +25,27 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'real', testIgnore: /demo\.spec\.ts/, use: { baseURL: 'http://127.0.0.1:8071' } },
+    {
+      name: 'real',
+      testIgnore: /(demo|chat|calls|cinema)\.spec\.ts/,
+      use: { baseURL: 'http://127.0.0.1:8071' },
+    },
+    // Chat and calls run one after the other, after everything else: both hold several browser
+    // windows at once, and two such files side by side crashed the test runner now and then.
+    {
+      name: 'chat',
+      testMatch: /chat\.spec\.ts/,
+      dependencies: ['real'],
+      use: { baseURL: 'http://127.0.0.1:8071' },
+    },
+    {
+      name: 'calls',
+      testMatch: /calls\.spec\.ts/,
+      dependencies: ['chat'],
+      use: { baseURL: 'http://127.0.0.1:8071' },
+    },
     { name: 'demo', testMatch: /demo\.spec\.ts/, use: { baseURL: 'http://127.0.0.1:8072' } },
+    { name: 'cinema', testMatch: /cinema\.spec\.ts/, use: { baseURL: 'http://127.0.0.1:8073' } },
   ],
   webServer: [
     {
@@ -36,6 +57,12 @@ export default defineConfig({
     {
       command: `${NODE} tests/e2e/start-server.mjs demo 8072`,
       url: 'http://127.0.0.1:8072/api/health',
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      command: `${NODE} tests/e2e/start-server.mjs cinema 8073`,
+      url: 'http://127.0.0.1:8073/api/health',
       reuseExistingServer: false,
       timeout: 60_000,
     },

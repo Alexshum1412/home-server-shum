@@ -47,6 +47,19 @@ export interface Config {
   readonly photosDir: string;
   /** Media library (films, series, music, audiobooks), read by Jellyfin and by the fallback player. */
   readonly mediaDir: string;
+  /** Jellyfin on this PC, read by the cinema page (loopback only). */
+  readonly jellyfinUrl: string;
+  /** Family chat: messages, attachments (part of the daily backup). */
+  readonly chatDir: string;
+  readonly chatMaxAttachmentBytes: number;
+  /** Voice and video calls: help for devices in different networks (all empty → only direct connections). */
+  readonly calls: {
+    readonly stunUrls: readonly string[];
+    readonly turnUrls: readonly string[];
+    /** Shared secret of the TURN relay (coturn static-auth-secret); never sent to a browser. */
+    readonly turnSecret: string | null;
+    readonly turnTtlSec: number;
+  };
   readonly downloadMaxFileBytes: number;
   /** One file uploaded through the portal (files and photos). */
   readonly uploadMaxFileBytes: number;
@@ -106,6 +119,13 @@ const schema = z.object({
   FAMILY_FILES_DIR: z.string().min(1),
   FAMILY_PHOTOS_DIR: z.string().min(1),
   MEDIA_DIR: z.string().min(1),
+  JELLYFIN_URL: z.string(),
+  CHAT_DIR: z.string().min(1),
+  CHAT_MAX_FILE_MB: z.coerce.number().min(1).max(10_000),
+  CALLS_STUN_URLS: z.string(),
+  CALLS_TURN_URLS: z.string(),
+  CALLS_TURN_SECRET: z.string().max(200),
+  CALLS_TURN_TTL_SEC: z.coerce.number().int().min(60).max(86_400),
   DOWNLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
   UPLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
   MIN_FREE_GB: z.coerce.number().min(0).max(10_000),
@@ -131,7 +151,11 @@ function defaultDataDir(env: Env, platform: NodeJS.Platform): string {
     : path.join(os.homedir(), '.family-dashboard');
 }
 
-function defaultFamilyDir(env: Env, platform: NodeJS.Platform, name: 'Files' | 'Photos' | 'Media'): string {
+function defaultFamilyDir(
+  env: Env,
+  platform: NodeJS.Platform,
+  name: 'Files' | 'Photos' | 'Media' | 'Chat',
+): string {
   if (platform === 'win32') return `${systemDrive(env)}\\FamilyData\\${name}`;
   return path.join(os.homedir(), '.family-data', name.toLowerCase());
 }
@@ -208,6 +232,13 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     FAMILY_FILES_DIR: pick('FAMILY_FILES_DIR', defaultFamilyDir(env, platform, 'Files')),
     FAMILY_PHOTOS_DIR: pick('FAMILY_PHOTOS_DIR', defaultFamilyDir(env, platform, 'Photos')),
     MEDIA_DIR: pick('MEDIA_DIR', defaultFamilyDir(env, platform, 'Media')),
+    JELLYFIN_URL: pick('JELLYFIN_URL', 'http://127.0.0.1:8096'),
+    CHAT_DIR: pick('CHAT_DIR', defaultFamilyDir(env, platform, 'Chat')),
+    CHAT_MAX_FILE_MB: pick('CHAT_MAX_FILE_MB', '200'),
+    CALLS_STUN_URLS: env.CALLS_STUN_URLS?.trim() ?? '',
+    CALLS_TURN_URLS: env.CALLS_TURN_URLS?.trim() ?? '',
+    CALLS_TURN_SECRET: env.CALLS_TURN_SECRET?.trim() ?? '',
+    CALLS_TURN_TTL_SEC: pick('CALLS_TURN_TTL_SEC', '3600'),
     DOWNLOAD_MAX_FILE_GB: pick('DOWNLOAD_MAX_FILE_GB', '50'),
     UPLOAD_MAX_FILE_GB: pick('UPLOAD_MAX_FILE_GB', '20'),
     MIN_FREE_GB: pick('MIN_FREE_GB', '50'),
@@ -238,7 +269,9 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
   const backupExtraFiles = parseExtraFiles(v.BACKUP_EXTRA_FILES);
   const backupGitPush = parseGitPush(v.BACKUP_GIT_PUSH);
   const lanBind = parseLanBind(v.LAN_BIND);
-  const oliviaLlmUrl = parseLoopbackUrl(v.OLIVIA_LLM_URL);
+  const oliviaLlmUrl = parseLoopbackUrl('OLIVIA_LLM_URL', v.OLIVIA_LLM_URL, 'http://127.0.0.1:8081/v1');
+  const jellyfinUrl =
+    parseLoopbackUrl('JELLYFIN_URL', v.JELLYFIN_URL, 'http://127.0.0.1:8096') ?? 'http://127.0.0.1:8096';
   // A bound home-network address implies its own URL, unless the owner gave another one (a name).
   const lanUrl = trimUrl(v.LAN_URL) ?? (lanBind[0] ? `http://${lanBind[0]}:${v.PORT}` : null);
 
@@ -267,6 +300,15 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     filesDir: path.resolve(v.FAMILY_FILES_DIR),
     photosDir: path.resolve(v.FAMILY_PHOTOS_DIR),
     mediaDir: path.resolve(v.MEDIA_DIR),
+    jellyfinUrl,
+    chatDir: path.resolve(v.CHAT_DIR),
+    chatMaxAttachmentBytes: Math.round(v.CHAT_MAX_FILE_MB * 1024 ** 2),
+    calls: Object.freeze({
+      stunUrls: Object.freeze(parseIceUrls('CALLS_STUN_URLS', v.CALLS_STUN_URLS, ['stun', 'stuns'])),
+      turnUrls: Object.freeze(parseIceUrls('CALLS_TURN_URLS', v.CALLS_TURN_URLS, ['turn', 'turns'])),
+      turnSecret: v.CALLS_TURN_SECRET === '' ? null : v.CALLS_TURN_SECRET,
+      turnTtlSec: v.CALLS_TURN_TTL_SEC,
+    }),
     downloadMaxFileBytes: Math.round(v.DOWNLOAD_MAX_FILE_GB * 1024 ** 3),
     uploadMaxFileBytes: Math.round(v.UPLOAD_MAX_FILE_GB * 1024 ** 3),
     minFreeBytes: Math.round(v.MIN_FREE_GB * 1024 ** 3),
@@ -284,12 +326,28 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
   });
 }
 
+/** CALLS_STUN_URLS / CALLS_TURN_URLS: addresses like stun:host:3478 separated by «,» or «;»; "" or "none" — none. */
+function parseIceUrls(name: string, value: string, schemes: readonly string[]): string[] {
+  if (value === '' || value.toLowerCase() === 'none') return [];
+  const urls = value
+    .split(/[\s,;]+/)
+    .map((item) => item.trim())
+    .filter((item) => item !== '');
+  for (const url of urls) {
+    const match = /^([a-z]+):([A-Za-z0-9.[\]:-]+)(\?transport=(?:udp|tcp))?$/.exec(url);
+    if (!match || !schemes.includes(match[1] ?? '')) {
+      throw new Error(`${CONFIG_ERROR}: ${name}: «${url}» — нужен адрес вида ${schemes[0]}:сервер:3478`);
+    }
+  }
+  return urls;
+}
+
 /** OLIVIA_LLM_URL: an http address on this PC (the model is never reached over the network); "" or "none" — off. */
-function parseLoopbackUrl(value: string): string | null {
+function parseLoopbackUrl(name: string, value: string, example: string): string | null {
   if (value === '' || value.toLowerCase() === 'none') return null;
   if (!isLoopbackHttpUrl(value)) {
     throw new Error(
-      `${CONFIG_ERROR}: OLIVIA_LLM_URL: нужен адрес на этом же компьютере вида http://127.0.0.1:11434/v1 (не localhost-подмена и не адрес в сети)`,
+      `${CONFIG_ERROR}: ${name}: нужен адрес на этом же компьютере вида ${example} (не подмена имени и не адрес в сети)`,
     );
   }
   return value.replace(/\/+$/, '');

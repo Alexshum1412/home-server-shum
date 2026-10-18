@@ -27,6 +27,8 @@ export interface StoredUser {
   passwordExpiresAt?: string | null;
   /** Extra rights granted by an admin (admins have all of them anyway). */
   permissions?: Permission[];
+  /** Switched off by an administrator: no sign-in, no open sessions; everything else is kept. */
+  disabled?: boolean;
   /**
    * Written by versions before logins.json; still read as a fallback for the last sign-in time and
    * kept as is when the CLI rewrites the file. Nothing writes it any more.
@@ -45,6 +47,7 @@ const userSchema = z.object({
   mustChangePassword: z.boolean().optional(),
   passwordExpiresAt: z.string().nullable().optional(),
   permissions: z.array(z.enum(['downloads', 'print'])).optional(),
+  disabled: z.boolean().optional(),
   lastLoginAt: z.string().nullable().optional(),
 });
 
@@ -57,6 +60,10 @@ export function normaliseUsername(value: string): string {
 /** True when the user signed in with a generated password and must choose an own one first. */
 export function needsPasswordChange(user: Pick<StoredUser, 'mustChangePassword'>): boolean {
   return user.mustChangePassword === true;
+}
+
+export function isDisabled(user: Pick<StoredUser, 'disabled'>): boolean {
+  return user.disabled === true;
 }
 
 /** A generated password past its expiry time no longer signs in (an unreadable time counts as past). */
@@ -102,6 +109,7 @@ export type UserPatch = Partial<
     | 'mustChangePassword'
     | 'passwordExpiresAt'
     | 'permissions'
+    | 'disabled'
   >
 >;
 

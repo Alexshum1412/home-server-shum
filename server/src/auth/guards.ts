@@ -2,7 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Config } from '../config.ts';
 import { sendError } from '../lib/http.ts';
 import { SESSION_COOKIE, SESSION_TTL_MS, type SessionStore } from './sessions.ts';
-import { needsPasswordChange, type StoredUser, type UserStore } from './users.ts';
+import { isDisabled, needsPasswordChange, type StoredUser, type UserStore } from './users.ts';
 
 export interface AuthDeps {
   config: Config;
@@ -66,7 +66,7 @@ export async function resolveUser(
     return null;
   }
   const user = await deps.users.findById(session.userId);
-  if (!user || Date.parse(user.passwordChangedAt) > Date.parse(session.createdAt)) {
+  if (!user || isDisabled(user) || Date.parse(user.passwordChangedAt) > Date.parse(session.createdAt)) {
     await deps.sessions.deleteByHash(session.tokenHash);
     clearSessionCookie(reply, request, deps.config);
     return null;

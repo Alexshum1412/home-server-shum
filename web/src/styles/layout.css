@@ -146,7 +146,7 @@
   position: relative;
   z-index: 2;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
   padding: var(--sp-1) max(var(--sp-1), env(safe-area-inset-right)) env(safe-area-inset-bottom)
     max(var(--sp-1), env(safe-area-inset-left));

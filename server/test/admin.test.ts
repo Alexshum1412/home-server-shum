@@ -160,12 +160,14 @@ describe('GET /api/admin/users', () => {
     for (const user of users) {
       expect(Object.keys(user).sort()).toEqual([
         'createdAt',
+        'disabled',
         'displayName',
         'id',
         'lastLoginAt',
         'passwordExpiresAt',
         'permissions',
         'role',
+        'sessions',
         'temporaryPassword',
         'username',
       ]);

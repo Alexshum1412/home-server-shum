@@ -676,6 +676,8 @@
 /* --- Tables ------------------------------------------------------------------- */
 
 .table-wrap {
+  /* Contains the absolutely positioned screen-reader texts inside the cells: they must not widen the page. */
+  position: relative;
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--c-border);

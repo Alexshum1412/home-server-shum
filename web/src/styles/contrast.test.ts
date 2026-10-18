@@ -24,16 +24,27 @@ function tokens(block: string): Theme {
   return result;
 }
 
+/** The text of the `{ … }` block that follows `selector` (no nested blocks in tokens.css). */
+function block(css: string, selector: string): string {
+  const start = css.indexOf(`${selector} {`);
+  expect(start, `block «${selector}» in tokens.css`).toBeGreaterThanOrEqual(0);
+  return css.slice(start, css.indexOf('}', start));
+}
+
 /**
- * Dark is the default `:root` block; light is the first prefers-color-scheme: light block.
- * Each theme is read on its own (no fallback), so a token missing from one theme fails the test.
+ * Light is the default `:root` block, dark is `:root[data-theme="dark"]` and «as the device» repeats
+ * the dark values under a media query. Each is read on its own (no fallback), so a token missing
+ * from one theme fails the test.
  */
-function themes(css: string): { dark: Theme; light: Theme } {
-  const lightStart = css.indexOf('@media (prefers-color-scheme: light)');
-  expect(lightStart).toBeGreaterThan(0);
-  const dark = tokens(css.slice(0, lightStart));
-  const light = tokens(css.slice(lightStart, css.indexOf('@media', lightStart + 1)));
-  return { dark, light };
+async function themes(): Promise<Record<'light' | 'dark' | 'system', Theme>> {
+  const css = await readCss('./tokens.css');
+  const mediaStart = css.indexOf('@media (prefers-color-scheme: dark)');
+  expect(mediaStart).toBeGreaterThan(0);
+  return {
+    light: tokens(block(css, ':root')),
+    dark: tokens(block(css, ':root[data-theme="dark"]')),
+    system: tokens(block(css.slice(mediaStart), ':root[data-theme="system"]')),
+  };
 }
 
 function luminance(hex: string): number {
@@ -49,9 +60,64 @@ function contrast(a: string, b: string): number {
   return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
 }
 
+const SURFACES = ['--c-bg', '--c-surface', '--c-surface-2'] as const;
+const TEXT = ['--c-text', '--c-text-muted', '--c-text-subtle'] as const;
+const STATUS = ['--c-ok', '--c-warn', '--c-bad', '--c-info', '--c-neutral'] as const;
+
+describe('palette (owner: light theme, #f7f9fc, main button #216aca)', () => {
+  it('uses the colours the owner chose in the light theme', async () => {
+    const { light } = await themes();
+    expect(light['--c-bg']).toBe('#f7f9fc');
+    expect(light['--c-accent']).toBe('#216aca');
+    expect(light['--c-accent-soft']).toBe('#4da3ff');
+    expect(light['--c-on-accent']).toBe('#ffffff');
+  });
+
+  it('«as the device» is the dark theme under a media query, value for value', async () => {
+    const { dark, system } = await themes();
+    expect(system).toEqual(dark);
+  });
+
+  it.each(['light', 'dark'] as const)(
+    '%s: every text colour is readable (≥ 4.5:1) on every surface',
+    async (name) => {
+      const theme = (await themes())[name];
+      for (const text of [...TEXT, ...STATUS, '--c-accent']) {
+        for (const surface of SURFACES) {
+          const ratio = contrast(theme[text] ?? '#000000', theme[surface] ?? '#000000');
+          expect(ratio, `${name}: ${text} on ${surface}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    },
+  );
+
+  it.each(['light', 'dark'] as const)(
+    '%s: text on the main button stays readable, also on hover',
+    async (name) => {
+      const theme = (await themes())[name];
+      for (const button of ['--c-accent', '--c-accent-hover']) {
+        expect(
+          contrast(theme['--c-on-accent'] ?? '#000000', theme[button] ?? '#000000'),
+          `${name}: ${button}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    },
+  );
+
+  it.each(['light', 'dark'] as const)('%s: the focus ring is visible (≥ 3:1)', async (name) => {
+    const theme = (await themes())[name];
+    for (const surface of SURFACES) {
+      expect(
+        contrast(theme['--c-focus'] ?? '#000000', theme[surface] ?? '#000000'),
+        `${name}: focus on ${surface}`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
 describe('form field outline (WCAG 1.4.11, ≥ 3:1)', () => {
-  it('the input border token is distinguishable from the field and the form in both themes', async () => {
-    const all = themes(await readCss('./tokens.css'));
+  it('the input border token is distinguishable from the field and the form in every theme', async () => {
+    const all = await themes();
     for (const [name, theme] of Object.entries(all)) {
       const border = theme['--c-input-border'];
       expect(border, `${name}: --c-input-border`).toBeDefined();

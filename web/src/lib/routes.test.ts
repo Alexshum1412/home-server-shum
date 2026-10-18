@@ -16,11 +16,13 @@ import {
 const EXPECTED: Array<[string, RouteId]> = [
   ['/', 'home'],
   ['/cinema', 'cinema'],
+  ['/chat', 'chat'],
   ['/photos', 'photos'],
   ['/files', 'files'],
   ['/downloads', 'downloads'],
   ['/calendar', 'calendar'],
   ['/notes', 'notes'],
+  ['/notifications', 'notifications'],
   ['/print', 'print'],
   ['/system', 'system'],
   ['/help', 'help'],

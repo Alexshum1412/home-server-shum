@@ -65,7 +65,10 @@ function PhotoBackupNote() {
   );
 }
 
-export function ServicePage(props: { kind: ServicePageKind }) {
+export function ServicePage(props: {
+  kind: ServicePageKind /** Opened from «запасной просмотр»: the fallback list starts unfolded. */;
+  openFallback?: boolean;
+}) {
   const { services } = useData();
   const isAdmin = useIsAdmin();
   const copy = SERVICE_PAGES[props.kind];
@@ -144,7 +147,7 @@ export function ServicePage(props: { kind: ServicePageKind }) {
       <PageHeader title={service?.name ?? copy.name} icon={Icon} />
       {body}
       {props.kind === 'media' && loaded ? (
-        <MediaFallback jellyfinOnline={service?.state === 'online'} />
+        <MediaFallback jellyfinOnline={service?.state === 'online'} forceOpen={props.openFallback === true} />
       ) : null}
       {props.kind === 'photos' ? <PhotoBackupNote /> : null}
     </div>

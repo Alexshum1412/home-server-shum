@@ -13,9 +13,11 @@ import { currentUser, type Guards } from '../auth/guards.ts';
 import { type LoginTimes, lastLoginOf } from '../auth/logins.ts';
 import { generatePassword, hashPassword, TEMPORARY_PASSWORD_TTL_MS } from '../auth/passwords.ts';
 import type { LoginLimiter } from '../auth/rate-limit.ts';
+import { SESSION_COOKIE, type SessionStore } from '../auth/sessions.ts';
 import {
   DISPLAY_NAME_MAX,
   effectivePermissions,
+  isDisabled,
   needsPasswordChange,
   normaliseUsername,
   USERNAME_RE,
@@ -23,6 +25,7 @@ import {
   type UserStore,
   UserStoreError,
 } from '../auth/users.ts';
+import type { CallManager } from '../calls/manager.ts';
 import type { Config } from '../config.ts';
 import { sendError } from '../lib/http.ts';
 import { type Clock, isoNow } from '../lib/time.ts';
@@ -40,8 +43,10 @@ export interface AdminRouteDeps {
   registry: ServiceRegistry;
   collector: SystemCollector;
   limiter: LoginLimiter;
+  sessions: SessionStore;
+  calls: CallManager;
   /** After removal: the person's files are moved to the trash folder, their private events are deleted. */
-  retireAccount: (username: string) => Promise<string>;
+  retireAccount: (username: string, userId: string) => Promise<string>;
 }
 
 const DEFAULT_AUDIT_LIMIT = 100;
@@ -67,11 +72,15 @@ const accessSchema = z
 const removeSchema = z.object({ confirm: z.literal(true) });
 const usernameParam = z.object({ username: z.string().max(64) });
 
-/** Decided inside the store's write queue, so two administrators acting at once cannot both pass. */
+/**
+ * Decided inside the store's write queue, so two administrators acting at once cannot both pass.
+ * Only active administrators count: a switched-off one cannot run the server.
+ */
 const keepOneAdmin =
   (message: string): UserGuard =>
   (current, target) => {
-    if (target.role === 'admin' && current.filter((user) => user.role === 'admin').length <= 1) {
+    if (target.role !== 'admin' || isDisabled(target)) return;
+    if (current.filter((user) => user.role === 'admin' && !isDisabled(user)).length <= 1) {
       throw new UserStoreError(message, 'last_admin');
     }
   };
@@ -115,10 +124,76 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
         lastLoginAt: lastLoginOf(user, deps.logins),
         temporaryPassword: needsPasswordChange(user),
         passwordExpiresAt: needsPasswordChange(user) ? (user.passwordExpiresAt ?? null) : null,
+        disabled: isDisabled(user),
+        sessions: deps.sessions.listFor(user.id).length,
       })),
     };
     return body;
   });
+
+  /**
+   * «Lost phone» or someone who should not come in for a while: the account is switched off (every
+   * device is signed out at once, nothing is deleted) and switched on again later.
+   */
+  for (const action of ['disable', 'enable'] as const) {
+    app.post(
+      `/api/admin/users/:username/${action}`,
+      { preHandler: guards.requireAdmin },
+      async (request, reply) => {
+        const params = usernameParam.safeParse(request.params);
+        const target = params.success ? await deps.users.findByUsername(params.data.username) : undefined;
+        if (!target) return sendError(reply, 404, 'not_found', 'Такого пользователя нет.');
+        const me = currentUser(request);
+        if (action === 'disable' && target.id === me.id) {
+          return sendError(reply, 400, 'self', 'Нельзя отключить самого себя.');
+        }
+        try {
+          await deps.users.update(
+            target.id,
+            { disabled: action === 'disable' },
+            action === 'disable' ? keepOneAdmin('Нельзя отключить последнего администратора.') : undefined,
+          );
+        } catch (error) {
+          if (error instanceof UserStoreError && error.code === 'last_admin') {
+            return sendError(reply, 409, 'last_admin', error.message);
+          }
+          throw error;
+        }
+        if (action === 'disable') {
+          await deps.sessions.deleteForUser(target.id);
+          await deps.calls.dropUser(target.id);
+        }
+        await deps.audit.write({
+          action: action === 'disable' ? 'user.disable' : 'user.enable',
+          actor: me.username,
+          ip: request.ip,
+          detail: target.username,
+        });
+        return reply.code(204).send();
+      },
+    );
+  }
+
+  app.post(
+    '/api/admin/users/:username/sign-out',
+    { preHandler: guards.requireAdmin },
+    async (request, reply) => {
+      const params = usernameParam.safeParse(request.params);
+      const target = params.success ? await deps.users.findByUsername(params.data.username) : undefined;
+      if (!target) return sendError(reply, 404, 'not_found', 'Такого пользователя нет.');
+      const me = currentUser(request);
+      const here = request.cookies[SESSION_COOKIE] ?? '';
+      const keep = target.id === me.id ? deps.sessions.lookup(here)?.tokenHash : undefined;
+      const ended = await deps.sessions.deleteForUser(target.id, keep);
+      await deps.audit.write({
+        action: 'user.sign_out',
+        actor: me.username,
+        ip: request.ip,
+        detail: `${target.username}: устройств ${ended}`,
+      });
+      return reply.code(204).send();
+    },
+  );
 
   app.post('/api/admin/users', { preHandler: guards.requireAdmin }, async (request, reply) => {
     const parsed = createUserSchema.safeParse(request.body);
@@ -262,7 +337,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       }
       let what = '';
       try {
-        what = await deps.retireAccount(target.username);
+        what = await deps.retireAccount(target.username, target.id);
       } catch (error) {
         request.log.error({ err: error }, 'Не удалось убрать данные удалённого пользователя');
         await deps.audit.write({

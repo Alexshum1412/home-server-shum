@@ -88,7 +88,7 @@ function Player(props: { entry: MediaEntry; path: string; onClose: () => void })
  * is stopped or broken. It does not convert anything, so a codec the browser cannot play fails —
  * then Jellyfin is needed.
  */
-export function MediaFallback(props: { jellyfinOnline: boolean }) {
+export function MediaFallback(props: { jellyfinOnline: boolean; forceOpen?: boolean }) {
   const { search } = useLocation();
   const folder = readParam(search, 'media')
     .replace(/\\/g, '/')
@@ -146,7 +146,7 @@ export function MediaFallback(props: { jellyfinOnline: boolean }) {
   }
 
   return (
-    <details class="disclosure fallback" open={!props.jellyfinOnline}>
+    <details class="disclosure fallback" open={props.forceOpen === true || !props.jellyfinOnline}>
       <summary class="disclosure__summary">
         <LifeBuoy size={18} aria-hidden="true" />
         Запасной просмотр без Jellyfin

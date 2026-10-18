@@ -1,4 +1,5 @@
 import { promises as fsp } from 'node:fs';
+import path from 'node:path';
 import fastifyCookie from '@fastify/cookie';
 import Fastify, {
   type FastifyError,
@@ -16,17 +17,28 @@ import { createLoginLimiter, type LoginLimiter } from './auth/rate-limit.ts';
 import { registerAuthRoutes } from './auth/routes.ts';
 import { createSessionStore, type SessionStore } from './auth/sessions.ts';
 import { createUserStore, type UserStore } from './auth/users.ts';
+import { type CallManager, createCallManager } from './calls/manager.ts';
+import { registerCallRoutes } from './calls/routes.ts';
+import { registerChatRoutes } from './chat/routes.ts';
+import { type ChatService, createChatService } from './chat/service.ts';
+import { createChatStore } from './chat/store.ts';
 import type { Config } from './config.ts';
 import { createDownloadManager, type DownloadManager, statfsFree } from './downloads/manager.ts';
 import { registerDownloadRoutes } from './downloads/routes.ts';
 import { registerFileRoutes } from './files/routes.ts';
 import { createStorage } from './files/storage.ts';
+import { createJellyfinClient } from './jellyfin/client.ts';
+import { createProgressStore } from './jellyfin/progress.ts';
+import { registerCatalogRoutes } from './jellyfin/routes.ts';
 import { isApiPath, sendError, urlPath } from './lib/http.ts';
 import { removeStaleTempFiles } from './lib/json-store.ts';
 import { type Clock, isoNow, systemClock } from './lib/time.ts';
 import { readAppVersion } from './lib/version.ts';
 import { createMediaLibrary } from './media/library.ts';
 import { registerMediaRoutes } from './media/routes.ts';
+import { createNotificationCenter, type NotificationCenter } from './notify/center.ts';
+import { registerNotifyRoutes } from './notify/routes.ts';
+import type { PushFetch } from './notify/webpush.ts';
 import type { ActionDeps } from './olivia/actions.ts';
 import type { LlmFetch } from './olivia/llm.ts';
 import { registerOliviaRoutes } from './olivia/routes.ts';
@@ -36,9 +48,11 @@ import { registerPlannerRoutes } from './planner/routes.ts';
 import type { IppTransport } from './print/ipp.ts';
 import { createPrintQueue } from './print/queue.ts';
 import { registerPrintRoutes } from './print/routes.ts';
+import { createRealtimeHub, type RealtimeHub } from './realtime/hub.ts';
 import { createServiceRegistry, type FetchLike, type ServiceRegistry } from './services/checker.ts';
 import { registerServiceRoutes } from './services/routes.ts';
 import { DEFAULT_WEB_ROOT, registerStatic, sendSpaFallback } from './static.ts';
+import { readJellyfinApiKey } from './supervisor/apps.ts';
 import { createSystemCollector, type ProbeTimeouts, type SystemCollector } from './system/collector.ts';
 import { createDefaultProbes, type SystemProbes } from './system/probes.ts';
 import { registerSystemRoutes } from './system/routes.ts';
@@ -58,11 +72,12 @@ export const CONTENT_SECURITY_POLICY = [
   "form-action 'self'",
 ].join('; ');
 
-const SECURITY_HEADERS: Record<string, string> = {
+export const SECURITY_HEADERS: Record<string, string> = {
   'Content-Security-Policy': CONTENT_SECURITY_POLICY,
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  // Camera and microphone only for the portal's own pages (calls); never for anything embedded.
+  'Permissions-Policy': 'camera=(self), microphone=(self), geolocation=(), payment=(), usb=()',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
   'X-Frame-Options': 'DENY',
@@ -96,6 +111,10 @@ export interface AppContext {
   collector: SystemCollector;
   guards: Guards;
   downloads: DownloadManager;
+  hub: RealtimeHub;
+  notify: NotificationCenter;
+  chat: ChatService;
+  calls: CallManager;
   /** What the extra home-network listeners (LAN_BIND) actually did; filled in by index.ts. */
   lan: { bound: string[]; failed: Array<{ address: string; reason: string }> };
 }
@@ -125,6 +144,12 @@ export interface BuildAppOptions {
   ippTransport?: IppTransport;
   /** Replaces the call to the local language model (tests). */
   oliviaLlmFetch?: LlmFetch;
+  /** How long a call rings and how often absent people are dropped (tests make this fast). */
+  callTimings?: { ringMs?: number; checkMs?: number };
+  /** Replaces the call to Jellyfin made by the cinema page (tests). */
+  jellyfinFetch?: typeof fetch;
+  /** Replaces the call to the browsers' push services (tests). */
+  pushFetch?: PushFetch;
   /** Free-space probe for downloads and uploads (tests). */
   freeBytes?: (dir: string) => Promise<number | null>;
 }
@@ -295,6 +320,57 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     onProbeError: (probe, message) => log.warn({ probe }, `Системная проверка не удалась: ${message}`),
   });
   const guards = createGuards({ config, users, sessions });
+  const hub = createRealtimeHub({ clock, headers: SECURITY_HEADERS });
+  const notify = createNotificationCenter({
+    dataDir: config.dataDir,
+    clock,
+    hub,
+    subject: config.publicUrl ?? 'mailto:family-server@example.invalid',
+    fetch: options.pushFetch,
+    onError: (message) => log.warn(message),
+  });
+  await notify.load();
+  const freeBytes = options.freeBytes ?? statfsFree;
+  const chatStore = createChatStore({ dir: config.chatDir, clock, onError: (message) => log.warn(message) });
+  const chat = createChatService({
+    store: chatStore,
+    users,
+    hub,
+    notify,
+    dir: config.chatDir,
+    maxAttachmentBytes: config.chatMaxAttachmentBytes,
+    minFreeBytes: config.minFreeBytes,
+    freeBytes,
+  });
+  await chat.start();
+  const calls = createCallManager({
+    chat,
+    users,
+    hub,
+    notify,
+    clock,
+    settings: config.calls,
+    ringMs: options.callTimings?.ringMs,
+    checkMs: options.callTimings?.checkMs,
+  });
+  const tellOwner = (event: { action: string; actor: string | null; detail: string | null }): void => {
+    if (!event.actor || (event.action !== 'download.done' && event.action !== 'download.fail')) return;
+    const done = event.action === 'download.done';
+    void users
+      .findByUsername(event.actor)
+      .then((owner) =>
+        owner
+          ? notify.notify({
+              users: [owner.id],
+              kind: 'download',
+              title: done ? 'Загрузка завершена' : 'Загрузка не удалась',
+              body: (event.detail ?? '').slice(0, 160),
+              url: '/downloads',
+            })
+          : undefined,
+      )
+      .catch(() => undefined);
+  };
   const downloads = createDownloadManager({
     dataDir: config.dataDir,
     filesRoot: config.filesDir,
@@ -304,8 +380,10 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     allowAddress: options.downloadAllowAddress,
     freeBytes: options.freeBytes,
     log: (message) => log.warn(message),
-    onEvent: (event) =>
-      void audit.write({ action: event.action, actor: event.actor, ip: null, detail: event.detail }),
+    onEvent: (event) => {
+      void audit.write({ action: event.action, actor: event.actor, ip: null, detail: event.detail });
+      tellOwner(event);
+    },
   });
   const context: AppContext = {
     config,
@@ -321,6 +399,10 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     collector,
     guards,
     downloads,
+    hub,
+    notify,
+    chat,
+    calls,
     lan: { bound: [], failed: [] },
   };
   app.decorate('dashboard', context);
@@ -391,7 +473,8 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
       if (!reply.hasHeader(name)) reply.header(name, value);
     }
-    if (isApiRequest(request)) reply.header('Cache-Control', 'no-store');
+    // A route may allow caching on purpose (posters, thumbnails); everything else in the API is never stored.
+    if (isApiRequest(request) && !reply.hasHeader('Cache-Control')) reply.header('Cache-Control', 'no-store');
     return payload;
   });
 
@@ -465,7 +548,6 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   registerAuthRoutes(app, { config, clock, users, logins, sessions, audit, limiter, guards });
   registerServiceRoutes(app, { registry, guards, audit, clock });
   registerSystemRoutes(app, { collector, guards });
-  const freeBytes = options.freeBytes ?? statfsFree;
   const storage = createStorage({
     filesRoot: config.filesDir,
     photosRoot: config.photosDir,
@@ -474,7 +556,33 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     freeBytes,
   });
   const calendar = createCalendarStore(config.dataDir, { clock });
-  const retireAccount = async (username: string): Promise<string> => {
+  const progress = createProgressStore({
+    dataDir: config.dataDir,
+    clock,
+    onError: (message) => log.warn(message),
+  });
+  await progress.load();
+  // The key is read from the file made by scripts\jellyfin-setup.cmd; a re-read every half minute
+  // follows a regenerated key without a restart.
+  let keyRead = { at: 0, value: null as string | null };
+  const jellyfin = createJellyfinClient({
+    baseUrl: config.jellyfinUrl,
+    apiKey: () => {
+      if (Date.now() - keyRead.at > 30_000) {
+        keyRead = {
+          at: Date.now(),
+          value: readJellyfinApiKey(path.join(config.dataDir, 'jellyfin-api.json')),
+        };
+      }
+      return keyRead.value;
+    },
+    fetch: options.jellyfinFetch,
+  });
+  const retireAccount = async (username: string, userId: string): Promise<string> => {
+    progress.forget(userId);
+    await calls.dropUser(userId);
+    await chat.onUserRemoved(userId);
+    notify.forget(userId);
     const moved = await storage.archiveUser(username);
     const events = await calendar.retireOwner(username);
     const parts: string[] = [];
@@ -494,11 +602,22 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     registry,
     collector,
     limiter,
+    sessions,
+    calls,
     retireAccount,
   });
   registerDownloadRoutes(app, { config, clock, guards, downloads });
+  registerNotifyRoutes(app, { guards, hub, center: notify, sessions, audit });
+  registerChatRoutes(app, { chat, guards, audit, clock });
+  registerCallRoutes(app, { calls, guards, audit, clock });
   registerFileRoutes(app, { storage, guards, audit, freeBytes, maxUploadBytes: config.uploadMaxFileBytes });
   registerMediaRoutes(app, { library: createMediaLibrary(config.mediaDir), guards });
+  registerCatalogRoutes(app, {
+    guards,
+    client: jellyfin,
+    progress,
+    jellyfinUrl: () => registry.statuses().find((service) => service.kind === 'media')?.openUrl ?? null,
+  });
   registerPlannerRoutes(app, {
     calendar,
     notes: createNotes(storage),
@@ -534,12 +653,17 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
 
   // --- lifecycle ----------------------------------------------------------------------------
   app.addHook('onClose', async () => {
+    calls.stop();
+    hub.closeAll();
     registry.stop();
     collector.stop();
     await downloads.stop();
     await printQueue.stop();
     await sessions.flush();
     await audit.idle();
+    await notify.idle();
+    await chatStore.idle();
+    await progress.idle();
   });
 
   if (options.startBackground) {

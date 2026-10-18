@@ -12,6 +12,7 @@ import type {
   SystemResponse,
 } from '../../../shared/api.ts';
 import type { ApiFailure } from '../api.ts';
+import { ChatContextProvider, type ChatContextValue } from '../chat/ChatProvider.tsx';
 import type { PollingResult } from '../hooks/usePolling.ts';
 import { DataContext, type DataContextValue, SessionProvider } from '../state.tsx';
 
@@ -159,8 +160,17 @@ export function withProviders(children: ComponentChildren, options: ProvidersOpt
     system: options.system ?? polling(systemResponse()),
     refreshAll: options.refreshAll ?? vi.fn(),
   };
+  const chat: ChatContextValue = {
+    list: null,
+    error: null,
+    loading: false,
+    reload: vi.fn(),
+    unread: 0,
+    notifications: null,
+    reloadNotifications: vi.fn(),
+  };
   return h(SessionProvider, {
     value: { session, logout: async () => {} },
-    children: h(DataContext.Provider, { value: data }, children),
+    children: h(DataContext.Provider, { value: data }, h(ChatContextProvider, { value: chat }, children)),
   });
 }

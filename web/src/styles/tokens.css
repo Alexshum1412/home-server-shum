@@ -1,56 +1,66 @@
 /*
  * Design tokens — «Семейный сервер».
  *
- * Concept: a calm house in the evening. Quiet slate surfaces, one warm
- * "screen glow" (used for the cinema and primary actions only), honest
- * status labels where text and icon come before colour.
+ * Concept: a bright, calm family portal. Light by default (owner's decision, 18.10.2026): page
+ * #f7f9fc, one blue — the main button #216aca (white text stays readable), soft accent #4da3ff for
+ * decoration only. No permanent shadows; status labels keep text and icon before colour.
  *
- * Contrast (WCAG 2.x, measured): every text/status colour below is ≥ 4.5:1
- * on --c-bg, --c-surface and --c-surface-2 in both themes; --c-on-accent on
- * --c-accent ≥ 5.4:1; --c-input-border ≥ 3:1 on --c-bg and --c-surface.
- * Re-check with scripts (or web/src/styles/contrast.test.ts) if you change a value.
+ * Themes (set on <html data-theme>, see lib/theme.ts): «light» (default), «dark», «system»
+ * (follows the device). A dark theme exists for those who prefer it; it is never forced.
+ *
+ * Contrast (WCAG 2.x, measured by styles/contrast.test.ts): every text/status colour is ≥ 4.5:1 on
+ * --c-bg, --c-surface and --c-surface-2 in both themes; --c-on-accent on --c-accent ≥ 4.5:1;
+ * --c-input-border ≥ 3:1 on --c-bg and --c-surface. Change a value → the test tells.
  */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  /* Base palette (dark, default) */
-  --c-bg: #10151b;
-  --c-surface: #171e27;
-  --c-surface-2: #1f2833;
-  --c-border: #2c3744;
-  --c-border-strong: #3d4a5a;
+  /* Base palette (light, default) */
+  --c-bg: #f7f9fc;
+  --c-surface: #ffffff;
+  --c-surface-2: #edf2f8;
+  --c-border: #dbe3ed;
+  --c-border-strong: #b7c4d4;
   /* Form field outline: ≥ 3:1 against --c-bg and --c-surface (WCAG 1.4.11, non-text contrast). */
-  --c-input-border: #6b7889;
-  --c-text: #e9eef4;
-  --c-text-muted: #a3b0c0;
-  --c-text-subtle: #8a97a8;
+  --c-input-border: #74839a;
+  --c-text: #142033;
+  --c-text-muted: #435268;
+  --c-text-subtle: #566579;
 
-  /* The one warm accent: cinema "screen glow" and primary actions */
-  --c-accent: #f3bc63;
-  --c-accent-hover: #f7cd86;
-  --c-on-accent: #1b1305;
-  --c-accent-glow: rgb(243 188 99 / 0.18);
+  /* The one blue: primary actions and links; the soft one only decorates (never carries text). */
+  --c-accent: #216aca;
+  --c-accent-hover: #1b57a5;
+  --c-on-accent: #ffffff;
+  --c-accent-soft: #4da3ff;
+  --c-accent-glow: rgb(77 163 255 / 0.18);
 
   /* Status colours — always paired with an icon and a word */
-  --c-ok: #57cf94;
-  --c-warn: #f59a4a;
-  --c-bad: #f27474;
-  --c-info: #86b3f0;
-  --c-neutral: #97a3b3;
-  --c-ok-bg: rgb(87 207 148 / 0.12);
-  --c-warn-bg: rgb(245 154 74 / 0.12);
-  --c-bad-bg: rgb(242 116 116 / 0.12);
-  --c-info-bg: rgb(134 179 240 / 0.12);
-  --c-neutral-bg: rgb(151 163 179 / 0.12);
+  --c-ok: #16774a;
+  --c-warn: #a84b00;
+  --c-bad: #b42828;
+  --c-info: #1d5fb3;
+  --c-neutral: #556273;
+  --c-ok-bg: rgb(22 119 74 / 0.1);
+  --c-warn-bg: rgb(168 75 0 / 0.1);
+  --c-bad-bg: rgb(180 40 40 / 0.09);
+  --c-info-bg: rgb(29 95 179 / 0.09);
+  --c-neutral-bg: rgb(85 98 115 / 0.09);
 
-  --c-focus: #9cc4ff;
-  --c-overlay: rgb(5 8 12 / 0.6);
+  --c-focus: #216aca;
+  --c-overlay: rgb(20 32 51 / 0.4);
+  --c-selected: rgb(77 163 255 / 0.16);
+
+  /* Avatars: lightness of the badge and of its letters (hue is per person). */
+  --avatar-bg-l: 88%;
+  --avatar-fg-l: 26%;
 
   /* Typography: Onest (bundled locally, OFL) with system fallbacks */
   --font-sans:
     "Onest Variable", "Segoe UI", system-ui, -apple-system, "Roboto", "Helvetica Neue", Arial, sans-serif;
   --font-tabular: "Onest Variable", "Segoe UI", system-ui, sans-serif;
+  /* Only for commands and code the user copies. */
+  --font-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
 
   /* Type scale (1.2 minor third, 16 px base) */
   --fs-xs: 0.8125rem; /* 13 */
@@ -88,7 +98,7 @@
   --r-pill: 999px;
 
   /* Elevation: flat by default; only overlays get a shadow */
-  --shadow-overlay: 0 12px 32px rgb(0 0 0 / 0.45);
+  --shadow-overlay: 0 12px 32px rgb(20 32 51 / 0.18);
 
   /* Layout */
   --content-max: 76rem;
@@ -96,44 +106,92 @@
   --tabbar-h: 4.25rem;
   --tap-min: 44px;
 
+  --z-header: 20;
+  --z-tabbar: 30;
+  --z-toast: 40;
+  --z-skip: 100;
+
   /* Motion */
   --dur-fast: 120ms;
   --dur-base: 200ms;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --c-bg: #f5f7fa;
-    --c-surface: #ffffff;
-    --c-surface-2: #eef2f6;
-    --c-border: #d9e0e8;
-    --c-border-strong: #b9c4d0;
-    --c-input-border: #7a8696;
-    --c-text: #141a21;
-    --c-text-muted: #4a5767;
-    --c-text-subtle: #5f6c7c;
+/* Dark: chosen by the person in «Мой профиль». */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --c-bg: #0f1620;
+  --c-surface: #161f2b;
+  --c-surface-2: #1e2937;
+  --c-border: #2b3747;
+  --c-border-strong: #3d4b5f;
+  --c-input-border: #6f7e93;
+  --c-text: #e8eef6;
+  --c-text-muted: #a6b3c4;
+  --c-text-subtle: #8d9bad;
 
-    --c-accent: #9a5b00;
-    --c-accent-hover: #7d4a00;
-    --c-on-accent: #ffffff;
-    --c-accent-glow: rgb(214 140 30 / 0.16);
+  --c-accent: #4da3ff;
+  --c-accent-hover: #7bbbff;
+  --c-on-accent: #06203d;
+  --c-accent-soft: #4da3ff;
+  --c-accent-glow: rgb(77 163 255 / 0.2);
 
-    --c-ok: #16774a;
-    --c-warn: #a84b00;
-    --c-bad: #b42828;
-    --c-info: #1d5fb3;
-    --c-neutral: #556273;
-    --c-ok-bg: rgb(22 119 74 / 0.1);
-    --c-warn-bg: rgb(168 75 0 / 0.1);
-    --c-bad-bg: rgb(180 40 40 / 0.09);
-    --c-info-bg: rgb(29 95 179 / 0.09);
-    --c-neutral-bg: rgb(85 98 115 / 0.09);
+  --c-ok: #5fd39a;
+  --c-warn: #f5a05a;
+  --c-bad: #f27d7d;
+  --c-info: #8ab8f2;
+  --c-neutral: #9aa6b6;
+  --c-ok-bg: rgb(95 211 154 / 0.12);
+  --c-warn-bg: rgb(245 160 90 / 0.12);
+  --c-bad-bg: rgb(242 125 125 / 0.12);
+  --c-info-bg: rgb(138 184 242 / 0.12);
+  --c-neutral-bg: rgb(154 166 182 / 0.12);
 
-    --c-focus: #1d5fb3;
-    --c-overlay: rgb(20 26 33 / 0.4);
-    --shadow-overlay: 0 12px 32px rgb(20 26 33 / 0.18);
+  --c-focus: #9cc4ff;
+  --c-overlay: rgb(5 8 12 / 0.6);
+  --c-selected: rgb(77 163 255 / 0.18);
+  --avatar-bg-l: 26%;
+  --avatar-fg-l: 86%;
+  --shadow-overlay: 0 12px 32px rgb(0 0 0 / 0.45);
+}
+
+/* «Как в системе»: the same dark values when the device is dark. */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    color-scheme: dark;
+    --c-bg: #0f1620;
+    --c-surface: #161f2b;
+    --c-surface-2: #1e2937;
+    --c-border: #2b3747;
+    --c-border-strong: #3d4b5f;
+    --c-input-border: #6f7e93;
+    --c-text: #e8eef6;
+    --c-text-muted: #a6b3c4;
+    --c-text-subtle: #8d9bad;
+
+    --c-accent: #4da3ff;
+    --c-accent-hover: #7bbbff;
+    --c-on-accent: #06203d;
+    --c-accent-soft: #4da3ff;
+    --c-accent-glow: rgb(77 163 255 / 0.2);
+
+    --c-ok: #5fd39a;
+    --c-warn: #f5a05a;
+    --c-bad: #f27d7d;
+    --c-info: #8ab8f2;
+    --c-neutral: #9aa6b6;
+    --c-ok-bg: rgb(95 211 154 / 0.12);
+    --c-warn-bg: rgb(245 160 90 / 0.12);
+    --c-bad-bg: rgb(242 125 125 / 0.12);
+    --c-info-bg: rgb(138 184 242 / 0.12);
+    --c-neutral-bg: rgb(154 166 182 / 0.12);
+
+    --c-focus: #9cc4ff;
+    --c-overlay: rgb(5 8 12 / 0.6);
+    --c-selected: rgb(77 163 255 / 0.18);
+    --avatar-bg-l: 26%;
+    --avatar-fg-l: 86%;
+    --shadow-overlay: 0 12px 32px rgb(0 0 0 / 0.45);
   }
 }
 
@@ -141,24 +199,5 @@
   :root {
     --dur-fast: 0ms;
     --dur-base: 0ms;
-  }
-}
-
-/* Appended for the app shell (palette above unchanged). */
-:root {
-  /* Selected navigation item: a quiet tint, the label weight carries the rest. */
-  --c-selected: rgb(233 238 244 / 0.08);
-  /* Only for commands and code the user copies. */
-  --font-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
-
-  --z-header: 20;
-  --z-tabbar: 30;
-  --z-toast: 40;
-  --z-skip: 100;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --c-selected: rgb(20 26 33 / 0.06);
   }
 }

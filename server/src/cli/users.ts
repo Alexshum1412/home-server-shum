@@ -49,6 +49,8 @@ function usage(dataDir: string): string {
     '  scripts\\user.cmd role <логин> family|admin',
     '  scripts\\user.cmd allow <логин> downloads|print   (дать право: загрузки / печать)',
     '  scripts\\user.cmd deny <логин> downloads|print    (забрать право)',
+    '  scripts\\user.cmd disable <логин>   (отключить: вход закрыт, ничего не удаляется)',
+    '  scripts\\user.cmd enable <логин>    (включить снова)',
     '  scripts\\user.cmd remove <логин> --yes',
     '',
     'Логин: латиница в нижнем регистре, цифры, «.», «_», «-» (2–32 символа), например mama.',
@@ -391,6 +393,21 @@ async function run(argv: string[]): Promise<void> {
             : `У пользователя «${user.username}» больше нет права: ${label}.`,
         );
       }
+      return;
+    }
+    case 'disable':
+    case 'enable': {
+      const user = await requireUser(store, target);
+      const off = command === 'disable';
+      if (off && user.role === 'admin' && adminCount(users.filter((u) => u.disabled !== true)) <= 1) {
+        throw new CliError('Нельзя отключить последнего администратора: сначала назначьте другого.');
+      }
+      await store.update(user.id, { disabled: off });
+      console.log(
+        off
+          ? `Пользователь «${user.username}» отключён. Сеансы закроются при следующем действии на сайте; вернуть доступ: scripts\\user.cmd enable ${user.username}.`
+          : `Пользователь «${user.username}» снова может входить.`,
+      );
       return;
     }
     case 'remove': {

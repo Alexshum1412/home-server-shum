@@ -111,6 +111,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
       FAMILY_FILES_DIR: path.join(dataDir, 'family-files'),
       FAMILY_PHOTOS_DIR: path.join(dataDir, 'family-photos'),
       MEDIA_DIR: path.join(dataDir, 'media'),
+      CHAT_DIR: path.join(dataDir, 'chat'),
       BACKUP_TARGETS: path.join(dataDir, 'backups'),
       BACKUP_GIT_PUSH: 'none',
       ...env,

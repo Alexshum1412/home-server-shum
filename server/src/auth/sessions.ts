@@ -14,7 +14,12 @@ export interface StoredSession {
   userId: string;
   createdAt: string;
   lastSeenAt: string;
+  /** Which device signed in («Chrome · Windows»); shown in «Мой профиль». */
+  label?: string;
 }
+
+/** The part of a token hash that identifies a session in the API (the whole hash never leaves the server). */
+export const shortId = (session: Pick<StoredSession, 'tokenHash'>): string => session.tokenHash.slice(0, 16);
 
 const fileSchema = z.object({
   version: z.literal(1),
@@ -24,6 +29,7 @@ const fileSchema = z.object({
       userId: z.string().min(1),
       createdAt: z.string(),
       lastSeenAt: z.string(),
+      label: z.string().max(80).optional(),
     }),
   ),
 });
@@ -31,13 +37,23 @@ const fileSchema = z.object({
 export interface SessionStore {
   load(): Promise<void>;
   /** `startedAt`: when the sign-in began (before the slow password check); default — now. */
-  create(userId: string, startedAt?: string): Promise<{ token: string; session: StoredSession }>;
+  create(
+    userId: string,
+    startedAt?: string,
+    label?: string,
+  ): Promise<{ token: string; session: StoredSession }>;
   /** Finds a live (not expired) session by its raw token. */
   lookup(token: string): StoredSession | undefined;
   /** Slides the expiry; returns true when lastSeenAt was actually updated (at most once per minute). */
   touch(session: StoredSession): boolean;
   delete(token: string): Promise<boolean>;
   deleteByHash(tokenHash: string): Promise<void>;
+  /** Live sessions of one person, newest first. */
+  listFor(userId: string): StoredSession[];
+  /** Ends one session of the person by its short id; false when there is none. */
+  deleteByShortId(userId: string, id: string): Promise<boolean>;
+  /** Ends every session of the person except `keepHash`; returns how many ended. */
+  deleteForUser(userId: string, keepHash?: string): Promise<number>;
   /** Writes pending lastSeenAt updates (called on shutdown). */
   flush(): Promise<void>;
   count(): number;
@@ -103,7 +119,7 @@ export function createSessionStore(dataDir: string, options: SessionStoreOptions
       }
     },
 
-    async create(userId, startedAt) {
+    async create(userId, startedAt, label) {
       const token = randomToken(32);
       const at = clock().toISOString();
       const session: StoredSession = {
@@ -111,6 +127,7 @@ export function createSessionStore(dataDir: string, options: SessionStoreOptions
         userId,
         createdAt: startedAt ?? at,
         lastSeenAt: at,
+        ...(label ? { label: label.slice(0, 80) } : {}),
       };
       const own = [...sessions.values()]
         .filter((item) => item.userId === userId)
@@ -151,6 +168,34 @@ export function createSessionStore(dataDir: string, options: SessionStoreOptions
 
     async deleteByHash(tokenHash) {
       if (sessions.delete(tokenHash)) await persist();
+    },
+
+    listFor(userId) {
+      return [...sessions.values()]
+        .filter((session) => session.userId === userId && !expired(session))
+        .sort((a, b) => Date.parse(b.lastSeenAt) - Date.parse(a.lastSeenAt));
+    },
+
+    async deleteByShortId(userId, id) {
+      const found = [...sessions.values()].find(
+        (session) => session.userId === userId && shortId(session) === id,
+      );
+      if (!found) return false;
+      sessions.delete(found.tokenHash);
+      await persist();
+      return true;
+    },
+
+    async deleteForUser(userId, keepHash) {
+      let removed = 0;
+      for (const session of [...sessions.values()]) {
+        if (session.userId === userId && session.tokenHash !== keepHash) {
+          sessions.delete(session.tokenHash);
+          removed += 1;
+        }
+      }
+      if (removed > 0) await persist();
+      return removed;
     },
 
     async flush() {

@@ -8,11 +8,19 @@ import {
   Globe,
   HardDrive,
   Images,
+  MessagesSquare,
   Printer,
   Server,
 } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
-import type { CalendarResponse, ServiceStatus, SystemResponse } from '../../../shared/api.ts';
+import type {
+  CalendarResponse,
+  CatalogHomeResponse,
+  ServiceStatus,
+  SystemResponse,
+} from '../../../shared/api.ts';
+import { useChat } from '../chat/ChatProvider.tsx';
+import { PosterCard } from '../cinema/Poster.tsx';
 import { AlertList } from '../components/AlertList.tsx';
 import type { IconComponent } from '../components/icons.ts';
 import { RelativeTime } from '../components/RelativeTime.tsx';
@@ -295,6 +303,63 @@ function TodayEvents(props: { now: number }) {
   );
 }
 
+/**
+ * Posters right under the cinema screen: what to continue, otherwise what is new. Nothing is shown
+ * while Jellyfin cannot be read: the cinema screen above already says what is wrong.
+ */
+function MediaStrip() {
+  const data = useResource<CatalogHomeResponse>('/api/catalog');
+  const home = data.data;
+  if (!home?.available) return null;
+  const resumable = home.continueWatching.length > 0;
+  const items = (resumable ? home.continueWatching : home.latest).slice(0, 10);
+  if (items.length === 0) return null;
+  return (
+    <section class="home-section" aria-labelledby="strip-title">
+      <h2 id="strip-title" class="section-title">
+        <Clapperboard class="section-title__icon" size={20} aria-hidden="true" />
+        {resumable ? 'Продолжить просмотр' : 'Недавно добавлено'}
+      </h2>
+      <ul class="rail__list rail__list--home">
+        {items.map((item) => (
+          <li key={item.id} class="rail__item">
+            <PosterCard item={item} href={`/cinema?item=${item.id}`} />
+          </li>
+        ))}
+      </ul>
+      <a class="text-link" href="/cinema">
+        Вся медиатека
+      </a>
+    </section>
+  );
+}
+
+/** What is new in the chat, in one line; hidden while there is nothing unread. */
+function ChatNote() {
+  const { list, unread } = useChat();
+  if (!list || unread === 0) return null;
+  const latest = list.conversations
+    .filter((c) => c.unread > 0)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0];
+  return (
+    <section class="home-section" aria-labelledby="chat-note-title">
+      <h2 id="chat-note-title" class="section-title">
+        <MessagesSquare class="section-title__icon" size={20} aria-hidden="true" />
+        Чат
+      </h2>
+      <a class="chat-note" href={latest ? `/chat?c=${latest.id}` : '/chat'}>
+        <span class="chat-note__count">{unread > 99 ? '99+' : unread}</span>
+        <span class="chat-note__text">
+          {unread === 1 ? 'Одно новое сообщение' : `Новых сообщений: ${unread}`}
+          {latest?.last
+            ? ` — ${latest.last.senderName ? `${latest.last.senderName}: ` : ''}${latest.last.preview}`
+            : ''}
+        </span>
+      </a>
+    </section>
+  );
+}
+
 export function HomePage() {
   const { session } = useSession();
   const { services, system } = useData();
@@ -322,6 +387,8 @@ export function HomePage() {
         isAdmin={isAdmin}
       />
       {alertsFirst ? null : <AlertList alerts={alerts} compact />}
+      <MediaStrip />
+      <ChatNote />
       <TodayEvents now={now} />
       <section class="home-section">
         <h2 id="services-title" class="section-title">

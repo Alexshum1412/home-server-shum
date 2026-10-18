@@ -146,7 +146,7 @@ export async function placeFile(temp: string, dir: string, name: string): Promis
  * drained instead of destroyed: destroying it would cut the connection before the client gets
  * the explanation (e.g. 415 «only photos»).
  */
-async function writeFromRequest(
+export async function writeFromRequest(
   body: NodeJS.ReadableStream,
   guard: Transform,
   file: NodeJS.WritableStream,

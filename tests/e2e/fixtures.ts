@@ -27,6 +27,26 @@ export const E2E_USERS = {
     displayName: 'Меняющий',
     role: 'family',
   },
+  /** A third person for the chat and call tests. */
+  chatter: {
+    username: 'e2e-chat',
+    password: 'e2e-chat-password-1',
+    displayName: 'Собеседник',
+    role: 'family',
+  },
+  /** The two people of the call tests (nobody else uses them). */
+  caller: {
+    username: 'e2e-caller',
+    password: 'e2e-caller-password-1',
+    displayName: 'Звонящий',
+    role: 'family',
+  },
+  callee: {
+    username: 'e2e-callee',
+    password: 'e2e-callee-password-1',
+    displayName: 'Отвечающий',
+    role: 'family',
+  },
 } as const;
 
 export type E2EUserKey = keyof typeof E2E_USERS;
