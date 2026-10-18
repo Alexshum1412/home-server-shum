@@ -41,6 +41,11 @@ interface BaseItem {
   IndexNumber?: number;
   Overview?: string;
   CollectionType?: string;
+  /** When the item was added to the library. */
+  DateCreated?: string;
+  SeriesId?: string;
+  AlbumId?: string;
+  ParentId?: string;
   MediaSources?: Array<{
     Container?: string;
     RunTimeTicks?: number;
@@ -75,9 +80,21 @@ const LIBRARY_KIND: Record<string, CatalogLibrary['kind']> = {
 };
 
 const FIELDS = 'Genres,ProductionYear,RunTimeTicks,CommunityRating,ImageTags';
+/** The family lists also need to know when an item came into the library and what it belongs to. */
+const ENTRY_FIELDS = `${FIELDS},DateCreated`;
 const TICKS_PER_SECOND = 10_000_000;
 /** What the catalogue shows as a card. A book is a folder (see list()), a chapter is shown inside its book. */
 const LISTED_TYPES = 'Movie,Series,MusicAlbum,Video';
+
+/** The whole library is read at most this often; a download that has just finished shortens it (see below). */
+const SCAN_TTL_MS = 60_000;
+/** After the portal asked Jellyfin to look for new files, the scan takes a while: ask again soon. */
+const SCAN_TTL_AFTER_REFRESH_MS = 5000;
+const SCAN_FAST_WINDOW_MS = 10 * 60_000;
+const SCAN_PAGE = 500;
+/** More than this is not a family library; the rest is left out rather than slowing every page. */
+const SCAN_MAX_ITEMS = 5000;
+const IDS_PER_REQUEST = 40;
 
 export interface JellyfinSettings {
   /** Always an address on this PC (checked by the caller). */
@@ -86,11 +103,21 @@ export interface JellyfinSettings {
   apiKey: () => string | null;
   fetch?: typeof fetch;
   timeoutMs?: number;
+  /** Milliseconds now; only the cache of the library scan looks at it (tests move it). */
+  now?: () => number;
 }
 
 export interface Resume {
   positionSec: number;
   durationSec: number;
+}
+
+/** A card plus what the family lists need: when it came into the library and what it belongs to. */
+export interface CatalogEntry extends CatalogItem {
+  /** ISO time Jellyfin first saw the item, or null. */
+  addedAt: string | null;
+  /** The series of a season or an episode, the book or album of a chapter or a track; else null. */
+  parentId: string | null;
 }
 
 export interface JellyfinClient {
@@ -114,6 +141,16 @@ export interface JellyfinClient {
     id: string,
     resume: (id: string) => Resume | undefined,
   ): Promise<Omit<CatalogDetailResponse, 'jellyfinUrl'>>;
+  /**
+   * Every listed title of the library (movies, series, albums, videos, audiobooks) with the day it
+   * was added, without anybody's saved place. Read as a whole and kept for a minute, so the family
+   * lists (news, recommendations) do not cost Jellyfin a scan per page.
+   */
+  scan(): Promise<CatalogEntry[]>;
+  /** The same fields for particular items (episodes, chapters, …); never cached. */
+  entriesByIds(ids: readonly string[]): Promise<CatalogEntry[]>;
+  /** Forgets the kept scan, so the next one reads Jellyfin again. */
+  invalidate(): void;
   /** Asks Jellyfin to look for new files now (after a download into the media library). */
   refreshLibrary(): Promise<void>;
   /** The picture of an item (a poster), as a ready response to pass on. */
@@ -279,6 +316,82 @@ export function createJellyfinClient(settings: JellyfinSettings): JellyfinClient
 
   const encode = (value: string) => encodeURIComponent(value);
 
+  async function readLibraries(): Promise<CatalogLibrary[]> {
+    const page = await json<ItemsPage>('/Library/MediaFolders');
+    return (page.Items ?? [])
+      .filter((raw) => raw.Id && ITEM_ID_RE.test(raw.Id))
+      .map((raw) => ({
+        id: (raw.Id as string).toLowerCase(),
+        name: raw.Name ?? 'Библиотека',
+        kind: LIBRARY_KIND[raw.CollectionType ?? ''] ?? 'other',
+      }));
+  }
+
+  // --- the kept scan of the whole library (news, recommendations) ----------------------------
+
+  const now = settings.now ?? Date.now;
+  let kept: { at: number; entries: CatalogEntry[] } | null = null;
+  let running: Promise<CatalogEntry[]> | null = null;
+  /** Counts forgettings: a scan that began before one must not be kept when it ends. */
+  let generation = 0;
+  let fastUntil = 0;
+
+  const validId = (id: string | undefined): string | null => (id && ITEM_ID_RE.test(id) ? id.toLowerCase() : null);
+
+  function toEntry(raw: BaseItem): CatalogEntry | null {
+    const item = toItem(raw, () => undefined);
+    if (!item) return null;
+    const added = raw.DateCreated ? Date.parse(raw.DateCreated) : Number.NaN;
+    let parentId: string | null = null;
+    if (item.kind === 'episode' || item.kind === 'season') parentId = validId(raw.SeriesId);
+    else if (item.kind === 'audiobook' || item.kind === 'track')
+      parentId = validId(raw.AlbumId) ?? validId(raw.ParentId);
+    return {
+      ...item,
+      addedAt: Number.isNaN(added) ? null : new Date(added).toISOString(),
+      parentId,
+    };
+  }
+
+  /** All pages of one /Items query (sorted by name, so the pages do not shift). */
+  async function readEntries(query: string): Promise<CatalogEntry[]> {
+    const found: CatalogEntry[] = [];
+    for (let start = 0; start < SCAN_MAX_ITEMS; start += SCAN_PAGE) {
+      const page = await json<ItemsPage>(
+        `/Items?${query}&Fields=${ENTRY_FIELDS}&SortBy=SortName&SortOrder=Ascending&StartIndex=${start}&Limit=${SCAN_PAGE}`,
+      );
+      const raws = page.Items ?? [];
+      for (const raw of raws) {
+        const entry = toEntry(raw);
+        if (entry) found.push(entry);
+      }
+      if (raws.length < SCAN_PAGE || start + SCAN_PAGE >= (page.TotalRecordCount ?? 0)) break;
+    }
+    return found;
+  }
+
+  async function scanLibrary(): Promise<CatalogEntry[]> {
+    const [libraries, listed] = await Promise.all([
+      readLibraries(),
+      readEntries(`Recursive=true&IncludeItemTypes=${LISTED_TYPES}`),
+    ]);
+    // A book is a folder directly inside its library (see list()).
+    const books = await Promise.all(
+      libraries
+        .filter((library) => library.kind === 'books')
+        .map((library) => readEntries(`Recursive=false&IncludeItemTypes=Folder&ParentId=${library.id}`)),
+    );
+    const byId = new Map<string, CatalogEntry>();
+    for (const entry of [...listed, ...books.flat()]) byId.set(entry.id, entry);
+    return [...byId.values()];
+  }
+
+  function forgetScan(): void {
+    kept = null;
+    running = null;
+    generation += 1;
+  }
+
   return {
     async availability() {
       try {
@@ -289,16 +402,41 @@ export function createJellyfinClient(settings: JellyfinSettings): JellyfinClient
       }
     },
 
-    async libraries() {
-      const page = await json<ItemsPage>('/Library/MediaFolders');
-      return (page.Items ?? [])
-        .filter((raw) => raw.Id && ITEM_ID_RE.test(raw.Id))
-        .map((raw) => ({
-          id: (raw.Id as string).toLowerCase(),
-          name: raw.Name ?? 'Библиотека',
-          kind: LIBRARY_KIND[raw.CollectionType ?? ''] ?? 'other',
-        }));
+    libraries: readLibraries,
+
+    async scan() {
+      const ttl = now() < fastUntil ? SCAN_TTL_AFTER_REFRESH_MS : SCAN_TTL_MS;
+      if (kept && now() - kept.at < ttl) return kept.entries;
+      if (running) return running;
+      const began = generation;
+      const run: Promise<CatalogEntry[]> = scanLibrary()
+        .then((entries) => {
+          if (began === generation) kept = { at: now(), entries };
+          return entries;
+        })
+        .finally(() => {
+          if (running === run) running = null;
+        });
+      running = run;
+      return run;
     },
+
+    async entriesByIds(ids) {
+      const clean = [...new Set(ids.filter((id) => ITEM_ID_RE.test(id)).map((id) => id.toLowerCase()))];
+      const found: CatalogEntry[] = [];
+      for (let i = 0; i < clean.length; i += IDS_PER_REQUEST) {
+        const page = await json<ItemsPage>(
+          `/Items?Ids=${clean.slice(i, i + IDS_PER_REQUEST).join(',')}&Fields=${ENTRY_FIELDS}`,
+        );
+        for (const raw of page.Items ?? []) {
+          const entry = toEntry(raw);
+          if (entry) found.push(entry);
+        }
+      }
+      return found;
+    },
+
+    invalidate: forgetScan,
 
     async genres() {
       const page = await json<ItemsPage>(
@@ -408,6 +546,10 @@ export function createJellyfinClient(settings: JellyfinSettings): JellyfinClient
 
     async refreshLibrary() {
       await call('/Library/Refresh', { method: 'POST' });
+      // Jellyfin scans on its own time: what the portal kept is out of date from now on, and for the
+      // next minutes it asks again soon, so that a finished download shows up without a restart.
+      forgetScan();
+      fastUntil = now() + SCAN_FAST_WINDOW_MS;
     },
 
     async image(id, width) {

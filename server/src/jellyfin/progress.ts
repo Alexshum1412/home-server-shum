@@ -16,6 +16,19 @@ const FINISHED_TAIL_SEC = 60;
 /** The first seconds are not worth remembering. */
 const MIN_POSITION_SEC = 10;
 
+/** Whether a reported place counts as «watched to the end» (the saved place is then dropped). */
+export function finishedByProgress(positionSec: number, durationSec: number): boolean {
+  return (
+    durationSec > 0 && (positionSec >= durationSec * FINISHED_SHARE || durationSec - positionSec <= FINISHED_TAIL_SEC)
+  );
+}
+
+/** One saved place with the time it was last reported. */
+export interface ProgressEntry extends Resume {
+  id: string;
+  updatedAt: string;
+}
+
 const fileSchema = z.object({
   version: z.literal(1),
   users: z.record(
@@ -32,7 +45,11 @@ export interface ProgressStore {
   get(userId: string, itemId: string): Resume | undefined;
   /** Newest first; the ids of what can be continued. */
   continueIds(userId: string, limit: number): string[];
+  /** Newest first; every saved place of one person with the time it was reported (the viewing history). */
+  entries(userId: string): ProgressEntry[];
   put(userId: string, itemId: string, positionSec: number, durationSec: number): void;
+  /** Drops one saved place (the person marked the item as watched). */
+  clear(userId: string, itemId: string): void;
   forget(userId: string): void;
   idle(): Promise<void>;
 }
@@ -97,6 +114,16 @@ export function createProgressStore(options: {
         .map(([id]) => id);
     },
 
+    entries(userId) {
+      return [...(users.get(userId) ?? [])]
+        .map(([id, item]) => ({ id, ...item }))
+        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+    },
+
+    clear(userId, itemId) {
+      if (users.get(userId)?.delete(itemId)) save();
+    },
+
     put(userId, itemId, positionSec, durationSec) {
       // The first seconds of a player that has not yet jumped to the saved place must not wipe it.
       if (positionSec < MIN_POSITION_SEC) return;
@@ -105,9 +132,7 @@ export function createProgressStore(options: {
         items = new Map();
         users.set(userId, items);
       }
-      const finished =
-        durationSec > 0 &&
-        (positionSec >= durationSec * FINISHED_SHARE || durationSec - positionSec <= FINISHED_TAIL_SEC);
+      const finished = finishedByProgress(positionSec, durationSec);
       if (finished) {
         // Watched to the end: nothing to continue.
         if (items.delete(itemId)) save();
