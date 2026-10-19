@@ -1,4 +1,4 @@
-import { Clapperboard, Disc3, Library, Play, Tv } from 'lucide-preact';
+import { CircleCheck, Clapperboard, Disc3, Library, Play, Tv } from 'lucide-preact';
 import type { CatalogItem, CatalogKind } from '../../../shared/api.ts';
 import { hueOf } from '../chat/format.ts';
 
@@ -55,14 +55,32 @@ export function watchedShare(item: CatalogItem): number | null {
   return Math.min(99, Math.max(1, Math.round((item.resumeSec / item.durationSec) * 100)));
 }
 
-/** A card in a row or grid: opens the item. */
-export function PosterCard(props: { item: CatalogItem; href: string; compact?: boolean }) {
+/** «Просмотрено» / «Смотрю» as icon + word, for a poster (never colour alone). */
+export function WatchChip(props: { state: 'watched' | 'watching' }) {
+  const watched = props.state === 'watched';
+  const Icon = watched ? CircleCheck : Play;
+  return (
+    <span class={watched ? 'poster__chip poster__chip--watched' : 'poster__chip'}>
+      <Icon size={14} aria-hidden="true" />
+      {watched ? 'Просмотрено' : 'Смотрю'}
+    </span>
+  );
+}
+
+/** A card in a row or grid: opens the item. `status` (the person's own) adds the «Просмотрено» / «Смотрю» chip. */
+export function PosterCard(props: {
+  item: CatalogItem;
+  href: string;
+  compact?: boolean;
+  status?: 'watched' | 'watching' | null;
+}) {
   const { item } = props;
   const share = watchedShare(item);
   return (
     <a class={props.compact ? 'poster poster--compact' : 'poster'} href={props.href}>
       <span class="poster__frame">
         <Poster item={item} />
+        {props.status ? <WatchChip state={props.status} /> : null}
         {share !== null ? (
           <span class="poster__resume" aria-hidden="true">
             <Play size={14} aria-hidden="true" />
@@ -75,6 +93,7 @@ export function PosterCard(props: { item: CatalogItem; href: string; compact?: b
       <span class="poster__title">{item.title}</span>
       <span class="poster__meta">
         {kindLabel(item.kind)}
+        {item.seriesTitle ? ` · ${item.seriesTitle}` : ''}
         {item.year ? ` · ${item.year}` : ''}
         {share !== null ? ` · просмотрено ${share} %` : ''}
       </span>

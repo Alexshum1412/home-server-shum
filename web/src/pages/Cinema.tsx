@@ -1,4 +1,4 @@
-import { Clapperboard, ExternalLink, Pause, Play, Search, TriangleAlert, X } from 'lucide-preact';
+import { CircleCheck, Clapperboard, ExternalLink, Pause, Play, Search, TriangleAlert, X } from 'lucide-preact';
 import { useEffect, useId, useRef, useState } from 'preact/hooks';
 import type {
   CatalogDetailResponse,
@@ -7,11 +7,17 @@ import type {
   CatalogItemsResponse,
 } from '../../../shared/api.ts';
 import { apiPost } from '../api.ts';
-import { kindLabel, Poster, PosterCard, watchedShare } from '../cinema/Poster.tsx';
+import { ListsContext, useLists, useListsState } from '../cinema/ListsProvider.tsx';
+import { readView, type View } from '../cinema/lists.ts';
+import { DialogMarks, MarkedPoster } from '../cinema/Marks.tsx';
+import { kindLabel, Poster, watchedShare } from '../cinema/Poster.tsx';
+import { ListView, MyRows, newIdsOf, Rail, TopRows, ViewChips } from '../cinema/Shelves.tsx';
+import { SuggestEntry } from '../cinema/Suggestions.tsx';
 import { EmptyState } from '../components/EmptyState.tsx';
 import { ErrorState } from '../components/ErrorState.tsx';
 import { PageHeader } from '../components/PageHeader.tsx';
 import { Loading } from '../components/Skeleton.tsx';
+import { ToastRegion, useToast } from '../components/Toast.tsx';
 import { useResource } from '../hooks/useResource.ts';
 import { readParam, withQuery } from '../lib/query.ts';
 import { navigate, useLocation } from '../router.ts';
@@ -26,6 +32,8 @@ interface Filters {
   q: string;
   genre: string;
   sort: Sort;
+  /** One of the personal rows opened as a page («Мой список», «Избранное»…), or ''. */
+  view: View | '';
 }
 
 function readFilters(search: string): Filters {
@@ -35,6 +43,7 @@ function readFilters(search: string): Filters {
     q: readParam(search, 'q'),
     genre: readParam(search, 'genre'),
     sort: sort === 'added' || sort === 'year' ? sort : 'name',
+    view: readView(readParam(search, 'view')),
   };
 }
 
@@ -44,6 +53,7 @@ const address = (filters: Filters, extra: Record<string, string> = {}) =>
     q: filters.q,
     genre: filters.genre,
     sort: filters.sort === 'name' ? '' : filters.sort,
+    view: filters.view,
     ...extra,
   });
 
@@ -113,8 +123,10 @@ function ItemDialog(props: { id: string; filters: Filters; onClose: () => void }
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const detail = useResource<CatalogDetailResponse>(`/api/catalog/items/${props.id}`);
+  const lists = useLists();
   const [playing, setPlaying] = useState(false);
   const [problem, setProblem] = useState(false);
+  const [markProblem, setMarkProblem] = useState('');
 
   useEffect(() => {
     const dialog = ref.current;
@@ -124,6 +136,7 @@ function ItemDialog(props: { id: string; filters: Filters; onClose: () => void }
   useEffect(() => {
     setPlaying(false);
     setProblem(false);
+    setMarkProblem('');
   }, [props.id]);
 
   const data = detail.data;
