@@ -7,11 +7,17 @@ import type {
   CatalogItemsResponse,
 } from '../../../shared/api.ts';
 import { apiPost } from '../api.ts';
-import { kindLabel, Poster, PosterCard, watchedShare } from '../cinema/Poster.tsx';
+import { ListsContext, useListsState } from '../cinema/ListsProvider.tsx';
+import { readView, type View } from '../cinema/lists.ts';
+import { DialogMarks, MarkedPoster } from '../cinema/Marks.tsx';
+import { kindLabel, Poster, watchedShare } from '../cinema/Poster.tsx';
+import { ListView, MyRows, newIdsOf, Rail, TopRows, ViewChips } from '../cinema/Shelves.tsx';
+import { SuggestEntry } from '../cinema/Suggestions.tsx';
 import { EmptyState } from '../components/EmptyState.tsx';
 import { ErrorState } from '../components/ErrorState.tsx';
 import { PageHeader } from '../components/PageHeader.tsx';
 import { Loading } from '../components/Skeleton.tsx';
+import { ToastRegion, useToast } from '../components/Toast.tsx';
 import { useResource } from '../hooks/useResource.ts';
 import { readParam, withQuery } from '../lib/query.ts';
 import { navigate, useLocation } from '../router.ts';
@@ -26,6 +32,8 @@ interface Filters {
   q: string;
   genre: string;
   sort: Sort;
+  /** One of the personal rows opened as a page («Мой список», «Избранное»…), or ''. */
+  view: View | '';
 }
 
 function readFilters(search: string): Filters {
@@ -35,6 +43,7 @@ function readFilters(search: string): Filters {
     q: readParam(search, 'q'),
     genre: readParam(search, 'genre'),
     sort: sort === 'added' || sort === 'year' ? sort : 'name',
+    view: readView(readParam(search, 'view')),
   };
 }
 
@@ -44,6 +53,7 @@ const address = (filters: Filters, extra: Record<string, string> = {}) =>
     q: filters.q,
     genre: filters.genre,
     sort: filters.sort === 'name' ? '' : filters.sort,
+    view: filters.view,
     ...extra,
   });
 
@@ -115,6 +125,7 @@ function ItemDialog(props: { id: string; filters: Filters; onClose: () => void }
   const detail = useResource<CatalogDetailResponse>(`/api/catalog/items/${props.id}`);
   const [playing, setPlaying] = useState(false);
   const [problem, setProblem] = useState(false);
+  const [markProblem, setMarkProblem] = useState('');
 
   useEffect(() => {
     const dialog = ref.current;
@@ -124,6 +135,7 @@ function ItemDialog(props: { id: string; filters: Filters; onClose: () => void }
   useEffect(() => {
     setPlaying(false);
     setProblem(false);
+    setMarkProblem('');
   }, [props.id]);
 
   const data = detail.data;
@@ -225,6 +237,12 @@ function ItemDialog(props: { id: string; filters: Filters; onClose: () => void }
                     </a>
                   ) : null}
                 </div>
+                <DialogMarks item={item} onProblem={setMarkProblem} />
+                {markProblem ? (
+                  <p class="banner banner--bad" role="alert">
+                    {markProblem}
+                  </p>
+                ) : null}
                 {data.media !== null ? (
                   <p class="meta">
                     {[
@@ -270,25 +288,6 @@ function ItemDialog(props: { id: string; filters: Filters; onClose: () => void }
         </div>
       ) : null}
     </dialog>
-  );
-}
-
-function Rail(props: { title: string; items: CatalogItem[]; filters: Filters }) {
-  const ids = useId();
-  if (props.items.length === 0) return null;
-  return (
-    <section class="rail" aria-labelledby={ids}>
-      <h2 id={ids} class="section-title">
-        {props.title}
-      </h2>
-      <ul class="rail__list">
-        {props.items.map((item) => (
-          <li key={item.id} class="rail__item">
-            <PosterCard item={item} href={address(props.filters, { item: item.id })} />
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 
@@ -387,7 +386,7 @@ function Toolbar(props: { home: CatalogHomeResponse; filters: Filters }) {
   );
 }
 
-function Results(props: { filters: Filters; home: CatalogHomeResponse }) {
+function Results(props: { filters: Filters; onProblem: (text: string) => void }) {
   const { filters } = props;
   const query = new URLSearchParams({ sort: filters.sort, limit: '100' });
   if (filters.lib) query.set('library', filters.lib);
@@ -413,7 +412,11 @@ function Results(props: { filters: Filters; home: CatalogHomeResponse }) {
       <ul class="poster-grid">
         {result.data.items.map((item) => (
           <li key={item.id}>
-            <PosterCard item={item} href={address(filters, { item: item.id })} />
+            <MarkedPoster
+              item={item}
+              href={address(filters, { item: item.id })}
+              onProblem={props.onProblem}
+            />
           </li>
         ))}
       </ul>
@@ -427,16 +430,52 @@ function Catalog(props: { home: CatalogHomeResponse }) {
   const itemId = readParam(search, 'item');
   const filtered = filters.lib !== '' || filters.q !== '' || filters.genre !== '' || filters.sort !== 'name';
   const { home } = props;
+  const lists = useListsState();
+  const toast = useToast();
+  const [suggesting, setSuggesting] = useState(false);
+  const problem = (text: string) => toast.showError(text);
+  const hrefOf = (item: CatalogItem) => address(filters, { item: item.id });
+  const viewHref = (view: View) => address({ ...filters, view });
+  const plain = (items: CatalogItem[]) => items.map((item) => ({ item }));
+  // «Недавно добавлено» does not repeat what «Новое» already shows.
+  const news = newIdsOf(lists.shelves);
+  const latest = home.latest.filter((item) => !news.has(item.id));
 
   return (
-    <>
+    <ListsContext.Provider value={lists}>
       <Toolbar home={home} filters={filters} />
-      {filtered ? (
-        <Results filters={filters} home={home} />
+      <ViewChips current={filters.view} hrefOf={viewHref} />
+      <SuggestEntry
+        open={suggesting}
+        waiting={lists.shelves?.openSuggestions ?? 0}
+        onOpen={() => setSuggesting(true)}
+        onClose={() => setSuggesting(false)}
+        onChanged={lists.reload}
+      />
+      {filters.view !== '' ? (
+        <ListView
+          view={filters.view}
+          libraries={home.libraries}
+          lib={filters.lib}
+          genre={filters.genre}
+          q={filters.q}
+          hrefOf={hrefOf}
+          backHref={address({ ...filters, view: '' })}
+          onProblem={problem}
+        />
+      ) : filtered ? (
+        <Results filters={filters} onProblem={problem} />
       ) : (
         <>
-          <Rail title="Продолжить просмотр" items={home.continueWatching} filters={filters} />
-          <Rail title="Недавно добавлено" items={home.latest} filters={filters} />
+          <Rail
+            title="Продолжить просмотр"
+            entries={plain(home.continueWatching)}
+            hrefOf={hrefOf}
+            onProblem={problem}
+          />
+          <TopRows hrefOf={hrefOf} viewHref={viewHref} onProblem={problem} />
+          <Rail title="Недавно добавлено" entries={plain(latest)} hrefOf={hrefOf} onProblem={problem} />
+          <MyRows hrefOf={hrefOf} viewHref={viewHref} onProblem={problem} />
           {home.continueWatching.length === 0 && home.latest.length === 0 ? (
             <EmptyState icon={Clapperboard} title="В медиатеке пока ничего нет">
               Положите фильмы в папку C:\FamilyData\Media (администратор знает как) — они появятся здесь после
@@ -453,6 +492,7 @@ function Catalog(props: { home: CatalogHomeResponse }) {
           onClose={() => navigate(address(filters), { replace: true })}
         />
       ) : null}
+      <ToastRegion toast={toast} />
       <p class="meta cinema-footer">
         Не открывается или нужен запасной способ?{' '}
         <a class="text-link" href={withQuery('/cinema', { fallback: '1' })}>
@@ -467,7 +507,7 @@ function Catalog(props: { home: CatalogHomeResponse }) {
           </>
         ) : null}
       </p>
-    </>
+    </ListsContext.Provider>
   );
 }
 

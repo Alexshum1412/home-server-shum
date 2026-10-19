@@ -6,6 +6,7 @@ import './styles/components.css';
 import './styles/pages.css';
 import './styles/chat.css';
 import './styles/cinema.css';
+import './styles/cinema-lists.css';
 import './styles/search.css';
 import './styles/server.css';
 import './styles/tasks.css';

@@ -74,7 +74,7 @@ test.describe('cinema', () => {
   test('a file the browser cannot play is not offered to it; Jellyfin is', async ({ page }) => {
     await signIn(page, 'family', '/cinema?lib=&q=');
     await open(page, 'Звёздный курьер');
-    await expect(dialog(page).getByRole('button', { name: 'Смотреть' })).toHaveCount(0);
+    await expect(dialog(page).getByRole('button', { name: 'Смотреть', exact: true })).toHaveCount(0);
     await expect(dialog(page)).toContainText('перекодирует');
     await expect(dialog(page)).toContainText(/hevc/);
     const link = dialog(page).getByRole('link', { name: /Открыть в Jellyfin/ });

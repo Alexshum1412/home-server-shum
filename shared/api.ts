@@ -1317,3 +1317,93 @@ export interface TaskSearchHit {
 export interface DeleteTaskListResponse {
   removedTasks: number;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Family cinema: personal lists (favourites, «later», watched), history, news, recommendations and
+// the family's film suggestions. Lists are private to each person; only suggestions are shared.
+// ---------------------------------------------------------------------------------------------
+
+/** What one person has marked (item ids, the newest mark first). */
+export interface CatalogMarks {
+  favourites: string[];
+  later: string[];
+  /** Finished items: marked by hand, or automatically when the saved place reaches about 90 %. */
+  watched: string[];
+}
+
+/** POST /api/catalog/marks — set any of the three marks of one item. */
+export interface CatalogMarkRequest {
+  id: string;
+  favourite?: boolean;
+  later?: boolean;
+  watched?: boolean;
+}
+
+/** The three marks of one item after a change (the answer of POST /api/catalog/marks). */
+export interface CatalogMarkState {
+  id: string;
+  favourite: boolean;
+  later: boolean;
+  watched: boolean;
+}
+
+/** One card on a shelf: the item and a short line under it (a reason, a date or a state). */
+export interface CatalogShelfEntry {
+  item: CatalogItem;
+  /** Why it is offered (recommendations) or what happened (history: «Просмотрено», «Смотрю»). */
+  note: string | null;
+  /** ISO time: when it was added to the library, marked, or last watched. */
+  at: string | null;
+}
+
+/** GET /api/catalog/shelves — the personal rows of the cinema's start page. */
+export interface CatalogShelvesResponse {
+  marks: CatalogMarks;
+  /** Why the rows are empty because Jellyfin does not answer (plain words), or null. The marks still work. */
+  reason: string | null;
+  /** Recommendations: unseen items, each with one short reason. */
+  forYou: CatalogShelfEntry[];
+  /** Why `forYou` is empty, in plain words, or null. */
+  forYouHint: string | null;
+  /** Added to the library in the last 14 days, newest first. */
+  news: CatalogShelfEntry[];
+  later: CatalogShelfEntry[];
+  favourites: CatalogShelfEntry[];
+  /** «Что я смотрел»: newest first, with dates. */
+  history: CatalogShelfEntry[];
+  /** Suggestions of the family that still wait for an administrator. */
+  openSuggestions: number;
+}
+
+export type CatalogSuggestionStatus = 'open' | 'added' | 'declined';
+
+export interface CatalogSuggestion {
+  id: string;
+  title: string;
+  note: string;
+  /** Display name of the person who suggested it. */
+  byName: string;
+  /** The suggestion is the viewer's own (it may be withdrawn while it is open). */
+  mine: boolean;
+  at: string;
+  status: CatalogSuggestionStatus;
+  decidedAt: string | null;
+}
+
+/** GET /api/catalog/suggestions — everybody sees the whole list. */
+export interface CatalogSuggestionsResponse {
+  suggestions: CatalogSuggestion[];
+  /** Administrators may mark entries «добавлено» or «отклонено». */
+  canModerate: boolean;
+}
+
+/** POST /api/catalog/suggestions */
+export interface CatalogSuggestionRequest {
+  title: string;
+  note?: string;
+}
+
+/** POST /api/admin/catalog/suggestions/:id — an administrator's decision. */
+export interface CatalogSuggestionDecision {
+  status: CatalogSuggestionStatus;
+}

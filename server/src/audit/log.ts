@@ -37,7 +37,8 @@ export type AuditAction =
   | 'call.start'
   | 'push.subscribe'
   | 'services.refresh'
-  | 'diagnostics.export';
+  | 'diagnostics.export'
+  | 'catalog.suggestion';
 
 export interface AuditInput {
   action: AuditAction;

@@ -26,6 +26,9 @@ export default defineConfig({
   use: {
     ...devices['Desktop Chrome'],
     channel: 'chrome',
+    // Headless Chrome on this PC sometimes never opens a page while its graphics process starts (seen on
+    // 19.10.2026 after a Chrome update: «setting up "page"» timed out); the tests need no graphics card.
+    launchOptions: { args: ['--disable-gpu'] },
     locale: 'ru-RU',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
