@@ -59,7 +59,7 @@ export function TodayTasks(props: { now: number }) {
               <label class="task__check">
                 <input
                   type="checkbox"
-                  checked={false}
+                  checked={busy === task.id}
                   disabled={busy === task.id}
                   aria-labelledby={`today-task-${task.id}`}
                   onChange={() => void tick(task)}

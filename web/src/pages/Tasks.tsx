@@ -78,7 +78,8 @@ function TaskRow(props: {
   /** Shown in the «all» view for a task that lives in a list. */
   listName: string | null;
   shopping: boolean;
-  busy: boolean;
+  /** While a tick is being saved: the state the person asked for (it is shown at once). */
+  pending: boolean | undefined;
   onTick: (task: TaskView, done: boolean) => void;
   onEdit: (task: TaskView) => void;
 }) {
@@ -95,15 +96,12 @@ function TaskRow(props: {
       <label class="task__check">
         <input
           type="checkbox"
-          checked={task.done}
-          disabled={props.busy}
+          checked={props.pending ?? task.done}
+          disabled={props.pending !== undefined}
           aria-labelledby={`${ids}-title`}
           aria-describedby={`${ids}-meta`}
-          onChange={(e) => {
-            // A repeating task is never «done»: ticking it moves it to its next date, so the box stays empty.
-            props.onTick(task, e.currentTarget.checked);
-            if (repeating) e.currentTarget.checked = false;
-          }}
+          // A repeating task is never «done»: ticking it moves it to its next date and the box empties again.
+          onChange={(e) => props.onTick(task, e.currentTarget.checked)}
         />
       </label>
       <div class="task__body">
@@ -177,7 +175,7 @@ function TaskRow(props: {
           <button
             type="button"
             class="button button--quiet"
-            disabled={props.busy}
+            disabled={props.pending !== undefined}
             onClick={() => props.onTick(task, false)}
           >
             <Undo2 size={18} aria-hidden="true" />
@@ -632,7 +630,7 @@ export function TasksPage() {
   const now = wallMoment(new Date(nowMs));
   const toast = useToast();
   const [dialog, setDialog] = useState<Dialog>(null);
-  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
+  const [pending, setPending] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [quick, setQuick] = useState('');
   const [quickPrivate, setQuickPrivate] = useState(false);
   const [many, setMany] = useState('');
@@ -657,8 +655,8 @@ export function TasksPage() {
   }
 
   async function tick(task: TaskView, done: boolean) {
-    if (busyIds.has(task.id)) return;
-    setBusyIds(new Set([...busyIds, task.id]));
+    if (pending.has(task.id)) return;
+    setPending(new Map([...pending, [task.id, done]]));
     try {
       const updated = await apiPost<TaskView>(`/api/tasks/${task.id}/done`, {
         done,
@@ -672,8 +670,8 @@ export function TasksPage() {
       toast.showError(failureText(error));
       data.refresh();
     } finally {
-      setBusyIds((current) => {
-        const next = new Set(current);
+      setPending((current) => {
+        const next = new Map(current);
         next.delete(task.id);
         return next;
       });
@@ -988,7 +986,7 @@ export function TasksPage() {
                       me={me}
                       listName={active ? null : (listName.get(task.listId ?? '') ?? null)}
                       shopping={shopping}
-                      busy={busyIds.has(task.id)}
+                      pending={pending.get(task.id)}
                       onTick={(item, done) => void tick(item, done)}
                       onEdit={(item) => setDialog({ kind: 'task', task: item, draft: blankDraft(active) })}
                     />
