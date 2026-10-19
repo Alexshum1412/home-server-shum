@@ -12,12 +12,15 @@
  * folder, not even an admin's. Every path is resolved inside its space and checked again after
  * following links (realpath), so «..», drive letters, streams and junctions cannot escape.
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream, createWriteStream, promises as fsp, type Stats } from 'node:fs';
 import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FileEntry, StorageRoot, StorageSpace } from '../../../shared/api.ts';
+import { ALBUMS_FOLDER, type AlbumEntry, type TrashEntry } from '../../../shared/storage-extras.ts';
+import { readJsonFile, writeJsonAtomic } from '../lib/json-store.ts';
+import { createJpegStripper } from './jpeg.ts';
 import { BLOCKED_TYPE_MESSAGE, isBlockedName, sanitizeName, uniqueName } from './names.ts';
 
 export class StorageError extends Error {
@@ -36,6 +39,14 @@ export interface StorageOptions {
   minFreeBytes: number;
   maxUploadBytes: number;
   freeBytes: (dir: string) => Promise<number | null>;
+  /** Refuses what would go over a person's quota (optional: no quota). */
+  quota?: {
+    check(username: string, extraBytes: number): Promise<void>;
+    added(username: string, bytes: number): void;
+    invalidate(username: string): void;
+  };
+  /** Told about every photo that was stored, for the exact-duplicate check (optional). */
+  hashes?: { record(space: StorageSpace, username: string, hash: string, rel: string): Promise<void> };
 }
 
 export interface Location {
@@ -150,8 +161,10 @@ export async function writeFromRequest(
   body: NodeJS.ReadableStream,
   guard: Transform,
   file: NodeJS.WritableStream,
+  /** Stages between the guard and the file (a metadata stripper, a byte counter). */
+  stages: Transform[] = [],
 ): Promise<void> {
-  const done = pipeline(guard, file);
+  const done = pipeline([guard, ...stages, file]);
   const onError = (error: Error) => guard.destroy(error);
   const onAborted = () =>
     guard.destroy(Object.assign(new Error('Передача прервалась'), { code: 'ERR_STREAM_PREMATURE_CLOSE' }));
@@ -168,6 +181,16 @@ export async function writeFromRequest(
     body.off('error', onError);
     body.off('aborted', onAborted);
   }
+}
+
+/** The first bytes of an upload: no programs; in «Фото» only pictures and videos. Returns what a photo turned out to be. */
+export function checkHead(root: StorageRoot, head: Buffer): MediaKind | null {
+  if (looksLikeProgram(head)) throw new StorageError(422, 'blocked_type', BLOCKED_TYPE_MESSAGE);
+  const sniffed = sniffMedia(head);
+  if (root === 'photos' && !sniffed) {
+    throw new StorageError(415, 'not_media', 'В «Фото» можно добавлять только фотографии и видео.');
+  }
+  return sniffed?.kind ?? null;
 }
 
 export function createStorage(options: StorageOptions) {
@@ -194,6 +217,8 @@ export function createStorage(options: StorageOptions) {
     const parts = rel.split(/[\\/]+/).filter((p) => p !== '');
     for (const part of parts) {
       if (sanitizeName(part) !== part) throw new StorageError(400, 'bad_path', 'Недопустимое имя в пути.');
+      // Hidden names are the portal's own (unfinished uploads, trash index): not reachable by a path.
+      if (part.startsWith('.')) throw new StorageError(400, 'bad_path', 'Недопустимое имя в пути.');
     }
     return parts;
   }
@@ -245,6 +270,55 @@ export function createStorage(options: StorageOptions) {
     }
   }
 
+  // --- the trash index: where each item came from, so that «Вернуть» can put it back ---------------
+  interface TrashIndex {
+    version: 1;
+    entries: Record<string, { name: string; from: string; at: string }>;
+  }
+  const trashQueues = new Map<string, Promise<unknown>>();
+
+  /** Beside the trash, not inside it: the folder the owner opens stays exactly what the portal moved there. */
+  function trashIndexFile(root: StorageRoot, space: StorageSpace, username: string): string {
+    return path.join(
+      rootDir(root),
+      '.index',
+      `trash-${space === 'shared' ? 'shared' : `user-${username}`}.json`,
+    );
+  }
+
+  async function readTrashIndex(file: string): Promise<TrashIndex> {
+    try {
+      const data = (await readJsonFile(file)) as Partial<TrashIndex> | undefined;
+      return { version: 1, entries: data?.entries ?? {} };
+    } catch {
+      return { version: 1, entries: {} }; // an unreadable index costs only the original folders
+    }
+  }
+
+  /** Changes of one trash's index go one after another. */
+  function changeTrashIndex(file: string, change: (index: TrashIndex) => void): Promise<void> {
+    const previous = trashQueues.get(file) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const index = await readTrashIndex(file);
+        change(index);
+        await writeJsonAtomic(file, index);
+      })
+      .catch(() => undefined);
+    trashQueues.set(file, next);
+    return next;
+  }
+
+  const addTrashIndexEntry = (file: string, id: string, entry: { name: string; from: string; at: string }) =>
+    changeTrashIndex(file, (index) => {
+      index.entries[id] = entry;
+    });
+  const dropTrashIndexEntry = (file: string, id: string) =>
+    changeTrashIndex(file, (index) => {
+      delete index.entries[id];
+    });
+
   return {
     rootDir,
     spaceDir,
@@ -255,8 +329,11 @@ export function createStorage(options: StorageOptions) {
       if (!stat.isDirectory()) throw new StorageError(400, 'not_a_folder', 'Это не папка.');
       const names = await fsp.readdir(dir);
       const entries: FileEntry[] = [];
+      const nameSet = new Set(names);
       for (const name of names) {
         if (name.startsWith('.')) continue; // partial downloads, uploads in progress
+        // The torrent client keeps «name.aria2» beside «name» while it works on it (or seeds it): not a file of the family.
+        if (name.endsWith('.aria2') && nameSet.has(name.slice(0, -'.aria2'.length))) continue;
         try {
           const s = await fsp.lstat(path.join(dir, name));
           if (s.isSymbolicLink()) continue;
@@ -366,6 +443,12 @@ export function createStorage(options: StorageOptions) {
       const name = await uniqueName(bin, `${stamp} ${path.basename(source)}`);
       const stat = await fsp.stat(source);
       await fsp.rename(source, path.join(bin, name));
+      await addTrashIndexEntry(trashIndexFile(loc.root, loc.space, username), name, {
+        name: path.basename(source),
+        from: splitPath(loc.path).slice(0, -1).join('/'),
+        at: new Date().toISOString(),
+      });
+      if (loc.space === 'personal') options.quota?.invalidate(username);
       if (loc.root === 'photos') {
         // A preview is a cache of that very picture: it must not outlive it (a later file of the same
         // name would show the old picture).
@@ -380,6 +463,173 @@ export function createStorage(options: StorageOptions) {
       }
       return name;
     },
+
+    /** What is in the space's trash, newest first. The portal never empties it. */
+    async listTrash(root: StorageRoot, space: StorageSpace, username: string): Promise<TrashEntry[]> {
+      const bin = trashDir(root, space, username);
+      let names: string[];
+      try {
+        names = await fsp.readdir(bin);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+        throw error;
+      }
+      const index = await readTrashIndex(trashIndexFile(root, space, username));
+      const entries: TrashEntry[] = [];
+      for (const id of names) {
+        if (id.startsWith('.')) continue;
+        const stat = await fsp.lstat(path.join(bin, id)).catch(() => null);
+        if (!stat || stat.isSymbolicLink()) continue;
+        const known = index.entries[id];
+        const stamped = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2}) (.+)$/.exec(id);
+        entries.push({
+          id,
+          name: known?.name ?? stamped?.[6] ?? id,
+          type: stat.isDirectory() ? 'dir' : 'file',
+          sizeBytes: stat.isDirectory() ? null : stat.size,
+          deletedAt:
+            known?.at ??
+            (stamped
+              ? new Date(
+                  Number(stamped[1]),
+                  Number(stamped[2]) - 1,
+                  Number(stamped[3]),
+                  Number(stamped[4]),
+                  Number(stamped[5]),
+                ).toISOString()
+              : stat.mtime.toISOString()),
+          from: known?.from ?? null,
+        });
+      }
+      return entries.sort((a, b) => (b.deletedAt ?? '').localeCompare(a.deletedAt ?? ''));
+    },
+
+    /**
+     * Puts an item back from the trash: into the folder it came from when that still exists, otherwise
+     * into the top of the space; under a free name, never over something. Nothing is deleted.
+     */
+    async restore(
+      root: StorageRoot,
+      space: StorageSpace,
+      username: string,
+      id: string,
+    ): Promise<{ name: string; folder: string }> {
+      // The id is a name inside the trash and nothing else: no separators, no dots in front, no tricks.
+      if (sanitizeName(id) !== id || id.startsWith('.')) {
+        throw new StorageError(400, 'bad_name', 'Недопустимое имя.');
+      }
+      const bin = trashDir(root, space, username);
+      const source = path.join(bin, id);
+      const stat = await fsp.lstat(source).catch(() => null);
+      if (!stat || stat.isSymbolicLink())
+        throw new StorageError(404, 'not_found', 'Этого в корзине уже нет.');
+      const index = await readTrashIndex(trashIndexFile(root, space, username));
+      const known = index.entries[id];
+      const stamped = /^\d{8}-\d{4} (.+)$/.exec(id);
+      const original = sanitizeName(known?.name ?? stamped?.[1] ?? id) ?? id;
+      let folder = '';
+      let target = await resolve({ root, space, path: '' }, username);
+      if (known?.from) {
+        try {
+          const wanted = await resolve({ root, space, path: known.from }, username);
+          if ((await fsp.stat(wanted)).isDirectory()) {
+            target = wanted;
+            folder = known.from;
+          }
+        } catch {
+          // the old folder is gone or no longer allowed: the top of the space it is
+        }
+      }
+      if (stat.isFile() && isBlockedName(original)) {
+        throw new StorageError(422, 'blocked_type', BLOCKED_TYPE_MESSAGE);
+      }
+      const name = await uniqueName(target, original);
+      await fsp.rename(source, path.join(target, name));
+      await dropTrashIndexEntry(trashIndexFile(root, space, username), id);
+      if (space === 'personal') options.quota?.invalidate(username);
+      return { name, folder };
+    },
+
+    /**
+     * Moves an item into another folder of the same space (and the same library). A folder cannot go
+     * into itself. The name stays, or gets a number when the target already has one like it.
+     */
+    async move(loc: Location, username: string, toFolder: string): Promise<{ name: string; folder: string }> {
+      if (loc.path === '') throw new StorageError(400, 'bad_path', 'Эту папку переместить нельзя.');
+      const source = await resolve(loc, username);
+      const target = await resolve({ ...loc, path: toFolder }, username);
+      const sourceStat = await fsp.stat(source);
+      if (!(await fsp.stat(target)).isDirectory()) {
+        throw new StorageError(400, 'not_a_folder', 'Переместить можно только в папку.');
+      }
+      const into = path.relative(source, target);
+      if (sourceStat.isDirectory() && (into === '' || (!into.startsWith('..') && !path.isAbsolute(into)))) {
+        throw new StorageError(400, 'bad_path', 'Папку нельзя переместить внутрь неё самой.');
+      }
+      const here = path.dirname(source);
+      const folder = splitPath(toFolder).join('/');
+      if (path.relative(here, target) === '') return { name: path.basename(source), folder };
+      const name = await uniqueName(target, path.basename(source));
+      await fsp.rename(source, path.join(target, name));
+      if (loc.root === 'photos') {
+        // The previews follow their pictures (they are looked for by folder and name).
+        const parent = splitPath(loc.path).slice(0, -1).join('/');
+        if (sourceStat.isFile()) {
+          const oldThumb = this.thumbPath({ ...loc, path: parent }, username, path.basename(source));
+          const newThumb = this.thumbPath({ ...loc, path: folder }, username, name);
+          await fsp.mkdir(path.dirname(newThumb), { recursive: true }).catch(() => undefined);
+          await fsp.rename(oldThumb, newThumb).catch(() => undefined);
+        } else {
+          const newThumbs = this.thumbFolder(
+            { ...loc, path: folder === '' ? name : `${folder}/${name}` },
+            username,
+          );
+          await fsp.mkdir(path.dirname(newThumbs), { recursive: true }).catch(() => undefined);
+          await fsp.rename(this.thumbFolder(loc, username), newThumbs).catch(() => undefined);
+        }
+      }
+      return { name, folder };
+    },
+
+    /** The albums of a photo space: folders under «Альбомы», with how many pictures each holds. */
+    async albums(space: StorageSpace, username: string): Promise<AlbumEntry[]> {
+      const base = path.join(spaceDir('photos', space, username), ALBUMS_FOLDER);
+      let names: string[];
+      try {
+        names = await fsp.readdir(base);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+        throw error;
+      }
+      const albums: AlbumEntry[] = [];
+      for (const name of names) {
+        if (name.startsWith('.')) continue;
+        const dir = path.join(base, name);
+        const stat = await fsp.lstat(dir).catch(() => null);
+        if (!stat?.isDirectory()) continue;
+        const files = (await fsp.readdir(dir).catch(() => [] as string[])).filter(
+          (entry) => !entry.startsWith('.'),
+        );
+        let cover: string | null = null;
+        for (const file of files.sort((a, b) => a.localeCompare(b, 'ru')).slice(0, 12)) {
+          const hasThumb = await fsp
+            .access(
+              this.thumbPath({ root: 'photos', space, path: `${ALBUMS_FOLDER}/${name}` }, username, file),
+            )
+            .then(() => true)
+            .catch(() => false);
+          if (hasThumb) {
+            cover = file;
+            break;
+          }
+        }
+        albums.push({ name, count: files.length, cover });
+      }
+      return albums.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    },
+
+    /** Pieces for the modules that work next to the storage (resumable uploads): the same checks, no second copy of them. */
+    internals: { resolve, ensureSpace, spaceDir },
 
     /** Folder of the previews that belong to the folder `loc` of the photo library. */
     thumbFolder(loc: Location, username: string): string {
@@ -419,7 +669,9 @@ export function createStorage(options: StorageOptions) {
 
     /**
      * Streams an upload into the folder `loc` as `rawName`: written to a hidden temp file, size and
-     * content checked on the way, renamed into place only when complete.
+     * content checked on the way, renamed into place only when complete. With `strip` a JPEG loses the
+     * place of shooting and the camera's notes on the way (the picture is copied byte for byte).
+     * `sha256` of the bytes as they arrived is returned, for the duplicate check.
      */
     async upload(
       loc: Location,
@@ -427,7 +679,14 @@ export function createStorage(options: StorageOptions) {
       rawName: string,
       declaredBytes: number,
       body: NodeJS.ReadableStream,
-    ): Promise<{ name: string; sizeBytes: number; media: MediaKind | null }> {
+      uploadOptions: { strip?: boolean; expectedSha256?: string } = {},
+    ): Promise<{
+      name: string;
+      sizeBytes: number;
+      media: MediaKind | null;
+      sha256: string;
+      stripped: boolean;
+    }> {
       const name = sanitizeName(rawName);
       if (!name || name.startsWith('.')) throw new StorageError(400, 'bad_name', 'Недопустимое имя файла.');
       if (isBlockedName(name)) throw new StorageError(422, 'blocked_type', BLOCKED_TYPE_MESSAGE);
@@ -443,12 +702,14 @@ export function createStorage(options: StorageOptions) {
       }
       const dir = await resolve(loc, username);
       await ensureSpace(dir, declaredBytes);
+      if (loc.space === 'personal') await options.quota?.check(username, declaredBytes);
       reservedBytes += declaredBytes;
       const temp = path.join(dir, `.upload-${process.pid}-${Date.now()}-${randomBytes(6).toString('hex')}`);
       let received = 0;
       let head = Buffer.alloc(0);
       let checked = false;
       let media: MediaKind | null = null;
+      const hash = createHash('sha256');
       const guard = new Transform({
         transform(chunk: Buffer, _enc, callback) {
           received += chunk.length;
@@ -460,33 +721,49 @@ export function createStorage(options: StorageOptions) {
             head = Buffer.concat([head, chunk]).subarray(0, 32);
             if (head.length >= 16 || received >= declaredBytes) {
               checked = true;
-              if (looksLikeProgram(head)) {
-                callback(new StorageError(422, 'blocked_type', BLOCKED_TYPE_MESSAGE));
+              try {
+                media = checkHead(loc.root, head);
+              } catch (error) {
+                callback(error as Error);
                 return;
               }
-              const sniffed = sniffMedia(head);
-              if (loc.root === 'photos' && !sniffed) {
-                callback(
-                  new StorageError(415, 'not_media', 'В «Фото» можно добавлять только фотографии и видео.'),
-                );
-                return;
-              }
-              media = sniffed?.kind ?? null;
             }
           }
+          hash.update(chunk);
           callback(null, chunk);
         },
       });
+      // What is written may be smaller than what arrived (a stripped JPEG): the size reported is the written one.
+      let written = 0;
+      const counter = new Transform({
+        transform(chunk: Buffer, _enc, callback) {
+          written += chunk.length;
+          callback(null, chunk);
+        },
+      });
+      const stripper = uploadOptions.strip === true ? createJpegStripper() : null;
       try {
-        await writeFromRequest(body, guard, createWriteStream(temp, { flags: 'wx' }));
+        await writeFromRequest(body, guard, createWriteStream(temp, { flags: 'wx' }), [
+          ...(stripper ? [stripper] : []),
+          counter,
+        ]);
         if (received !== declaredBytes) {
           throw new StorageError(400, 'incomplete', 'Файл передан не полностью. Попробуйте ещё раз.');
         }
         if (loc.root === 'photos' && received === 0) {
           throw new StorageError(415, 'not_media', 'В «Фото» можно добавлять только фотографии и видео.');
         }
+        const sha256 = hash.digest('hex');
+        if (uploadOptions.expectedSha256 && uploadOptions.expectedSha256 !== sha256) {
+          throw new StorageError(422, 'hash_mismatch', 'Файл дошёл с искажением. Передайте его ещё раз.');
+        }
         const finalName = await placeFile(temp, dir, name);
-        return { name: finalName, sizeBytes: received, media };
+        if (loc.space === 'personal') options.quota?.added(username, written);
+        if (loc.root === 'photos') {
+          const rel = loc.path === '' ? finalName : `${loc.path}/${finalName}`;
+          await options.hashes?.record(loc.space, username, sha256, rel).catch(() => undefined);
+        }
+        return { name: finalName, sizeBytes: written, media, sha256, stripped: stripper?.changed ?? false };
       } catch (error) {
         await fsp.rm(temp, { force: true }).catch(() => undefined);
         if (error instanceof StorageError) throw error;

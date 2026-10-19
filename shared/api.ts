@@ -1,3 +1,4 @@
+import type { QuotaState } from './storage-extras.ts';
 /**
  * Shared API contract between the backend (server/) and the frontend (web/).
  *
@@ -639,6 +640,8 @@ export interface FileListResponse {
   entries: FileEntry[];
   freeBytes: number | null;
   maxUploadBytes: number;
+  /** How full the person's own space is, when the owner set a limit (null: no limit, or the shared space). */
+  quota?: QuotaState | null;
 }
 
 /** PUT /api/storage/:root/upload?space=&path=&name=&size= (raw body, header X-Upload: 1). */
@@ -647,6 +650,10 @@ export interface UploadResponse {
   sizeBytes: number;
   /** For photos: what the content turned out to be. */
   media: 'image' | 'video' | null;
+  /** A JPEG had the place of shooting and the camera's notes taken out. */
+  stripped?: boolean;
+  /** SHA-256 of the bytes as they were sent (hex). */
+  sha256?: string;
 }
 
 // ---------------------------------------------------------------------------

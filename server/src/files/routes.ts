@@ -1,10 +1,19 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { FileListResponse, StorageRoot, StorageSpace, UploadResponse } from '../../../shared/api.ts';
+import type {
+  AlbumsResponse,
+  HashQueryResponse,
+  TrashResponse,
+  UploadSessionState,
+} from '../../../shared/storage-extras.ts';
 import type { AuditLog } from '../audit/log.ts';
 import { currentUser, type Guards } from '../auth/guards.ts';
 import { sendError } from '../lib/http.ts';
 import { parseByteRange } from '../lib/range.ts';
+import type { HashIndex } from './hashes.ts';
+import type { Quota } from './quota.ts';
+import { OffsetMismatch, type UploadSessions } from './sessions.ts';
 import { contentTypeFor, type Location, type Storage, StorageError } from './storage.ts';
 
 declare module 'fastify' {
@@ -20,6 +29,9 @@ export interface FileRouteDeps {
   audit: AuditLog;
   freeBytes: (dir: string) => Promise<number | null>;
   maxUploadBytes: number;
+  sessions: UploadSessions;
+  hashes: HashIndex;
+  quota: Quota;
 }
 
 const rootSchema = z.enum(['files', 'photos']);
@@ -49,6 +61,12 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
   }
 
   function fail(reply: FastifyReply, error: unknown) {
+    // A piece that does not begin where the server's copy ends: the true position goes with the refusal.
+    if (error instanceof OffsetMismatch) {
+      return reply
+        .code(409)
+        .send({ error: error.code, message: error.message, receivedBytes: error.receivedBytes });
+    }
     if (error instanceof StorageError) return sendError(reply, error.status, error.code, error.message);
     const code = (error as NodeJS.ErrnoException)?.code;
     if (code === 'ENOENT') return sendError(reply, 404, 'not_found', 'Такого файла или папки нет.');
@@ -86,6 +104,8 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
         entries,
         freeBytes: await deps.freeBytes(storage.rootDir(loc.root)).catch(() => null),
         maxUploadBytes: deps.maxUploadBytes,
+        // The own space only: the shared one belongs to the family and has no limit of a person.
+        quota: loc.space === 'personal' ? await deps.quota.state(user) : null,
       };
       return body;
     } catch (error) {
@@ -179,6 +199,12 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
   const uploadQuery = locSchema.extend({
     name: z.string().min(1).max(200),
     size: z.coerce.number().int().min(0),
+    /** JPEG: take the place of shooting and the camera's notes out (1), or keep the file as it is (0, the default of this older way). */
+    strip: z.enum(['0', '1']).optional(),
+    sha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
   });
 
   app.put(
@@ -199,6 +225,10 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
           parsed.data.name,
           parsed.data.size,
           request.body as NodeJS.ReadableStream,
+          {
+            strip: parsed.data.strip === '1',
+            ...(parsed.data.sha256 ? { expectedSha256: parsed.data.sha256 } : {}),
+          },
         );
         await log(request, 'file.upload', loc, result.name);
         return result;
@@ -232,4 +262,209 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
       }
     },
   );
+  // --- uploads that survive a broken connection ----------------------------------------------------
+
+  const sessionBody = locSchema.extend({
+    name: z.string().min(1).max(200),
+    size: z.number().int().min(0),
+    strip: z.boolean().optional(),
+    sha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
+  });
+  const idParams = z.object({ id: z.string().regex(/^[0-9a-f]{24}$/) });
+
+  app.post('/api/storage/:root/session', { preHandler: guards.requireUser }, async (request, reply) => {
+    try {
+      const parsed = sessionBody.safeParse(request.body);
+      if (!parsed.success)
+        return sendError(reply, 400, 'bad_request', 'Не указаны имя, размер или место файла.');
+      const loc = location(request, parsed.data);
+      const state: UploadSessionState = await deps.sessions.start(currentUser(request).username, loc.root, {
+        space: loc.space,
+        path: loc.path,
+        name: parsed.data.name,
+        size: parsed.data.size,
+        ...(parsed.data.strip === undefined ? {} : { strip: parsed.data.strip }),
+        ...(parsed.data.sha256 ? { sha256: parsed.data.sha256 } : {}),
+      });
+      return state;
+    } catch (error) {
+      return fail(reply, error);
+    }
+  });
+
+  app.get('/api/storage/:root/session/:id', { preHandler: guards.requireUser }, async (request, reply) => {
+    try {
+      const { root } = request.params as { root: string };
+      const id = idParams.safeParse(request.params);
+      if (!id.success || !rootSchema.safeParse(root).success) {
+        return sendError(reply, 404, 'not_found', 'Такой передачи нет.');
+      }
+      return await deps.sessions.status(currentUser(request).username, root as StorageRoot, id.data.id);
+    } catch (error) {
+      return fail(reply, error);
+    }
+  });
+
+  app.put(
+    '/api/storage/:root/session/:id',
+    { preHandler: guards.requireUser, config: { rawUpload: true } },
+    async (request, reply) => {
+      try {
+        const { root } = request.params as { root: string };
+        const id = idParams.safeParse(request.params);
+        const query = z.object({ offset: z.coerce.number().int().min(0) }).safeParse(request.query);
+        if (!id.success || !rootSchema.safeParse(root).success) {
+          return sendError(reply, 404, 'not_found', 'Такой передачи нет.');
+        }
+        if (!query.success) return sendError(reply, 400, 'bad_request', 'Не указано, с какого байта кусок.');
+        const length = Number(request.headers['content-length'] ?? Number.NaN);
+        const have = await deps.sessions.append(
+          currentUser(request).username,
+          root as StorageRoot,
+          id.data.id,
+          query.data.offset,
+          length,
+          request.body as NodeJS.ReadableStream,
+        );
+        return { receivedBytes: have };
+      } catch (error) {
+        reply.header('Connection', 'close');
+        return fail(reply, error);
+      }
+    },
+  );
+
+  app.post(
+    '/api/storage/:root/session/:id/finish',
+    { preHandler: guards.requireUser },
+    async (request, reply) => {
+      try {
+        const { root } = request.params as { root: string };
+        const id = idParams.safeParse(request.params);
+        if (!id.success || !rootSchema.safeParse(root).success) {
+          return sendError(reply, 404, 'not_found', 'Такой передачи нет.');
+        }
+        const me = currentUser(request).username;
+        const state = await deps.sessions.status(me, root as StorageRoot, id.data.id);
+        const result: UploadResponse = await deps.sessions.finish(me, root as StorageRoot, id.data.id);
+        // The place is not in the answer of the session, but the journal of the shared space names the file.
+        await audit.write({
+          action: 'file.upload',
+          actor: me,
+          ip: request.ip,
+          detail: `${root === 'photos' ? 'Фото' : 'Файлы'}: ${state.name}`.slice(0, 300),
+        });
+        return result;
+      } catch (error) {
+        return fail(reply, error);
+      }
+    },
+  );
+
+  app.post(
+    '/api/storage/:root/session/:id/cancel',
+    { preHandler: guards.requireUser },
+    async (request, reply) => {
+      try {
+        const { root } = request.params as { root: string };
+        const id = idParams.safeParse(request.params);
+        if (!id.success || !rootSchema.safeParse(root).success) return reply.code(204).send();
+        await deps.sessions.cancel(currentUser(request).username, root as StorageRoot, id.data.id);
+        return reply.code(204).send();
+      } catch (error) {
+        if (error instanceof StorageError && error.status === 404) return reply.code(204).send();
+        return fail(reply, error);
+      }
+    },
+  );
+
+  // --- «это фото у нас уже есть» ----------------------------------------------------------------------
+
+  app.post('/api/storage/photos/hashes', { preHandler: guards.requireUser }, async (request, reply) => {
+    try {
+      const parsed = z
+        .object({
+          space: z.enum(['personal', 'shared']),
+          hashes: z
+            .array(z.string().regex(/^[0-9a-f]{64}$/))
+            .min(1)
+            .max(200),
+        })
+        .safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, 'bad_request', 'Не указаны фотографии для проверки.');
+      const answer: HashQueryResponse = await deps.hashes.query(
+        parsed.data.space,
+        currentUser(request).username,
+        parsed.data.hashes,
+      );
+      return answer;
+    } catch (error) {
+      return fail(reply, error);
+    }
+  });
+
+  // --- the trash, put back, move, albums --------------------------------------------------------------
+
+  app.get('/api/storage/:root/trash', { preHandler: guards.requireUser }, async (request, reply) => {
+    try {
+      const loc = location(request, { ...(request.query as object), path: '' });
+      const body: TrashResponse = {
+        entries: await storage.listTrash(loc.root, loc.space, currentUser(request).username),
+      };
+      return body;
+    } catch (error) {
+      return fail(reply, error);
+    }
+  });
+
+  app.post('/api/storage/:root/restore', { preHandler: guards.requireUser }, async (request, reply) => {
+    try {
+      const parsed = locSchema.extend({ id: z.string().min(1).max(300) }).safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, 'bad_request', 'Не указано, что вернуть.');
+      const loc = location(request, { ...parsed.data, path: '' });
+      const result = await storage.restore(
+        loc.root,
+        loc.space,
+        currentUser(request).username,
+        parsed.data.id,
+      );
+      await log(request, 'file.rename', { ...loc, path: result.folder }, result.name);
+      return result;
+    } catch (error) {
+      return fail(reply, error);
+    }
+  });
+
+  app.post('/api/storage/:root/move', { preHandler: guards.requireUser }, async (request, reply) => {
+    try {
+      const parsed = locSchema.extend({ to: z.string().max(400).default('') }).safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, 'bad_request', 'Не указано, что и куда переместить.');
+      const loc = location(request, parsed.data);
+      const result = await storage.move(
+        loc,
+        currentUser(request).username,
+        parsed.data.to.replace(/\\/g, '/'),
+      );
+      await log(request, 'file.rename', { ...loc, path: result.folder }, result.name);
+      return result;
+    } catch (error) {
+      return fail(reply, error);
+    }
+  });
+
+  app.get('/api/storage/photos/albums', { preHandler: guards.requireUser }, async (request, reply) => {
+    try {
+      const parsed = z.object({ space: z.enum(['personal', 'shared']) }).safeParse(request.query);
+      if (!parsed.success) return sendError(reply, 400, 'bad_request', 'Не указано, чьи альбомы.');
+      const body: AlbumsResponse = {
+        albums: await storage.albums(parsed.data.space, currentUser(request).username),
+      };
+      return body;
+    } catch (error) {
+      return fail(reply, error);
+    }
+  });
 }

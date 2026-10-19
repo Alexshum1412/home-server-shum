@@ -95,6 +95,8 @@ export interface Config {
   readonly downloadMaxFileBytes: number;
   /** One file uploaded through the portal (files and photos). */
   readonly uploadMaxFileBytes: number;
+  /** How much of the server one person may fill with their own files and photos; null — no limit. */
+  readonly userQuotaBytes: number | null;
   /** Downloads and uploads stop when the volume would have less than this free. */
   readonly minFreeBytes: number;
   /** «Оливия» (rule-based assistant for the admin); OLIVIA_ENABLED=0 switches it off completely. */
@@ -208,6 +210,7 @@ const schema = z.object({
   CALLS_CF_TURN_TOKEN_FILE: z.string(),
   DOWNLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
   UPLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
+  USER_QUOTA_GB: z.string(),
   MIN_FREE_GB: z.coerce.number().min(0).max(10_000),
   OLIVIA_ENABLED: z.enum(['0', '1', 'true', 'false']),
   OLIVIA_LLM_URL: z.string(),
@@ -343,6 +346,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     CALLS_CF_TURN_TOKEN_FILE: env.CALLS_CF_TURN_TOKEN_FILE?.trim() ?? '',
     DOWNLOAD_MAX_FILE_GB: pick('DOWNLOAD_MAX_FILE_GB', '50'),
     UPLOAD_MAX_FILE_GB: pick('UPLOAD_MAX_FILE_GB', '20'),
+    USER_QUOTA_GB: env.USER_QUOTA_GB?.trim() ?? '',
     MIN_FREE_GB: pick('MIN_FREE_GB', '50'),
     OLIVIA_ENABLED: pick('OLIVIA_ENABLED', '1').toLowerCase(),
     OLIVIA_LLM_URL: env.OLIVIA_LLM_URL?.trim() ?? '',
@@ -433,6 +437,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     }),
     downloadMaxFileBytes: Math.round(v.DOWNLOAD_MAX_FILE_GB * 1024 ** 3),
     uploadMaxFileBytes: Math.round(v.UPLOAD_MAX_FILE_GB * 1024 ** 3),
+    userQuotaBytes: parseQuota(v.USER_QUOTA_GB),
     minFreeBytes: Math.round(v.MIN_FREE_GB * 1024 ** 3),
     oliviaEnabled: v.OLIVIA_ENABLED === '1' || v.OLIVIA_ENABLED === 'true',
     oliviaLlm:
@@ -517,6 +522,18 @@ function defaultKeyFile(env: Env, platform: NodeJS.Platform): string {
 }
 
 /** BACKUP_OFFSITE_DIR: a full path of a folder, or blank / none (not set up). */
+/** USER_QUOTA_GB: a number of gigabytes per person; empty or none — no limit. */
+function parseQuota(value: string): number | null {
+  if (value === '' || value.toLowerCase() === 'none') return null;
+  const gigabytes = Number(value.replace(',', '.'));
+  if (!Number.isFinite(gigabytes) || gigabytes < 0.001 || gigabytes > 100_000) {
+    throw new Error(
+      `: USER_QUOTA_GB: число гигабайт на человека (например, 200) или пусто, если ограничения нет`,
+    );
+  }
+  return Math.round(gigabytes * 1024 ** 3);
+}
+
 function parseOffsiteDir(value: string): string | null {
   if (value === '' || value.toLowerCase() === 'none') return null;
   if (!isAbsoluteTargetPath(value)) {

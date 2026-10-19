@@ -10,6 +10,11 @@ export const NAME_MAX = 150;
 const RESERVED = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?$/i;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what is removed
 const FORBIDDEN_CHARS = /[<>:"/\\|?*\u0000-\u001f\u007f]/g;
+/**
+ * Characters that cannot be seen but change what a name looks like: zero-width spaces, and the marks that turn text
+ * around («invoice<U+202E>txt.cmd» is shown as «invoicedmc.txt»). They are removed, not replaced, so no name hides what it is.
+ */
+const INVISIBLE_CHARS = /[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
 
 /**
  * Programs and scripts are never stored through the portal: they could run on the PC (or on a
@@ -57,7 +62,7 @@ const BLOCKED_EXTENSIONS = new Set([
 
 /** Normalised safe name, or null when nothing usable is left (e.g. only dots). */
 export function sanitizeName(raw: string): string | null {
-  let name = raw.normalize('NFC').replace(FORBIDDEN_CHARS, '_').trim();
+  let name = raw.normalize('NFC').replace(INVISIBLE_CHARS, '').replace(FORBIDDEN_CHARS, '_').trim();
   // Trailing dots/spaces are silently dropped by Windows and can alias another file.
   name = name.replace(/[. ]+$/g, '');
   if (name === '' || name === '.' || name === '..') return null;

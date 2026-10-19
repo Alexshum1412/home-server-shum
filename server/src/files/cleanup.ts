@@ -29,7 +29,7 @@ export async function removeStaleTempFiles(
         // The trash is the owner's safety net: it is never touched.
         if (entry.name === '.trash') continue;
         await walk(full);
-      } else if (entry.isFile() && TEMP_NAME.test(entry.name)) {
+      } else if (entry.isFile() && (TEMP_NAME.test(entry.name) || path.basename(dir) === '.uploads')) {
         const stat = await fsp.stat(full).catch(() => null);
         if (stat && now - stat.mtimeMs > maxAgeMs) {
           await fsp.rm(full, { force: true }).catch(() => undefined);

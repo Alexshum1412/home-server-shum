@@ -31,7 +31,10 @@ import { createAria2, ensureAria2Secret } from './downloads/aria2.ts';
 import { createDownloadManager, type DownloadManager, statfsFree } from './downloads/manager.ts';
 import { registerDownloadRoutes } from './downloads/routes.ts';
 import { createTorrentManager, type TorrentManager } from './downloads/torrents.ts';
+import { createHashIndex } from './files/hashes.ts';
+import { createQuota } from './files/quota.ts';
 import { registerFileRoutes } from './files/routes.ts';
+import { createUploadSessions } from './files/sessions.ts';
 import { createStorage } from './files/storage.ts';
 import { createJellyfinClient } from './jellyfin/client.ts';
 import { registerCatalogListRoutes } from './jellyfin/list-routes.ts';
@@ -680,12 +683,32 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   registerAuthRoutes(app, { config, clock, users, logins, sessions, audit, limiter, guards });
   registerServiceRoutes(app, { registry, guards, audit, clock });
   registerSystemRoutes(app, { collector, guards });
+  // The exact-duplicate check of photos and the quota of a person's own space (both keep to the same folders as the storage).
+  const photoSpaceDir = (space: 'personal' | 'shared', username: string) =>
+    space === 'shared'
+      ? path.join(config.photosDir, 'shared')
+      : path.join(config.photosDir, 'users', username);
+  const photoHashes = createHashIndex({ photosRoot: config.photosDir, spaceDir: photoSpaceDir });
+  const quota = createQuota({
+    filesRoot: config.filesDir,
+    photosRoot: config.photosDir,
+    limitBytes: config.userQuotaBytes,
+  });
   const storage = createStorage({
     filesRoot: config.filesDir,
     photosRoot: config.photosDir,
     minFreeBytes: config.minFreeBytes,
     maxUploadBytes: config.uploadMaxFileBytes,
     freeBytes,
+    quota,
+    hashes: photoHashes,
+  });
+  const uploadSessions = createUploadSessions({
+    storage,
+    maxUploadBytes: config.uploadMaxFileBytes,
+    now: clock,
+    quota,
+    hashes: photoHashes,
   });
   const calendar = createCalendarStore(config.dataDir, { clock });
   const retireAccount = async (username: string, userId: string): Promise<string> => {
@@ -724,7 +747,16 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   registerNotifyRoutes(app, { guards, hub, center: notify, sessions, audit });
   registerChatRoutes(app, { chat, guards, audit, clock });
   registerCallRoutes(app, { calls, guards, audit, clock });
-  registerFileRoutes(app, { storage, guards, audit, freeBytes, maxUploadBytes: config.uploadMaxFileBytes });
+  registerFileRoutes(app, {
+    storage,
+    guards,
+    audit,
+    freeBytes,
+    maxUploadBytes: config.uploadMaxFileBytes,
+    sessions: uploadSessions,
+    hashes: photoHashes,
+    quota,
+  });
   registerMediaRoutes(app, { library: createMediaLibrary(config.mediaDir), guards });
   registerCatalogRoutes(app, {
     guards,
@@ -851,11 +883,13 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   // --- lifecycle ----------------------------------------------------------------------------
   let watchTimer: NodeJS.Timeout | undefined;
   let heartbeatTimer: NodeJS.Timeout | undefined;
+  let sweepTimer: NodeJS.Timeout | undefined;
   let reminderTimer: NodeJS.Timeout | undefined;
   let reminderRun: Promise<unknown> = Promise.resolve();
   app.addHook('onClose', async () => {
     if (watchTimer) clearInterval(watchTimer);
     if (heartbeatTimer) clearInterval(heartbeatTimer);
+    if (sweepTimer) clearInterval(sweepTimer);
     if (reminderTimer) clearInterval(reminderTimer);
     await reminderRun;
     // Closed on purpose: the next start must not mistake this for a crash.
@@ -870,6 +904,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     await sessions.flush();
     await audit.idle();
     await notify.idle();
+    await photoHashes.idle().catch(() => undefined);
     await chatStore.idle();
     await progress.idle();
     await mediaLists.idle();
@@ -881,6 +916,13 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
       collector.start();
       await downloads.load();
       torrents.start();
+      // Pieces of uploads that nobody finished are removed after a day (once now, then every hour).
+      const sweepUploads = async () => {
+        await uploadSessions.sweep((await users.list()).map((user) => user.username));
+      };
+      void sweepUploads().catch(() => undefined);
+      sweepTimer = setInterval(() => void sweepUploads().catch(() => undefined), 3_600_000);
+      sweepTimer.unref();
       // Real problems reach the administrators' phones, once each (see system/alert-watcher.ts).
       const watcher = createAlertWatcher({
         alerts: () => collector.snapshot('admin').alerts,
