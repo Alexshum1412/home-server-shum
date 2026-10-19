@@ -5,6 +5,7 @@ import { isAbsoluteTargetPath, parseTargetSpec, splitList } from './backup/spec.
 import { isPrivateLanAddress } from './lan.ts';
 import { REPO_ROOT } from './lib/version.ts';
 import { isLoopbackHttpUrl } from './olivia/llm.ts';
+import { llamaKeyFile } from './olivia/llm-key.ts';
 
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 export type CookieSecureMode = 'auto' | 'always' | 'never';
@@ -99,7 +100,13 @@ export interface Config {
   /** «Оливия» (rule-based assistant for the admin); OLIVIA_ENABLED=0 switches it off completely. */
   readonly oliviaEnabled: boolean;
   /** Optional local language model that re-words «Оливия»'s findings (ADR-0008); null — off. Loopback only. */
-  readonly oliviaLlm: { readonly url: string; readonly model: string; readonly timeoutMs: number } | null;
+  readonly oliviaLlm: {
+    readonly url: string;
+    readonly model: string;
+    readonly timeoutMs: number;
+    /** File with the access key of the model's server (see olivia/llm-key.ts); the file may not exist yet. */
+    readonly keyFile: string;
+  } | null;
   /** IPP address of the home printer for printing through the portal; null — not configured. */
   readonly printerIppUrl: string | null;
   readonly printMaxBytes: number;
@@ -435,6 +442,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
             url: oliviaLlmUrl,
             model: v.OLIVIA_LLM_MODEL,
             timeoutMs: Math.round(v.OLIVIA_LLM_TIMEOUT_SEC * 1000),
+            keyFile: llamaKeyFile(path.resolve(v.DASHBOARD_DATA_DIR)),
           }),
     printerIppUrl: v.PRINTER_IPP_URL === '' ? null : v.PRINTER_IPP_URL,
     printMaxBytes: Math.round(v.PRINT_MAX_MB * 1024 ** 2),

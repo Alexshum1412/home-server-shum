@@ -26,6 +26,7 @@ const EXPECTED: Array<[string, RouteId]> = [
   ['/olivia', 'olivia'],
   ['/print', 'print'],
   ['/system', 'system'],
+  ['/server', 'server'],
   ['/help', 'help'],
   ['/admin', 'admin'],
   ['/account', 'account'],
@@ -56,9 +57,12 @@ describe('matchRoute', () => {
 });
 
 describe('route helpers', () => {
-  it('marks only the administration section as admin-only', () => {
+  it('marks only the administration and the server sections as admin-only', () => {
     expect(isAdminOnly('admin')).toBe(true);
-    for (const route of ROUTES.filter((r) => r.id !== 'admin')) expect(isAdminOnly(route.id)).toBe(false);
+    expect(isAdminOnly('server')).toBe(true);
+    for (const route of ROUTES.filter((r) => r.id !== 'admin' && r.id !== 'server')) {
+      expect(isAdminOnly(route.id)).toBe(false);
+    }
     expect(isAdminOnly('notFound')).toBe(false);
   });
 

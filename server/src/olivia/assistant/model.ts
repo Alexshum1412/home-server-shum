@@ -6,8 +6,9 @@
  */
 import { z } from 'zod';
 import type { LlmFetch, OliviaLlmConfig } from '../llm.ts';
+import { llamaHeaders } from '../llm-key.ts';
 import { FAQ } from './knowledge.ts';
-import { type Plan, TOOLS, type ToolName, topicWords } from './router.ts';
+import { type Plan, TOOLS, type ToolName, topicWords, URL_RE } from './router.ts';
 
 export class ModelUnavailable extends Error {}
 
@@ -21,32 +22,46 @@ const SYSTEM = [
   '- media: найти или предложить фильм, сериал, мультфильм, музыку, аудиокнигу (query — название или тема, 1–4 слова);',
   '- files: найти файл, документ или фотографии по названию (query — 1–4 слова; where — files, photos или any);',
   '- downloads: что с загрузками, очередь загрузок;',
-  '- add_download: человек прислал ссылку или магнитную ссылку и хочет скачать (url — ровно как в сообщении);',
+  '- add_download: человек прислал ссылку или магнитную ссылку и хочет скачать;',
   '- calendar: события в календаре на сегодня и завтра;',
   '- unknown: ничего не подходит.',
-  'Темы faqId:',
+  'Темы faqId (только для инструмента faq):',
   ...FAQ.map((entry) => `- ${entry.id}: ${entry.topic}`),
-  'Поля, которые не нужны, оставь пустой строкой. Ничего не выдумывай: query бери из слов человека.',
+  'Ничего не выдумывай: query бери только из слов человека, без слов «найди», «покажи», «хочу».',
+  'Примеры: «найди договор аренды» → files, query «договор аренды»; «фото с дачи» → files, where photos, query «дача»;',
+  '«кино про кота» → media, query «кот»; «как загрузить фото с телефона» → faq; «расскажи анекдот» → unknown.',
 ].join('\n');
 
+// Two shapes: for a written answer only the topic is needed, for the rest only what to look for and where.
+// The model is not asked for an address: it is taken from the person's own message in code.
 const schema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['tool', 'query', 'where', 'url', 'faqId'],
-  properties: {
-    tool: { type: 'string', enum: [...TOOLS] },
-    query: { type: 'string' },
-    where: { type: 'string', enum: ['files', 'photos', 'any', ''] },
-    url: { type: 'string' },
-    faqId: { type: 'string', enum: ['', ...FAQ.map((entry) => entry.id)] },
-  },
+  anyOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'faqId'],
+      properties: {
+        tool: { type: 'string', const: 'faq' },
+        faqId: { type: 'string', enum: FAQ.map((entry) => entry.id) },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tool', 'query', 'where'],
+      properties: {
+        tool: { type: 'string', enum: TOOLS.filter((tool) => tool !== 'faq') },
+        query: { type: 'string', maxLength: 80 },
+        where: { type: 'string', enum: ['files', 'photos', 'any'] },
+      },
+    },
+  ],
 } as const;
 
 const answerSchema = z.object({
   tool: z.enum(TOOLS as unknown as [ToolName, ...ToolName[]]),
   query: z.string().max(200).default(''),
   where: z.enum(['files', 'photos', 'any', '']).default(''),
-  url: z.string().max(4096).default(''),
   faqId: z.string().max(40).default(''),
 });
 
@@ -61,7 +76,7 @@ export async function chooseWithModel(
   try {
     response = await fetchImpl(`${config.url.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: llamaHeaders(config.keyFile),
       body: JSON.stringify({
         model: config.model,
         stream: false,
@@ -92,8 +107,8 @@ export async function chooseWithModel(
   const parsed = answerSchema.safeParse(raw);
   if (!parsed.success) throw new ModelUnavailable('модель ответила не так, как нужно');
   const { tool, where, faqId } = parsed.data;
-  // The address must be a piece of the person's own message: the model cannot invent one.
-  const url = parsed.data.url !== '' && message.includes(parsed.data.url) ? parsed.data.url : '';
+  // The address is the one in the person's own message: the model is not asked for it and cannot invent one.
+  const url = URL_RE.exec(message)?.[0] ?? '';
   if (tool === 'add_download' && url === '') throw new ModelUnavailable('в сообщении нет ссылки');
   // What to look for may come only from words of the question (a summary of them is fine, an invention is not).
   const spoken = new Set(topicWords(message, 40).split(' '));

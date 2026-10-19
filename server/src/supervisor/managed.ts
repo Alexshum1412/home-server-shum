@@ -4,6 +4,7 @@
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import { closeSync, promises as fsp, openSync } from 'node:fs';
+import { constants, setPriority } from 'node:os';
 import path from 'node:path';
 
 export type AppState = 'starting' | 'running' | 'backoff' | 'stopping' | 'stopped' | 'external';
@@ -26,6 +27,8 @@ export interface AppSpec {
   /** Asks the app to exit on its own (e.g. through its API) before it is killed. */
   gracefulStop?: () => Promise<void>;
   stopTimeoutMs?: number;
+  /** Runs below normal priority, so that video, the portal and chat come first when the processor is busy. */
+  lowPriority?: boolean;
   stdoutLog: string;
   stderrLog: string;
 }
@@ -199,6 +202,13 @@ export class ManagedApp {
       this.onExit(code, signal, null);
     });
     if (child.pid === undefined) return; // 'error' follows
+    if (spec.lowPriority) {
+      try {
+        setPriority(child.pid, constants.priority.PRIORITY_BELOW_NORMAL);
+      } catch (error) {
+        this.opts.log(`${spec.title}: не удалось понизить приоритет (${(error as Error).message})`);
+      }
+    }
     this.set({
       state: 'running',
       pid: child.pid,

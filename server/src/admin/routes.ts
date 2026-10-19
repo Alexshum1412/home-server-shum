@@ -30,6 +30,8 @@ import type { Config } from '../config.ts';
 import { sendError } from '../lib/http.ts';
 import { type Clock, isoNow } from '../lib/time.ts';
 import type { ServiceRegistry } from '../services/checker.ts';
+import { reportContext } from './report-context.ts';
+import { sanitizeReport } from './sanitize.ts';
 import type { SystemCollector } from '../system/collector.ts';
 
 export interface AdminRouteDeps {
@@ -406,6 +408,11 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
       'Content-Disposition',
       `attachment; filename="family-dashboard-diagnostics-${generatedAt.slice(0, 10)}.json"`,
     );
-    return body;
+    // The file is meant to be sent to somebody who helps: passwords, names, addresses and family folders are taken out.
+    const clean = sanitizeReport(
+      JSON.stringify(body, null, 2),
+      reportContext(config, await deps.users.list()),
+    );
+    return reply.type('application/json; charset=utf-8').send(clean.text);
   });
 }

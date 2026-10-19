@@ -25,6 +25,7 @@ import { NotificationsPage } from './pages/Notifications.tsx';
 import { OliviaPage } from './pages/Olivia.tsx';
 import { PhotosPage } from './pages/Photos.tsx';
 import { PrintPage } from './pages/Print.tsx';
+import { ServerPage } from './pages/ServerPage.tsx';
 import { SystemPage } from './pages/System.tsx';
 import { navigate, startRouter, useLocation } from './router.ts';
 import { SearchProvider } from './search/Search.tsx';
@@ -62,6 +63,8 @@ function Page(props: { route: RouteId; onSessionChanged: (session: SessionRespon
       return <PrintPage />;
     case 'system':
       return <SystemPage />;
+    case 'server':
+      return <ServerPage />;
     case 'help':
       return <HelpPage />;
     case 'admin':

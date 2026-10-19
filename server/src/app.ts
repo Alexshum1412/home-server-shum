@@ -10,13 +10,16 @@ import Fastify, {
 } from 'fastify';
 import type { ConnectionResponse, HealthResponse } from '../../shared/api.ts';
 import { registerAdminRoutes } from './admin/routes.ts';
+import { createServerPage, type ServerPageDeps } from './admin/server-page.ts';
+import { registerServerPageRoutes } from './admin/server-routes.ts';
 import { type AuditLog, createAuditLog } from './audit/log.ts';
 import { createGuards, currentUser, type Guards } from './auth/guards.ts';
 import { createLoginTimes, type LoginTimes } from './auth/logins.ts';
 import { createLoginLimiter, type LoginLimiter } from './auth/rate-limit.ts';
 import { registerAuthRoutes } from './auth/routes.ts';
 import { createSessionStore, type SessionStore } from './auth/sessions.ts';
-import { createUserStore, type UserStore } from './auth/users.ts';
+import { createUserStore, isDisabled, type UserStore } from './auth/users.ts';
+import { backupRunning } from './backup/lock.ts';
 import { createCloudflareTurn } from './calls/cloudflare-turn.ts';
 import { type CallManager, createCallManager } from './calls/manager.ts';
 import { registerCallRoutes } from './calls/routes.ts';
@@ -44,6 +47,7 @@ import { createNotificationCenter, type NotificationCenter } from './notify/cent
 import { registerNotifyRoutes } from './notify/routes.ts';
 import type { PushFetch } from './notify/webpush.ts';
 import type { ActionDeps } from './olivia/actions.ts';
+import { startBackupProcess } from './olivia/actions.ts';
 import { createAssistant } from './olivia/assistant/assistant.ts';
 import { registerAssistantRoutes } from './olivia/assistant/routes.ts';
 import type { LlmFetch } from './olivia/llm.ts';
@@ -61,10 +65,12 @@ import { createServiceRegistry, type FetchLike, type ServiceRegistry } from './s
 import { registerServiceRoutes } from './services/routes.ts';
 import { DEFAULT_WEB_ROOT, registerStatic, sendSpaFallback } from './static.ts';
 import { readJellyfinApiKey } from './supervisor/apps.ts';
+import { pipeNameFor } from './supervisor/main.ts';
 import { createAlertWatcher } from './system/alert-watcher.ts';
 import { createSystemCollector, type ProbeTimeouts, type SystemCollector } from './system/collector.ts';
 import { createDefaultProbes, type SystemProbes } from './system/probes.ts';
 import { registerSystemRoutes } from './system/routes.ts';
+import { clockTime, createRunState } from './system/run-state.ts';
 
 export const BODY_LIMIT = 64 * 1024;
 
@@ -150,6 +156,8 @@ export interface BuildAppOptions {
   downloadAllowAddress?: (address: string) => boolean;
   /** Replaces the supervisor and backup process behind «Оливия»'s actions (tests). */
   oliviaActionDeps?: Partial<ActionDeps>;
+  /** Replaces the supervisor, the backup process and the clock-bound waits behind the «Сервер» page (tests). */
+  serverPageDeps?: Partial<ServerPageDeps>;
   /** Talks to a fake printer in tests. */
   ippTransport?: IppTransport;
   /** Replaces the call to the local language model (tests). */
@@ -348,6 +356,9 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     onError: (message) => log.warn(message),
   });
   await notify.load();
+  // Did the last run end on purpose? A portal that was killed or lost power is told to the administrators below.
+  const runState = createRunState({ dataDir: config.dataDir, clock });
+  const run = await runState.begin();
   const freeBytes = options.freeBytes ?? statfsFree;
   const chatStore = createChatStore({ dir: config.chatDir, clock, onError: (message) => log.warn(message) });
   const chat = createChatService({
@@ -732,31 +743,50 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     actionDeps: options.oliviaActionDeps,
     llmFetch: options.oliviaLlmFetch,
   });
-  registerAssistantRoutes(app, {
+  const assistant = createAssistant({
     config,
     clock,
+    registry,
+    collector,
+    catalog: jellyfin,
+    progress,
+    downloads,
+    torrents,
+    calendar,
+    llm: config.oliviaLlm,
+    llmFetch: options.oliviaLlmFetch ?? fetch,
+  });
+  registerAssistantRoutes(app, { config, clock, guards, audit, assistant });
+  registerServerPageRoutes(app, {
     guards,
     audit,
-    assistant: createAssistant({
+    page: createServerPage({
       config,
       clock,
-      registry,
-      collector,
-      catalog: jellyfin,
-      progress,
-      downloads,
-      torrents,
-      calendar,
-      llm: config.oliviaLlm,
-      llmFetch: options.oliviaLlmFetch ?? fetch,
+      version,
+      supervisorPipe: pipeNameFor(config.dataDir),
+      snapshot: () => collector.snapshot('admin'),
+      services: () => registry.statuses(),
+      recheckServices: () => registry.checkAll(),
+      users: () => users.list(),
+      downloads: async () => [...downloads.list(null), ...(await torrents.list(null))],
+      model: async () => (await assistant.status()).model,
+      backupRunning: () => backupRunning(config.dataDir),
+      startBackup: () => startBackupProcess(config.dataDir),
+      run: () => ({ startedAt: run.startedAt, previous: run.previous }),
+      ...options.serverPageDeps,
     }),
   });
   await registerStatic(app, webRoot);
 
   // --- lifecycle ----------------------------------------------------------------------------
   let watchTimer: NodeJS.Timeout | undefined;
+  let heartbeatTimer: NodeJS.Timeout | undefined;
   app.addHook('onClose', async () => {
     if (watchTimer) clearInterval(watchTimer);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    // Closed on purpose: the next start must not mistake this for a crash.
+    await runState.end().catch(() => undefined);
     calls.stop();
     torrents.stop();
     hub.closeAll();
@@ -790,6 +820,25 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
           .catch((error: unknown) => log.warn(`Оповещение о проблеме не отправлено: ${String(error)}`));
       }, 60_000);
       watchTimer.unref();
+      // A minute-by-minute sign of life: the last one tells when a portal that was cut off stopped.
+      heartbeatTimer = setInterval(() => void runState.heartbeat().catch(() => undefined), 60_000);
+      heartbeatTimer.unref();
+      if (run.previous.how === 'crashed') {
+        const admins = (await users.list()).filter((user) => user.role === 'admin' && !isDisabled(user));
+        if (admins.length > 0) {
+          const when = run.previous.at ? clockTime(run.previous.at) : 'неизвестное время';
+          await notify.notify({
+            users: admins.map((admin) => admin.id),
+            kind: 'system',
+            title: `Сервер перезапускался после сбоя в ${when}`,
+            body: 'Портал был остановлен не штатно: сбой, зависание или отключение питания. Сейчас всё работает. Подробности — на странице «Сервер».',
+            url: '/server',
+            key: `crash:${run.startedAt}`,
+            urgency: 'normal',
+            topic: 'portal-crash',
+          });
+        }
+      }
     });
   }
 

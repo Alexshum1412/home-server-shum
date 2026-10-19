@@ -155,7 +155,7 @@ export function topicWords(message: string, limit = 5): string {
     .join(' ');
 }
 
-const URL_RE = /magnet:\?[^\s<>"']+|https?:\/\/[^\s<>"']+/i;
+export const URL_RE = /magnet:\?[^\s<>"']+|https?:\/\/[^\s<>"']+/i;
 
 export function routeByRules(message: string): Plan {
   const text = message.toLowerCase().replace(/ё/g, 'е').trim();

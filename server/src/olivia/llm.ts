@@ -5,12 +5,15 @@
  * The answer is shown as text, labelled as machine-made, and is never executed or parsed.
  */
 import type { OliviaFinding } from '../../../shared/api.ts';
+import { llamaHeaders } from './llm-key.ts';
 
 export interface OliviaLlmConfig {
   /** Base URL of an OpenAI-compatible server on this PC, e.g. http://127.0.0.1:11434/v1 (Ollama, llama.cpp). */
   url: string;
   model: string;
   timeoutMs: number;
+  /** File with the access key of the model's server; the key is sent as a bearer token when the file exists. */
+  keyFile?: string;
 }
 
 export type LlmFetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -71,7 +74,7 @@ export async function explainFinding(
   try {
     response = await fetchImpl(`${config.url.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: llamaHeaders(config.keyFile),
       body: JSON.stringify({
         model: config.model,
         stream: false,

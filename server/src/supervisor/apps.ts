@@ -7,6 +7,7 @@ import path from 'node:path';
 import type { Config, Env } from '../config.ts';
 import { ensureAria2SecretSync } from '../downloads/aria2.ts';
 import { REPO_ROOT } from '../lib/version.ts';
+import { ensureLlamaKeyFile } from '../olivia/llm-key.ts';
 import type { AppSpec } from './managed.ts';
 
 export const JELLYFIN_PORT = 8096;
@@ -138,6 +139,8 @@ export function llamaArgs(paths: LlamaPaths, config: Pick<Config, 'oliviaLlm'>, 
     '-np',
     '1',
     '--no-webui',
+    // Without a key any program or web page on this PC could use the model through the loopback port.
+    ...(config.oliviaLlm?.keyFile ? ['--api-key-file', config.oliviaLlm.keyFile] : []),
   ];
 }
 
@@ -273,6 +276,7 @@ export function buildAppSpecs(options: AppListOptions): AppSpec[] {
     existsSync(llama.exe) &&
     existsSync(llama.model)
   ) {
+    ensureLlamaKeyFile(config.dataDir);
     specs.push({
       name: 'llama',
       title: 'Языковая модель Оливии (llama.cpp)',
@@ -284,6 +288,8 @@ export function buildAppSpecs(options: AppListOptions): AppSpec[] {
       // Loading a ~1 GB model from a hard disk takes a minute or two.
       startupGraceMs: 5 * 60_000,
       stopTimeoutMs: 10_000,
+      // The model must never slow down a film that is being transcoded or the portal's own answers.
+      lowPriority: true,
       stdoutLog: path.join(logDir, 'llama.out.log'),
       stderrLog: path.join(logDir, 'llama.err.log'),
     });

@@ -31,6 +31,7 @@ import type { Clock } from '../../lib/time.ts';
 import type { ServiceRegistry } from '../../services/checker.ts';
 import type { SystemCollector } from '../../system/collector.ts';
 import type { LlmFetch, OliviaLlmConfig } from '../llm.ts';
+import { llamaHeaders } from '../llm-key.ts';
 import type { CalendarStoreLike } from './calendar-port.ts';
 import { FAQ, faqById } from './knowledge.ts';
 import { chooseWithModel, ModelUnavailable } from './model.ts';
@@ -469,6 +470,7 @@ export function createAssistant(deps: AssistantDeps): Assistant {
       try {
         const response = await deps.llmFetch(`${llm.url.replace(/\/+$/, '')}/models`, {
           method: 'GET',
+          headers: llamaHeaders(llm.keyFile),
           signal: AbortSignal.timeout(3000),
         });
         if (!response.ok) throw new Error('bad');

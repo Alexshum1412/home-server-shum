@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { getPriority } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { bootTimeMs, parseCommand, pipeNameFor, runSupervisor, sendCommand } from '../src/supervisor/main.ts';
@@ -66,6 +67,15 @@ describe('ManagedApp', { timeout: 30_000 }, () => {
     expect(logs.join('\n')).toMatch(/завершился с кодом 3; перезапуск через/);
     const out = await readFile(spec('crash').stdoutLog, 'utf8');
     expect(out.match(/fake-app crash/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('runs a program below normal priority when asked to', async () => {
+    const normal = managed(spec('run'));
+    await normal.start();
+    const low = managed(spec('run', { name: 'low', lowPriority: true }));
+    await low.start();
+    expect(getPriority(normal.snapshot().pid ?? 0)).toBe(0);
+    expect(getPriority(low.snapshot().pid ?? 0)).toBeGreaterThan(0);
   });
 
   it('stops cleanly over IPC and does not restart', async () => {

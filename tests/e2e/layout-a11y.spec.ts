@@ -15,6 +15,7 @@ const PAGES = [
   '/system',
   '/help',
   '/admin',
+  '/server',
   '/account',
 ];
 
@@ -63,6 +64,8 @@ test.describe('accessibility', () => {
     '/system',
     '/help',
     '/admin',
+    '/server',
+    '/server',
     '/photos',
     '/account',
     '/calendar',

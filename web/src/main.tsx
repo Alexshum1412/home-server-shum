@@ -7,6 +7,7 @@ import './styles/pages.css';
 import './styles/chat.css';
 import './styles/cinema.css';
 import './styles/search.css';
+import './styles/server.css';
 import { render } from 'preact';
 import { App } from './app.tsx';
 import { applyTheme } from './lib/theme.ts';

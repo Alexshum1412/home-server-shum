@@ -44,7 +44,7 @@ async function supervisor(deps: ActionDeps, cmd: 'restart' | 'start', app: strin
 }
 
 /** Starts `backup.cmd run` as a separate process (fixed arguments, no shell), output to backup.log. */
-async function startBackupProcess(dataDir: string): Promise<void> {
+export async function startBackupProcess(dataDir: string): Promise<void> {
   const logDir = path.join(dataDir, 'logs');
   await mkdir(logDir, { recursive: true });
   const log = openSync(path.join(logDir, 'backup.log'), 'a');

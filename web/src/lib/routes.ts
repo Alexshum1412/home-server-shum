@@ -13,6 +13,7 @@ export type RouteId =
   | 'olivia'
   | 'print'
   | 'system'
+  | 'server'
   | 'help'
   | 'admin'
   | 'account'
@@ -43,6 +44,7 @@ export const ROUTES: readonly RouteDef[] = [
   { id: 'olivia', path: '/olivia', title: 'Оливия' },
   { id: 'print', path: '/print', title: 'Печать' },
   { id: 'system', path: '/system', title: 'Состояние системы' },
+  { id: 'server', path: '/server', title: 'Сервер', adminOnly: true },
   { id: 'help', path: '/help', title: 'Подключение' },
   { id: 'admin', path: '/admin', title: 'Администрирование', adminOnly: true },
   { id: 'account', path: '/account', title: 'Мой профиль' },

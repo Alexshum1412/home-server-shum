@@ -54,7 +54,12 @@ describe('local language model settings', () => {
       { OLIVIA_LLM_URL: 'http://127.0.0.1:11434/v1/', OLIVIA_LLM_MODEL: 'qwen' },
       'win32',
     );
-    expect(on.oliviaLlm).toEqual({ url: 'http://127.0.0.1:11434/v1', model: 'qwen', timeoutMs: 90_000 });
+    expect(on.oliviaLlm).toMatchObject({
+      url: 'http://127.0.0.1:11434/v1',
+      model: 'qwen',
+      timeoutMs: 90_000,
+    });
+    expect(on.oliviaLlm?.keyFile).toMatch(/llama-api\.key$/);
     for (const bad of [
       'http://192.168.1.5:11434/v1',
       'https://api.example.com/v1',
