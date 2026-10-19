@@ -10,6 +10,8 @@ import { signIn } from './helpers.ts';
  */
 test.use({
   launchOptions: {
+    // A copy of Chrome (see playwright.config.ts) must survive this override of the launch options.
+    ...(process.env.E2E_CHROME?.trim() ? { executablePath: process.env.E2E_CHROME.trim() } : {}),
     args: [
       '--use-fake-device-for-media-stream',
       '--use-fake-ui-for-media-stream',
