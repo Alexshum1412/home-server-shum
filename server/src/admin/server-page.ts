@@ -9,7 +9,6 @@
  * through the sanitiser first (see sanitize.ts).
  */
 import { promises as fsp } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type { DownloadTaskView, ProgramState, ServiceStatus, SystemResponse } from '../../../shared/api.ts';
 import {

@@ -997,6 +997,7 @@ export interface SignalRequest {
 }
 
 export type NotificationKind =
+  | 'reminder'
   | 'message'
   | 'call'
   | 'download'
@@ -1019,6 +1020,8 @@ export interface NotificationView {
 
 /** What a person wants to be told about (this applies to every device of the person). */
 export interface NotificationPrefs {
+  /** Reminders about family tasks («Дела»). A file saved before this existed counts as «on». */
+  reminders: boolean;
   messages: boolean;
   calls: boolean;
   downloads: boolean;
@@ -1191,4 +1194,126 @@ export interface OliviaAnswer {
 export interface OliviaStatusResponse {
   enabled: boolean;
   model: { configured: boolean; reachable: boolean; name: string | null; message: string };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Family tasks, shopping lists and reminders («Дела»)
+// ---------------------------------------------------------------------------------------------
+
+export type TaskRepeat = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+/** shopping — «Покупки» (tick = bought); todo — an ordinary list of things to do. */
+export type TaskListKind = 'todo' | 'shopping';
+
+/**
+ * What a person fills in for a task. Dates are «YYYY-MM-DD», times «HH:MM» in the family's wall-clock
+ * time (no zones). A task in a list is private exactly when its list is private.
+ */
+export interface TaskInput {
+  title: string;
+  note: string;
+  /** null — no due date. */
+  due: string | null;
+  /** null — the whole day; needs `due`. */
+  dueTime: string | null;
+  /** Needs `due`. A repeating task stays open: when it is done, `due` moves to the next time. */
+  repeat: TaskRepeat;
+  /** Login of the family member the task is given to (shared tasks only), or null. */
+  assignee: string | null;
+  /** Minutes before the due time to remind (0 — at that time); null — no reminder; needs `due`. */
+  remindBefore: number | null;
+  /** Only the author sees a private task — an administrator does not either. */
+  private: boolean;
+  /** null — the task belongs to no list. */
+  listId: string | null;
+}
+
+export interface TaskView extends TaskInput {
+  id: string;
+  owner: string;
+  ownerName: string;
+  assigneeName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  done: boolean;
+  /** Who and when ticked it (a task that is not repeating). */
+  doneAt: string | null;
+  doneBy: string | null;
+  doneByName: string | null;
+  /** A repeating task: when it was last done (it stays open with the next due date). */
+  lastDoneAt: string | null;
+  lastDoneByName: string | null;
+  /** The author and administrators may change or delete it; everybody who sees it may tick it. */
+  canEdit: boolean;
+  /** A repeating task that was just done can be taken back. */
+  canUndo: boolean;
+}
+
+export interface TaskListInput {
+  name: string;
+  kind: TaskListKind;
+  /** Fixed when the list is made. */
+  private: boolean;
+}
+
+export interface TaskListView extends TaskListInput {
+  id: string;
+  owner: string;
+  ownerName: string;
+  createdAt: string;
+  /** The author and administrators may rename or delete the list and clear all of its ticked items. */
+  canEdit: boolean;
+}
+
+/** A family member a shared task can be given to. */
+export interface TaskPerson {
+  username: string;
+  displayName: string;
+}
+
+/** GET /api/tasks — everything this person may see. 503 unavailable: the file on the server is damaged. */
+export interface TasksResponse {
+  tasks: TaskView[];
+  lists: TaskListView[];
+  people: TaskPerson[];
+}
+
+/** POST /api/tasks/many — several items at once (a shopping list), at most 50. */
+export interface CreateManyTasksRequest {
+  listId: string;
+  titles: string[];
+}
+export interface CreateManyTasksResponse {
+  tasks: TaskView[];
+}
+
+/** POST /api/tasks/:id/done */
+export interface SetTaskDoneRequest {
+  done: boolean;
+}
+
+/** POST /api/tasks/clear-done and /api/tasks/lists/:id/clear-done */
+export interface ClearDoneResponse {
+  removed: number;
+  /** Ticked items that stay because somebody else added them (only the author of the item, the author of the list or an administrator removes those). */
+  kept: number;
+}
+
+/** POST /api/tasks/lists/:id/rename */
+export interface RenameTaskListRequest {
+  name: string;
+}
+
+/** One title found by the unified search; the viewer may see exactly these. */
+export interface TaskSearchHit {
+  id: string;
+  title: string;
+  done: boolean;
+  due: string | null;
+  listName: string | null;
+}
+
+/** POST /api/tasks/lists/:id/delete — the list goes together with everything in it. */
+export interface DeleteTaskListResponse {
+  removedTasks: number;
 }

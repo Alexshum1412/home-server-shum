@@ -51,6 +51,7 @@ import {
   UNKNOWN,
 } from '../lib/labels.ts';
 import { useData, useIsAdmin, useSession } from '../state.tsx';
+import { TodayTasks } from './TodayTasks.tsx';
 
 /**
  * Status for a service tile: from the server list, «Не настроено» if the server does not know it,
@@ -390,6 +391,7 @@ export function HomePage() {
       <MediaStrip />
       <ChatNote />
       <TodayEvents now={now} />
+      <TodayTasks now={now} />
       <section class="home-section">
         <h2 id="services-title" class="section-title">
           Сервисы

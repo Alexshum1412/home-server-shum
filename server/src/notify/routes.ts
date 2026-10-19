@@ -21,6 +21,7 @@ const readBody = z.object({
   ids: z.union([z.literal('all'), z.array(z.string().max(64)).max(200)]),
 });
 const prefsBody = z.object({
+  reminders: z.boolean().optional(),
   messages: z.boolean().optional(),
   calls: z.boolean().optional(),
   downloads: z.boolean().optional(),

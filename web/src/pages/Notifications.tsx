@@ -10,6 +10,7 @@ import { Loading } from '../components/Skeleton.tsx';
 import { disablePush, enablePush, pushSupport, thisDeviceSubscription } from '../lib/push.ts';
 
 const KIND_LABEL: Record<NotificationKind, string> = {
+  reminder: 'Напоминание',
   message: 'Сообщение',
   call: 'Звонок',
   download: 'Загрузка',
@@ -21,6 +22,11 @@ const KIND_LABEL: Record<NotificationKind, string> = {
 };
 
 const PREF_LABEL: ReadonlyArray<{ key: keyof NotificationPrefs; label: string; hint: string }> = [
+  {
+    key: 'reminders',
+    label: 'Напоминания о делах',
+    hint: 'Когда подошло время дела из раздела «Дела», которое вы просили напомнить.',
+  },
   { key: 'messages', label: 'Новые сообщения', hint: 'Когда вам пишут в чате.' },
   { key: 'calls', label: 'Звонки', hint: 'Входящие и пропущенные звонки.' },
   { key: 'downloads', label: 'Загрузки', hint: 'Когда загрузка закончилась или не удалась.' },

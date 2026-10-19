@@ -193,6 +193,31 @@ describe('unified search', { timeout: 30_000 }, () => {
     }
   });
 
+  it('finds tasks the person may see: shared ones for everybody, private ones for their author only', async () => {
+    const s = await setup();
+    await post(s, s.mama, '/api/tasks', { title: 'Купить подарок бабушке', private: true });
+    await post(s, s.mama, '/api/tasks', { title: 'Купить продукты к празднику' });
+    const shopping = (
+      await post(s, s.mama, '/api/tasks/lists', { name: 'Покупки', kind: 'shopping' })
+    ).json() as {
+      id: string;
+    };
+    await post(s, s.mama, '/api/tasks', { title: 'Купить хлеб', listId: shopping.id });
+
+    const mama = await find(s, s.mama, 'купить');
+    expect(titles(mama, 'tasks').sort()).toEqual([
+      'Купить подарок бабушке',
+      'Купить продукты к празднику',
+      'Купить хлеб',
+    ]);
+    expect(group(mama, 'tasks').hits.find((hit) => hit.title === 'Купить хлеб')?.detail).toContain('Покупки');
+    for (const cookie of [s.admin, s.son]) {
+      const other = await find(s, cookie, 'купить');
+      expect(titles(other, 'tasks').sort()).toEqual(['Купить продукты к празднику', 'Купить хлеб']);
+      expect(everything(other)).not.toContain('подарок');
+    }
+  });
+
   it('searches chats only where the person is a member; the administrator gets no way into other rooms', async () => {
     const s = await setup();
     const direct = (

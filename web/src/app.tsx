@@ -27,6 +27,7 @@ import { PhotosPage } from './pages/Photos.tsx';
 import { PrintPage } from './pages/Print.tsx';
 import { ServerPage } from './pages/ServerPage.tsx';
 import { SystemPage } from './pages/System.tsx';
+import { TasksPage } from './pages/Tasks.tsx';
 import { navigate, startRouter, useLocation } from './router.ts';
 import { SearchProvider } from './search/Search.tsx';
 import { DataProvider, SessionProvider } from './state.tsx';
@@ -59,6 +60,8 @@ function Page(props: { route: RouteId; onSessionChanged: (session: SessionRespon
       return <CalendarPage />;
     case 'notes':
       return <NotesPage />;
+    case 'tasks':
+      return <TasksPage />;
     case 'print':
       return <PrintPage />;
     case 'system':

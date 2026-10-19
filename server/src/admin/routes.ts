@@ -30,9 +30,9 @@ import type { Config } from '../config.ts';
 import { sendError } from '../lib/http.ts';
 import { type Clock, isoNow } from '../lib/time.ts';
 import type { ServiceRegistry } from '../services/checker.ts';
+import type { SystemCollector } from '../system/collector.ts';
 import { reportContext } from './report-context.ts';
 import { sanitizeReport } from './sanitize.ts';
-import type { SystemCollector } from '../system/collector.ts';
 
 export interface AdminRouteDeps {
   config: Config;

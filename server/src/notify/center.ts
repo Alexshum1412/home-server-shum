@@ -32,6 +32,7 @@ export const FEED_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_DEVICES_PER_USER = 10;
 
 export const DEFAULT_PREFS: NotificationPrefs = {
+  reminders: true,
   messages: true,
   calls: true,
   downloads: true,
@@ -41,6 +42,7 @@ export const DEFAULT_PREFS: NotificationPrefs = {
 };
 
 const PREF_OF_KIND: Record<NotificationKind, keyof NotificationPrefs> = {
+  reminder: 'reminders',
   message: 'messages',
   call: 'calls',
   download: 'downloads',
@@ -61,7 +63,7 @@ const subscriptionSchema = z.object({
 
 const feedItemSchema = z.object({
   id: z.string(),
-  kind: z.enum(['message', 'call', 'download', 'backup', 'disk', 'service', 'print', 'system']),
+  kind: z.enum(['reminder', 'message', 'call', 'download', 'backup', 'disk', 'service', 'print', 'system']),
   title: z.string(),
   body: z.string(),
   url: z.string(),
@@ -71,6 +73,8 @@ const feedItemSchema = z.object({
 });
 
 const prefsSchema = z.object({
+  // Added later: preferences saved before it existed read as «on», like for a person who never chose.
+  reminders: z.boolean().default(true),
   messages: z.boolean(),
   calls: z.boolean(),
   downloads: z.boolean(),
