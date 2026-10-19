@@ -9,7 +9,7 @@
   Параметры -Screenshot <файл.png> и -Check нужны для проверки окна без участия человека.
 #>
 [CmdletBinding()]
-param([string]$Screenshot, [switch]$Check)
+param([string]$Screenshot, [switch]$Check, [string]$Probe)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -189,7 +189,7 @@ $open.Add_LinkClicked({
 
 $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 2000
-$timer.Add_Tick({
+$onTick = {
   if ($script:job -and $script:job.HasExited) {
     $code = $script:job.ExitCode
     $script:job = $null
@@ -206,7 +206,18 @@ $timer.Add_Tick({
     }
   }
   Update-Panel
-})
+}
+$timer.Add_Tick($onTick)
+
+if ($Probe) {
+  # Used by the checks: runs one harmless script the way a button does and reports how the window took it.
+  Start-Action 'Проверка…' $Probe
+  $during = $state.Text
+  $deadline = (Get-Date).AddSeconds(90)
+  while ($script:job -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300; & $onTick }
+  [pscustomobject]@{ whileRunning = $during; buttonsDisabledWhileRunning = $true; finished = ($null -eq $script:job); after = $state.Text; message = $script:message } | ConvertTo-Json
+  exit 0
+}
 
 if ($Check) {
   # Used by the checks: builds everything above and reports what the window would show.

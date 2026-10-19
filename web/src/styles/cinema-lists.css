@@ -13,11 +13,14 @@
 }
 
 .inline-icon {
+  display: inline-block;
   vertical-align: -3px;
 }
 
 /* A poster with its marks underneath (never on top of the picture: the buttons keep a 44 px target). */
 .poster-wrap {
+  /* Hidden labels are positioned: without this one inside a scrolling row lands outside it and widens the page. */
+  position: relative;
   display: grid;
   gap: var(--sp-1);
   align-content: start;

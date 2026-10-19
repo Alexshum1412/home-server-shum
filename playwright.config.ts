@@ -8,6 +8,9 @@ import { defineConfig, devices } from '@playwright/test';
 // They run on the same node.exe as Playwright itself: a `node` found on PATH may be another,
 // stale copy (seen on this PC: an old AppData copy that crashed with an access violation).
 const NODE = `"${process.execPath}"`;
+// E2E_CHROME: a copy of Chrome to use instead of the installed one. On 19.10.2026 every new process of the installed
+// chrome.exe crashed at start (0xC0000005 in chrome.dll) while a plain copy of the same folder ran fine.
+const CHROME = process.env.E2E_CHROME?.trim();
 const OFFSET = Number(process.env.E2E_PORT_OFFSET ?? 0);
 const PORT = { real: 8071 + OFFSET, demo: 8072 + OFFSET, cinema: 8073 + OFFSET };
 const url = (port: number) => `http://127.0.0.1:${port}`;
@@ -25,10 +28,8 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   use: {
     ...devices['Desktop Chrome'],
-    channel: 'chrome',
-    // Headless Chrome on this PC sometimes never opens a page while its graphics process starts (seen on
-    // 19.10.2026 after a Chrome update: «setting up "page"» timed out); the tests need no graphics card.
-    launchOptions: { args: ['--disable-gpu'] },
+    ...(CHROME ? {} : { channel: 'chrome' as const }),
+    ...(CHROME ? { launchOptions: { executablePath: CHROME } } : {}),
     locale: 'ru-RU',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -36,7 +37,7 @@ export default defineConfig({
   projects: [
     {
       name: 'real',
-      testIgnore: /(demo|chat|calls|cinema|torrents|olivia-assistant)\.spec\.ts/,
+      testIgnore: /(demo|chat|calls|cinema|cinema-lists|torrents|olivia-assistant)\.spec\.ts/,
       use: { baseURL: url(PORT.real) },
     },
     // Chat and calls run one after the other, after everything else: both hold several browser
@@ -56,7 +57,7 @@ export default defineConfig({
     { name: 'demo', testMatch: /demo\.spec\.ts/, use: { baseURL: url(PORT.demo) } },
     {
       name: 'cinema',
-      testMatch: /(cinema|torrents|olivia-assistant)\.spec\.ts/,
+      testMatch: /(cinema|cinema-lists|torrents|olivia-assistant)\.spec\.ts/,
       use: { baseURL: url(PORT.cinema) },
     },
   ],
