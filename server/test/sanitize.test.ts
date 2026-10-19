@@ -24,7 +24,7 @@ const CANARIES = [
   '8.8.4.4',
   'fd7a:115c:a1e0::1234',
   'fe80::abcd',
-  'server-home.tail89d77e.ts.net',
+  'server-home.tailabc123.ts.net',
   'SERVER-HOME',
   'family.example-home.org',
   'sasha-canary',
@@ -47,7 +47,7 @@ const REPORT = [
   'windows C:\\Users\\Alex-Canary\\AppData\\Local\\x',
   'lan 192.168.1.57 and tailnet 100.101.102.103 and public 8.8.4.4',
   'v6 fd7a:115c:a1e0::1234 and fe80::abcd',
-  'host server-home.tail89d77e.ts.net / SERVER-HOME / family.example-home.org',
+  'host server-home.tailabc123.ts.net / SERVER-HOME / family.example-home.org',
   'login sasha-canary by Саша Иванов, mama and Мама',
   '{"id":"1","text":"секретное сообщение","at":"now"}',
   'commit a3f5c9d1e7b24680a3f5c9d1e7b24680a3f5c9d1 built',
@@ -84,7 +84,7 @@ describe('the diagnostic report sanitiser', () => {
     const json = JSON.stringify({
       config: {
         dataDir: 'C:\\FamilyData\\Files',
-        publicUrl: 'https://server-home.tail89d77e.ts.net',
+        publicUrl: 'https://server-home.tailabc123.ts.net',
         port: 8070,
       },
       note: { text: 'секретное сообщение', body: 'ещё одно', ok: true },

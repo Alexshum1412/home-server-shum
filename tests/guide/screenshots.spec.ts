@@ -26,10 +26,10 @@ const OUT = path.join(
 mkdirSync(OUT, { recursive: true });
 
 const PEOPLE = {
-  alex: { username: 'alex', password: 'guide-alex-password-1' },
-  yulia: { username: 'yulia', password: 'guide-yulia-password-1' },
-  vitalik: { username: 'vitalik', password: 'guide-vitalik-password-1' },
-  sasha: { username: 'sasha', password: 'guide-sasha-password-1' },
+  dmitry: { username: 'dmitry', password: 'guide-dmitry-password-1' },
+  anna: { username: 'anna', password: 'guide-anna-password-1' },
+  boris: { username: 'boris', password: 'guide-boris-password-1' },
+  vera: { username: 'vera', password: 'guide-vera-password-1' },
 } as const;
 type Who = keyof typeof PEOPLE;
 
@@ -102,16 +102,16 @@ test.afterAll(async () => {
 
 test.describe('family guide pictures', () => {
   test('seed: messages, a photo in the chat, a group', async () => {
-    const yulia = await person('yulia');
-    const alex = await person('alex');
-    const vitalik = await person('vitalik');
-    const sasha = await person('sasha');
+    const anna = await person('anna');
+    const dmitry = await person('dmitry');
+    const boris = await person('boris');
+    const vera = await person('vera');
 
     const list = await api<{
       me: { id: string };
       conversations: Conversation[];
       people: Array<{ id: string; displayName: string }>;
-    }>(yulia, 'get', '/api/chat/conversations');
+    }>(anna, 'get', '/api/chat/conversations');
     const idOf = (name: string) => {
       const found = list.people.find((item) => item.displayName === name);
       if (!found) throw new Error(`no person ${name}`);
@@ -123,78 +123,78 @@ test.describe('family guide pictures', () => {
     const say = (page: Page, id: string, text: string) =>
       api(page, 'post', `/api/chat/conversations/${id}/messages`, { text });
 
-    await say(yulia, familyId, 'Всем привет! Ужин в семь, приготовлю лазанью.');
-    await say(vitalik, familyId, 'Я после тренировки, буду к половине восьмого.');
-    await say(sasha, familyId, 'Мам, можно я позову Артёма?');
-    await say(yulia, familyId, 'Можно. Фотографии с дачи уже в разделе «Фото».');
+    await say(anna, familyId, 'Всем привет! Ужин в семь, приготовлю лазанью.');
+    await say(boris, familyId, 'Я после тренировки, буду к половине восьмого.');
+    await say(vera, familyId, 'Мам, можно я позову Артёма?');
+    await say(anna, familyId, 'Можно. Фотографии с дачи уже в разделе «Фото».');
 
-    const direct = await api<Conversation>(yulia, 'post', '/api/chat/conversations/direct', {
-      userId: idOf('Алекс'),
+    const direct = await api<Conversation>(anna, 'post', '/api/chat/conversations/direct', {
+      userId: idOf('Дмитрий'),
     });
-    await say(alex, direct.id, 'Юля, в «Кинотеатре» появился новый фильм — «Весёлые каникулы».');
-    await say(yulia, direct.id, 'Спасибо! Вечером посмотрим всей семьёй.');
+    await say(dmitry, direct.id, 'Аня, в «Кинотеатре» появился новый фильм — «Весёлые каникулы».');
+    await say(anna, direct.id, 'Спасибо! Вечером посмотрим всей семьёй.');
     const scene = SCENES.at(1);
     if (!scene) throw new Error('no sample scene');
     const sunset = makePng(640, 420, scene);
-    const attach = await yulia.request.put(
+    const attach = await anna.request.put(
       `/api/chat/conversations/${direct.id}/attachment?name=${encodeURIComponent('Закат на даче.png')}&size=${sunset.length}&text=${encodeURIComponent('Закат на даче')}`,
       { data: sunset, headers: { 'Content-Type': 'application/octet-stream', 'X-Upload': '1' } },
     );
     expect(attach.status(), await attach.text()).toBeLessThan(300);
-    await say(alex, direct.id, 'Красота! Копия фотографий уже лежит и на запасном диске.');
+    await say(dmitry, direct.id, 'Красота! Копия фотографий уже лежит и на запасном диске.');
 
-    const dacha = await api<Conversation>(yulia, 'post', '/api/chat/conversations/group', {
+    const dacha = await api<Conversation>(anna, 'post', '/api/chat/conversations/group', {
       title: 'Дача',
-      memberIds: [idOf('Алекс'), idOf('Виталик')],
+      memberIds: [idOf('Дмитрий'), idOf('Борис')],
     });
-    await say(yulia, dacha.id, 'Список на выходные: шторы, краска, рассада.');
-    await say(vitalik, dacha.id, 'Краску куплю в субботу.');
+    await say(anna, dacha.id, 'Список на выходные: шторы, краска, рассада.');
+    await say(boris, dacha.id, 'Краску куплю в субботу.');
   });
 
   test('seed: files, photos and a second device', async () => {
-    const yulia = await person('yulia');
-    await go(yulia, '/files');
-    await expect(yulia.getByRole('heading', { level: 1, name: 'Файлы' })).toBeVisible();
+    const anna = await person('anna');
+    await go(anna, '/files');
+    await expect(anna.getByRole('heading', { level: 1, name: 'Файлы' })).toBeVisible();
     for (const [name, text] of [
       ['Рецепт лазаньи.txt', 'Слои: тесто, соус, сыр. Печь 40 минут.'],
       ['Список на дачу.txt', 'шторы, краска, рассада'],
       ['Школа — расписание.txt', 'Понедельник: математика, литература.'],
     ] as const) {
-      await yulia
+      await anna
         .getByLabel('Загрузить файлы')
         .setInputFiles({ name, mimeType: 'text/plain', buffer: Buffer.from(text) });
-      await expect(yulia.locator('.files__item').filter({ hasText: name })).toBeVisible();
+      await expect(anna.locator('.files__item').filter({ hasText: name })).toBeVisible();
     }
 
-    await go(yulia, '/photos');
-    await expect(yulia.getByRole('heading', { level: 1, name: 'Фото' })).toBeVisible();
-    await yulia.getByLabel('Добавить фото и видео').setInputFiles(
+    await go(anna, '/photos');
+    await expect(anna.getByRole('heading', { level: 1, name: 'Фото' })).toBeVisible();
+    await anna.getByLabel('Добавить фото и видео').setInputFiles(
       SCENES.map((scene, index) => ({
         name: `Дача ${index + 1}.png`,
         mimeType: 'image/png',
         buffer: makePng(640, 420, scene),
       })),
     );
-    await expect(yulia.getByRole('status').filter({ hasText: /Готово: 6 из 6/ })).toBeVisible({
+    await expect(anna.getByRole('status').filter({ hasText: /Загружено 6 файлов/ })).toBeVisible({
       timeout: 60_000,
     });
 
     // A second sign-in of the same person, from «a phone»: the list of devices has two lines.
-    await person('yulia', { key: 'yulia-phone', userAgent: IPHONE_UA });
+    await person('anna', { key: 'anna-phone', userAgent: IPHONE_UA });
   });
 
   test('seed: a torrent in the queue, one finished and one running', async () => {
-    const alex = await person('alex');
-    await go(alex, '/downloads');
-    await expect(alex.getByRole('heading', { level: 1, name: 'Загрузки' })).toBeVisible();
+    const dmitry = await person('dmitry');
+    await go(dmitry, '/downloads');
+    await expect(dmitry.getByRole('heading', { level: 1, name: 'Загрузки' })).toBeVisible();
     const add = async (name: string, files: Array<{ path: string[]; length: number }>, folder: RegExp) => {
       const torrent = makeTorrent({ name, files, announce: 'udp://tracker.example.org:6969/announce' });
-      await alex.locator('input[type="file"]').setInputFiles({
+      await dmitry.locator('input[type="file"]').setInputFiles({
         name: 'раздача.torrent',
         mimeType: 'application/x-bittorrent',
         buffer: torrent.bytes,
       });
-      const confirm = alex.getByRole('group', { name: 'Подтверждение загрузки' });
+      const confirm = dmitry.getByRole('group', { name: 'Подтверждение загрузки' });
       await expect(confirm.getByText('Скачать эту раздачу?')).toBeVisible();
       await confirm.getByLabel(folder).check();
       return { confirm, torrent };
@@ -204,11 +204,14 @@ test.describe('family guide pictures', () => {
       [{ path: ['Фильм.mp4'], length: 8_000_000 }],
       /Общая медиатека → Фильмы/,
     );
-    await shot(alex, '06a-downloads-confirm');
+    await shot(dmitry, '06a-downloads-confirm');
     await first.confirm.getByRole('button', { name: 'Скачать' }).click();
-    await expect(alex.locator('li.download').filter({ hasText: 'Пример фильма для семьи' })).toBeVisible();
+    await expect(dmitry.locator('li.download').filter({ hasText: 'Пример фильма для семьи' })).toBeVisible();
     await expect(
-      alex.locator('li.download').filter({ hasText: 'Пример фильма для семьи' }).locator('.download__state'),
+      dmitry
+        .locator('li.download')
+        .filter({ hasText: 'Пример фильма для семьи' })
+        .locator('.download__state'),
     ).toHaveText(/Готово/, { timeout: 40_000 });
     const second = await add(
       'Пример музыки для дороги',
@@ -216,125 +219,230 @@ test.describe('family guide pictures', () => {
       /Общая медиатека → Музыка/,
     );
     await second.confirm.getByRole('button', { name: 'Скачать' }).click();
-    await expect(alex.locator('li.download').filter({ hasText: 'Пример музыки для дороги' })).toBeVisible();
+    await expect(dmitry.locator('li.download').filter({ hasText: 'Пример музыки для дороги' })).toBeVisible();
   });
 
   test('home, cinema, files, photos, Olivia, notifications, account: desktop', async () => {
-    const yulia = await person('yulia');
-    await go(yulia, '/');
-    await expect(yulia.getByRole('heading', { level: 1 })).toBeVisible();
-    await shot(yulia, '01-home');
+    const anna = await person('anna');
+    await go(anna, '/');
+    await expect(anna.getByRole('heading', { level: 1 })).toBeVisible();
+    await shot(anna, '01-home');
 
-    await go(yulia, '/cinema');
-    await expect(yulia.getByRole('heading', { level: 1, name: 'Кинотеатр' })).toBeVisible();
-    await expect(yulia.getByRole('link', { name: /Весёлые каникулы/ }).first()).toBeVisible();
-    await shot(yulia, '02-cinema');
-    await yulia
+    await go(anna, '/cinema');
+    await expect(anna.getByRole('heading', { level: 1, name: 'Кинотеатр' })).toBeVisible();
+    await expect(anna.getByRole('link', { name: /Весёлые каникулы/ }).first()).toBeVisible();
+    await shot(anna, '02-cinema');
+    await anna
       .getByRole('link', { name: /Весёлые каникулы/ })
       .first()
       .click();
-    await expect(yulia.getByRole('dialog')).toBeVisible();
-    await shot(yulia, '03-cinema-film');
+    await expect(anna.getByRole('dialog')).toBeVisible();
+    await shot(anna, '03-cinema-film');
 
-    await go(yulia, '/files');
-    await expect(yulia.locator('.files__item').first()).toBeVisible();
-    await shot(yulia, '05-files');
+    await go(anna, '/files');
+    await expect(anna.locator('.files__item').first()).toBeVisible();
+    await shot(anna, '05-files');
 
-    await go(yulia, '/photos');
-    await yulia.locator('.months__item').first().click();
-    await expect(yulia.locator('.gallery__item img').first()).toBeVisible();
+    await go(anna, '/photos');
+    await anna.locator('.months__item').first().click();
+    await expect(anna.locator('.gallery__item img').first()).toBeVisible();
     await expect
       .poll(() =>
-        yulia
+        anna
           .locator('.gallery__item img')
           .first()
           .evaluate((img: HTMLImageElement) => img.naturalWidth),
       )
       .toBeGreaterThan(0);
-    await shot(yulia, '06-photos');
+    await shot(anna, '06-photos');
 
-    await go(yulia, '/olivia');
+    await go(anna, '/olivia');
     const ask = async (text: string) => {
-      await yulia.getByLabel('Вопрос Оливии').fill(text);
-      await yulia.getByRole('button', { name: 'Спросить' }).click();
+      await anna.getByLabel('Вопрос Оливии').fill(text);
+      await anna.getByRole('button', { name: 'Спросить' }).click();
     };
     await ask('найди фильм про каникулы');
-    await expect(yulia.locator('.olivia-card--poster').first()).toBeVisible();
+    await expect(anna.locator('.olivia-card--poster').first()).toBeVisible();
     await ask('сколько места на диске?');
-    await expect(yulia.locator('.olivia-turn').filter({ hasText: /Диск / }).last()).toBeVisible();
-    await shot(yulia, '08-olivia');
+    await expect(anna.locator('.olivia-turn').filter({ hasText: /Диск / }).last()).toBeVisible();
+    await shot(anna, '08-olivia');
 
-    await go(yulia, '/notifications');
-    await expect(yulia.getByRole('heading', { level: 1, name: 'Уведомления' })).toBeVisible();
-    await shot(yulia, '10-notifications');
+    await go(anna, '/notifications');
+    await expect(anna.getByRole('heading', { level: 1, name: 'Уведомления' })).toBeVisible();
+    await shot(anna, '10-notifications');
 
-    await go(yulia, '/account');
-    await expect(yulia.getByRole('heading', { level: 1 })).toBeVisible();
-    await shot(yulia, '11-account', { fullPage: true });
+    await go(anna, '/account');
+    await expect(anna.getByRole('heading', { level: 1 })).toBeVisible();
+    await shot(anna, '11-account', { fullPage: true });
 
-    await go(yulia, '/help');
-    await expect(yulia.getByRole('heading', { level: 1, name: 'Подключение' })).toBeVisible();
-    await shot(yulia, '12-remote-access', { fullPage: true });
+    await go(anna, '/help');
+    await expect(anna.getByRole('heading', { level: 1, name: 'Подключение' })).toBeVisible();
+    await shot(anna, '12-remote-access', { fullPage: true });
   });
 
-  test('downloads queue and the chat', async () => {
-    const alex = await person('alex');
-    await go(alex, '/downloads');
-    await expect(alex.locator('li.download').first()).toBeVisible();
-    await shot(alex, '07-downloads-queue', { fullPage: true });
+  test('search, tasks, cinema marks, albums, choosing files and the trash: desktop', async () => {
+    const anna = await person('anna');
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const day = (offset: number) => {
+      const date = new Date();
+      date.setDate(date.getDate() + offset);
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    };
 
-    const yulia = await person('yulia');
-    await go(yulia, '/chat');
-    await yulia.getByRole('link', { name: /Алекс/ }).first().click();
+    // Search (Ctrl+K) over films, photos, files, notes, events, tasks and chats.
+    await anna.request.post('/api/notes/save', {
+      data: { space: 'shared', name: 'Список для дачи', text: 'взять рассаду и лопату', revision: null },
+    });
+    await go(anna, '/');
+    await anna.keyboard.press('Control+K');
+    const search = anna.getByRole('dialog', { name: 'Поиск по порталу' });
+    await expect(search).toBeVisible();
+    await search.getByRole('searchbox', { name: 'Что найти' }).fill('дач');
+    await expect(search.getByRole('status')).toContainText('Найдено', { timeout: 15_000 });
+    await shot(anna, '15-search');
+    await anna.keyboard.press('Escape');
+
+    // Tasks: by date, one of them overdue.
+    for (const body of [
+      { title: 'Заплатить за свет', due: day(-2) },
+      { title: 'Позвонить бабушке', due: day(0), dueTime: '19:00' },
+      { title: 'Купить краску для дачи', due: day(1) },
+      { title: 'Записаться к врачу' },
+    ]) {
+      const res = await anna.request.post('/api/tasks', { data: body });
+      expect(res.status(), await res.text()).toBe(201);
+    }
+    await go(anna, '/tasks');
+    await expect(anna.getByRole('heading', { level: 1, name: 'Дела' })).toBeVisible();
+    await expect(anna.locator('.task').first()).toBeVisible();
+    await shot(anna, '16-tasks', { fullPage: true });
+
+    // Cinema: a heart and «watch later» build the person's own rows.
+    await go(anna, '/cinema');
+    await expect(anna.getByRole('link', { name: /Весёлые каникулы/ }).first()).toBeVisible();
+    await anna.getByRole('button', { name: 'Избранное: Весёлые каникулы' }).first().click();
+    await expect(anna.getByRole('button', { name: 'Избранное: Весёлые каникулы' }).first()).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await shot(anna, '20-cinema-marks');
+
+    // Photos: the options of adding, and an album.
+    await go(anna, '/photos');
+    await anna.getByRole('button', { name: 'Новый альбом' }).click();
+    await anna.getByLabel('Название альбома').fill('Дача, лето');
+    await anna.getByRole('button', { name: 'Создать' }).click();
+    await expect(anna.getByRole('heading', { level: 2, name: 'Дача, лето' })).toBeVisible();
+    await anna.getByLabel('Добавить фото и видео').setInputFiles(
+      SCENES.slice(0, 3).map((scene, index) => ({
+        name: `Лето ${index + 1}.png`,
+        mimeType: 'image/png',
+        buffer: makePng(480, 320, scene),
+      })),
+    );
+    await expect(anna.getByRole('status').filter({ hasText: /Загружено 3 файла/ })).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(anna.locator('.gallery__item img').first()).toBeVisible();
+    await go(anna, '/photos');
+    await expect(anna.locator('.albums__item').first()).toBeVisible();
+    await shot(anna, '17-photos-albums', { fullPage: true });
+
+    // Files: several chosen at once, then the trash.
+    await go(anna, '/files');
+    await anna.getByLabel('Выбрать «Рецепт лазаньи.txt»').check();
+    await anna.getByLabel('Выбрать «Список на дачу.txt»').check();
+    await expect(anna.getByRole('group', { name: 'Действия с выбранным' })).toContainText(
+      'Выбрано: 2 элемента',
+    );
+    await shot(anna, '18-files-select');
+    anna.once('dialog', (d) => void d.accept());
+    await anna
+      .getByRole('group', { name: 'Действия с выбранным' })
+      .getByRole('button', { name: /В корзину/ })
+      .click();
+    await expect(anna.getByRole('status').filter({ hasText: 'В корзину перемещено' })).toBeVisible();
+    await anna.getByRole('button', { name: 'Корзина' }).click();
+    const trash = anna.getByRole('dialog', { name: 'Корзина' });
+    await expect(trash.locator('.trash-list__item').first()).toBeVisible();
+    await shot(anna, '19-trash');
+    // Put both back, so that the other pictures keep their files.
+    for (const name of ['Рецепт лазаньи.txt', 'Список на дачу.txt']) {
+      await trash.getByRole('button', { name: new RegExp(`Вернуть.*${name.replace('.', '\\.')}`) }).click();
+      await expect(trash.locator('.trash-list__name', { hasText: name })).toHaveCount(0);
+    }
+    await trash.getByRole('button', { name: 'Закрыть' }).click();
+  });
+  test('downloads queue and the chat', async () => {
+    const dmitry = await person('dmitry');
+    await go(dmitry, '/downloads');
+    await expect(dmitry.locator('li.download').first()).toBeVisible();
+    await shot(dmitry, '07-downloads-queue', { fullPage: true });
+
+    const anna = await person('anna');
+    await go(anna, '/chat');
+    await anna
+      .getByRole('link', { name: /Дмитрий/ })
+      .first()
+      .click();
     await expect(
-      yulia
+      anna
         .getByRole('region', { name: /^Чат: / })
         .getByText('Закат на даче')
         .first(),
     ).toBeVisible();
     await expect
       .poll(() =>
-        yulia
+        anna
           .locator('img.msg__image')
           .first()
           .evaluate((img: HTMLImageElement) => img.naturalWidth),
       )
       .toBeGreaterThan(0);
-    await shot(yulia, '09-chat');
+    await shot(anna, '09-chat');
   });
 
   test('a video call', async () => {
-    const yulia = await person('yulia');
-    const alex = await person('alex');
-    await go(alex, '/chat');
-    await go(yulia, '/chat');
-    await yulia.getByRole('link', { name: /Алекс/ }).first().click();
-    await yulia.getByRole('button', { name: 'Видео' }).click();
-    const ring = alex.getByRole('alertdialog');
-    await expect(ring).toContainText('Юлия');
-    await shot(alex, '09b-call-incoming');
+    const anna = await person('anna');
+    const dmitry = await person('dmitry');
+    await go(dmitry, '/chat');
+    await go(anna, '/chat');
+    await anna
+      .getByRole('link', { name: /Дмитрий/ })
+      .first()
+      .click();
+    await anna.getByRole('button', { name: 'Видео' }).click();
+    const ring = dmitry.getByRole('alertdialog');
+    await expect(ring).toContainText('Анна');
+    await shot(dmitry, '09b-call-incoming');
     await ring.getByRole('button', { name: 'Принять' }).click();
-    const screen = yulia.getByRole('region', { name: /Звонок: / });
-    await expect(screen.getByRole('status')).toContainText(/Соединение напрямую|Идёт разговор/, {
-      timeout: 30_000,
-    });
+    const screen = anna.getByRole('region', { name: /Звонок: / });
+    await expect(screen.getByRole('status')).toContainText(
+      /Соединение напрямую|Соединение через Tailscale|Идёт разговор/,
+      {
+        timeout: 30_000,
+      },
+    );
     await expect
       .poll(() =>
-        yulia.evaluate(() => document.querySelector<HTMLVideoElement>('.call__tile video')?.videoWidth ?? 0),
+        anna.evaluate(() => document.querySelector<HTMLVideoElement>('.call__tile video')?.videoWidth ?? 0),
       )
       .toBeGreaterThan(0);
-    await yulia.waitForTimeout(1200);
-    await shot(yulia, '09c-call');
+    await anna.waitForTimeout(1200);
+    await shot(anna, '09c-call');
     await screen.getByRole('button', { name: 'Завершить' }).click();
     await expect(screen).toBeHidden();
   });
 
   test('the phone: home, chat, cinema', async () => {
-    const phone = await person('yulia', { phone: true, key: 'yulia-narrow' });
+    const phone = await person('anna', { phone: true, key: 'anna-narrow' });
     await go(phone, '/');
     await shot(phone, '01m-home-phone');
     await go(phone, '/chat');
-    await phone.getByRole('link', { name: /Алекс/ }).first().click();
+    await phone
+      .getByRole('link', { name: /Дмитрий/ })
+      .first()
+      .click();
     await expect(phone.getByRole('region', { name: /^Чат: / })).toBeVisible();
     await shot(phone, '09m-chat-phone');
     await go(phone, '/cinema');
@@ -343,16 +451,16 @@ test.describe('family guide pictures', () => {
   });
 
   test('administrator: users and monitoring', async () => {
-    const alex = await person('alex');
-    await go(alex, '/admin');
-    await expect(alex.getByRole('heading', { level: 1 })).toBeVisible();
-    await shot(alex, '13-admin-users', { fullPage: true });
+    const dmitry = await person('dmitry');
+    await go(dmitry, '/admin');
+    await expect(dmitry.getByRole('heading', { level: 1 })).toBeVisible();
+    await shot(dmitry, '13-admin-users', { fullPage: true });
 
     // The history and the network speed need two readings of the server, a minute apart.
     await expect
       .poll(
         async () => {
-          const body = await (await alex.request.get('/api/system')).json();
+          const body = await (await dmitry.request.get('/api/system')).json();
           const rate = body.hardware?.network?.value?.find(
             (a: { physical: boolean }) => a.physical,
           )?.rxBytesPerSec;
@@ -361,9 +469,16 @@ test.describe('family guide pictures', () => {
         { timeout: 150_000, intervals: [5_000] },
       )
       .toBe(true);
-    await go(alex, '/system');
-    await expect(alex.getByRole('heading', { level: 2, name: 'Оборудование' })).toBeVisible();
-    const hostname = alex.locator('.facts__row').filter({ hasText: 'Имя компьютера' }).locator('dd');
-    await shot(alex, '14-monitoring', { fullPage: true, mask: [hostname] });
+    await go(dmitry, '/system');
+    await expect(dmitry.getByRole('heading', { level: 2, name: 'Оборудование' })).toBeVisible();
+    const hostname = dmitry.locator('.facts__row').filter({ hasText: 'Имя компьютера' }).locator('dd');
+    // The name of the computer in the tailnet, the printer (with a piece of its address) and the names of the network
+    // adapters (a VPN product's name) belong to this house: they are painted over, as is the name of the computer.
+    const tailnet = dmitry.locator('.facts__row').filter({ hasText: 'Имя в сети' }).locator('dd');
+    const printer = dmitry
+      .locator('.tile', { has: dmitry.getByText('Принтер', { exact: true }) })
+      .locator('.tile__strong');
+    const adapters = dmitry.locator('table.table--stack tbody th[scope="row"]');
+    await shot(dmitry, '14-monitoring', { fullPage: true, mask: [hostname, tailnet, printer, adapters] });
   });
 });

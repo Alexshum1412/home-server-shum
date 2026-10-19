@@ -66,7 +66,7 @@ describe('setupJellyfin', () => {
     const apiKeyFile = path.join(dir, 'jellyfin-api.json');
     const result = await setupJellyfin({
       baseUrl: 'http://127.0.0.1:8096',
-      adminName: 'alex',
+      adminName: 'owner',
       mediaRoot: path.join(dir, 'Media'),
       apiKeyFile,
       fetch: jf.fetchImpl,
@@ -74,7 +74,7 @@ describe('setupJellyfin', () => {
     expect(result.wizardCompleted).toBe(true);
     expect(result.adminPassword).toMatch(/^[A-Za-z2-9]{5}(-[A-Za-z2-9]{5}){3}$/);
     const user = jf.calls.find((c) => c.url === '/Startup/User' && c.method === 'POST');
-    expect(user?.body).toEqual({ Name: 'alex', Password: result.adminPassword });
+    expect(user?.body).toEqual({ Name: 'owner', Password: result.adminPassword });
     expect(jf.calls.find((c) => c.url === '/Startup/RemoteAccess')?.body).toEqual({
       EnableRemoteAccess: false,
     });
@@ -100,7 +100,7 @@ describe('setupJellyfin', () => {
     const jf = fakeJellyfin(state);
     const opts = {
       baseUrl: 'http://127.0.0.1:8096',
-      adminName: 'alex',
+      adminName: 'owner',
       mediaRoot: path.join(dir, 'Media'),
       apiKeyFile: path.join(dir, 'jellyfin-api.json'),
       fetch: jf.fetchImpl,
@@ -124,7 +124,7 @@ describe('setupJellyfin', () => {
     await expect(
       setupJellyfin({
         baseUrl: 'http://127.0.0.1:8096',
-        adminName: 'alex',
+        adminName: 'owner',
         mediaRoot: path.join(dir, 'Media'),
         apiKeyFile: path.join(dir, 'missing.json'),
         fetch: jf.fetchImpl,

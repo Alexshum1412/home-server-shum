@@ -218,8 +218,9 @@ describe('GET /api/admin/diagnostics', () => {
     expect(body.config).toMatchObject({ host: '127.0.0.1', port: 8070, userCount: 2, demo: false });
     // Backup settings are paths and numbers only (no file contents).
     expect(body.config).toMatchObject({
-      // The test app puts the backup place inside its throwaway data folder (never the real disks).
-      backupTargets: t.config.backupTargets.join(';'),
+      // The test app puts the backup place inside its throwaway data folder (never the real disks). The report goes through the sanitiser,
+      // which hides the name of the Windows user in a path, so only the tail of the path is compared.
+      backupTargets: expect.stringMatching(/fd-test-[^\\/]+[\\/]backups$/),
       backupKeep: 14,
       backupExtraFiles: null,
       gitExe: 'git',

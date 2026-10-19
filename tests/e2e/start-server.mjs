@@ -121,10 +121,10 @@ const users =
   mode === 'guide'
     ? [
         // Throwaway accounts of the screenshot server: the passwords exist only in this temp folder.
-        ['alex', 'Алекс', 'admin', 'guide-alex-password-1'],
-        ['yulia', 'Юлия', 'family', 'guide-yulia-password-1'],
-        ['vitalik', 'Виталик', 'family', 'guide-vitalik-password-1'],
-        ['sasha', 'Саша', 'family', 'guide-sasha-password-1'],
+        ['dmitry', 'Дмитрий', 'admin', 'guide-dmitry-password-1'],
+        ['anna', 'Анна', 'family', 'guide-anna-password-1'],
+        ['boris', 'Борис', 'family', 'guide-boris-password-1'],
+        ['vera', 'Вера', 'family', 'guide-vera-password-1'],
       ]
     : [
         ['e2e-admin', 'Тестовый админ', 'admin', 'e2e-admin-password-1'],

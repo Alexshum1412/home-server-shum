@@ -597,7 +597,8 @@
   background: var(--c-surface);
 }
 
-@media (min-width: 64rem) {
+/* Five actions per file need room: beside the name only on a really wide screen, below it otherwise. */
+@media (min-width: 90rem) {
   .files__item {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;

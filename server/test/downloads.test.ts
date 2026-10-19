@@ -334,7 +334,8 @@ describe('download queue API', { timeout: 60_000 }, () => {
   });
 
   it('keeps tasks private: another member cannot see or cancel them, the admin can', async () => {
-    slowDelayMs = 50;
+    // Three sign-ins (password hashing) happen before the cancel: the file must still be coming when they are done.
+    slowDelayMs = 300;
     const { t } = await app();
     await allow(t, 'mama');
     await addUser(t.dataDir, t.clock, { username: 'son', password: 'son-password-12', role: 'family' });

@@ -4,6 +4,8 @@ import { defineConfig, devices } from '@playwright/test';
 // invented people, films, files and messages; the monitoring page shows this PC's real readings.
 // Run it with `npm.cmd run guide:screenshots` (the UI must be built: `npm.cmd run build`).
 const NODE = `"${process.execPath}"`;
+// E2E_CHROME: a copy of Chrome to use instead of the installed one (see playwright.config.ts).
+const CHROME = process.env.E2E_CHROME?.trim();
 
 export default defineConfig({
   testDir: 'tests/guide',
@@ -16,11 +18,12 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     ...devices['Desktop Chrome'],
-    channel: 'chrome',
+    ...(CHROME ? {} : { channel: 'chrome' as const }),
     locale: 'ru-RU',
     viewport: { width: 1280, height: 800 },
     baseURL: 'http://127.0.0.1:8074',
     launchOptions: {
+      ...(CHROME ? { executablePath: CHROME } : {}),
       args: [
         // A test camera and microphone, so the call screen shows moving pictures.
         '--use-fake-device-for-media-stream',

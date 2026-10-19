@@ -266,26 +266,34 @@ describe('users CLI --generate-password', { timeout: 60_000 }, () => {
   }
 
   it('creates an admin with a one-time password that must be replaced at the first sign-in', async () => {
-    const res = await runCli(['add', 'alex', '--name', 'Алекс', '--role', 'admin', '--generate-password']);
+    const res = await runCli([
+      'add',
+      'owner',
+      '--name',
+      'Владелец',
+      '--role',
+      'admin',
+      '--generate-password',
+    ]);
     expect(res.code, res.stderr).toBe(0);
     const password = printedPassword(res.stdout);
     expect(res.stdout).toContain('показан один раз');
 
     const stored = JSON.parse(await readFile(path.join(dataDir, 'users.json'), 'utf8')).users[0];
-    expect(stored).toMatchObject({ username: 'alex', role: 'admin', mustChangePassword: true });
+    expect(stored).toMatchObject({ username: 'owner', role: 'admin', mustChangePassword: true });
     const ttl = Date.parse(stored.passwordExpiresAt) - Date.now();
     expect(ttl).toBeGreaterThan(TEMPORARY_PASSWORD_TTL_MS - 60_000);
     expect(ttl).toBeLessThanOrEqual(TEMPORARY_PASSWORD_TTL_MS);
     expect(JSON.stringify(stored)).not.toContain(password);
 
     const list = await runCli(['list']);
-    expect(list.stdout).toMatch(/alex\s+Алекс\s+администратор.*временный, до/);
+    expect(list.stdout).toMatch(/owner\s+Владелец\s+администратор.*временный, до/);
     expect(list.stdout).not.toContain(password);
 
     const realClock = Object.assign(() => new Date(), { advance: () => undefined }) as FakeClock;
     const app = await createTestApp({ dataDir, clock: realClock });
     apps.push(app);
-    const signed = await login(app.app, 'alex', password);
+    const signed = await login(app.app, 'owner', password);
     expect(signed.res.statusCode).toBe(200);
     expect((signed.res.json() as SessionResponse).mustChangePassword).toBe(true);
   });
