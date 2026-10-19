@@ -1,0 +1,237 @@
+/* The upload queue, the choices next to it, quota notes, the trash and albums of «Файлы» and «Фото». */
+
+.upload-panel {
+  display: grid;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
+
+.upload-panel--warn {
+  border-color: var(--c-warn);
+  background: var(--c-warn-bg);
+}
+
+.upload-panel__summary {
+  margin: 0;
+  font-weight: var(--fw-medium);
+}
+
+.upload-panel__bar,
+.upload-panel progress {
+  width: 100%;
+}
+
+.upload-panel__current {
+  display: grid;
+  gap: var(--sp-1);
+  margin: 0;
+}
+
+.upload-panel__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-panel__list {
+  display: grid;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.upload-panel__row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  overflow-wrap: anywhere;
+}
+
+.upload-panel__row svg {
+  flex: none;
+  margin-top: 0.2rem;
+}
+
+.upload-panel__skipped > summary {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.upload-options {
+  display: grid;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0;
+}
+
+.upload-options__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.upload-options .field__input {
+  width: auto;
+  min-width: 12rem;
+  max-width: 100%;
+}
+
+.quota-note {
+  margin: var(--sp-2) 0;
+}
+
+.trash-list {
+  display: grid;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trash-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
+
+.trash-list__item > svg {
+  flex: none;
+}
+
+.trash-list__text {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+
+.trash-list__name {
+  overflow-wrap: anywhere;
+  font-weight: var(--fw-medium);
+}
+
+.albums {
+  display: grid;
+  gap: var(--sp-3);
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.albums__item {
+  display: grid;
+  gap: var(--sp-1);
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.albums__item:hover {
+  border-color: var(--c-accent-soft);
+}
+
+.albums__cover {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  background: var(--c-surface-2);
+  color: var(--c-text-subtle);
+}
+
+.albums__cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.albums__text {
+  display: grid;
+  padding: var(--sp-2) var(--sp-3) var(--sp-3);
+}
+
+.albums__name {
+  overflow-wrap: anywhere;
+  font-weight: var(--fw-semibold);
+}
+
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin: var(--sp-3) 0;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-accent);
+  border-radius: var(--r-md);
+  background: var(--c-selected);
+}
+
+.files__pick {
+  display: grid;
+  place-items: center;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+}
+
+.file-viewer__frame {
+  width: 100%;
+  min-height: 60dvh;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--c-surface-2);
+}
+
+.file-viewer__text {
+  max-height: 60dvh;
+  margin: 0;
+  padding: var(--sp-3);
+  overflow: auto;
+  border-radius: var(--r-md);
+  background: var(--c-surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.file-viewer__media {
+  display: block;
+  max-width: 100%;
+  max-height: 70dvh;
+  margin: 0 auto;
+}
+
+.files__top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+fieldset.bulk-bar {
+  min-width: 0;
+  margin-inline: 0;
+}
+
+.file-viewer__scroll {
+  max-height: 60dvh;
+  overflow: auto;
+}

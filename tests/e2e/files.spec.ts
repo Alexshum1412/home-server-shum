@@ -83,7 +83,7 @@ test.describe('family photos', () => {
     await signIn(page, 'family', '/photos');
     await expect(page.getByRole('heading', { level: 1, name: 'Фото' })).toBeVisible();
     await page.getByLabel('Добавить фото и видео').setInputFiles(PHOTO);
-    await expect(page.getByRole('status').filter({ hasText: 'Готово: 1 из 1' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Загружено 1 файл.' })).toBeVisible();
     // A month folder appears; inside it, the thumbnail made by this browser.
     await page.locator('.months__item').first().click();
     const thumb = page.locator('.gallery__item img');
@@ -104,6 +104,6 @@ test.describe('family photos', () => {
       mimeType: 'image/jpeg',
       buffer: Buffer.from('not really a photo'),
     });
-    await expect(page.getByRole('status').filter({ hasText: 'только фотографии и видео' })).toBeVisible();
+    await expect(page.getByText(/только фотографии и видео/)).toBeVisible();
   });
 });
