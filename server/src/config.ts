@@ -199,17 +199,17 @@ const schema = z.object({
   TORRENT_HOME: z.string().min(1),
   TORRENT_SEED_RATIO: z.coerce.number().min(0).max(20),
   TORRENT_SEED_MINUTES: z.coerce.number().int().min(0).max(1440),
-  TORRENT_UPLOAD_LIMIT_KB: z.coerce.number().int().min(10).max(100_000),
+  TORRENT_UPLOAD_LIMIT_KB: z.coerce.number().int().min(0).max(100_000_000),
   CHAT_DIR: z.string().min(1),
-  CHAT_MAX_FILE_MB: z.coerce.number().min(1).max(10_000),
+  CHAT_MAX_FILE_MB: z.coerce.number().min(0).max(100_000_000),
   CALLS_STUN_URLS: z.string(),
   CALLS_TURN_URLS: z.string(),
   CALLS_TURN_SECRET: z.string().max(200),
   CALLS_TURN_TTL_SEC: z.coerce.number().int().min(60).max(86_400),
   CALLS_CF_TURN_KEY_ID: z.string(),
   CALLS_CF_TURN_TOKEN_FILE: z.string(),
-  DOWNLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
-  UPLOAD_MAX_FILE_GB: z.coerce.number().min(0.001).max(1000),
+  DOWNLOAD_MAX_FILE_GB: z.coerce.number().min(0).max(100_000_000),
+  UPLOAD_MAX_FILE_GB: z.coerce.number().min(0).max(100_000_000),
   USER_QUOTA_GB: z.string(),
   MIN_FREE_GB: z.coerce.number().min(0).max(10_000),
   OLIVIA_ENABLED: z.enum(['0', '1', 'true', 'false']),
@@ -335,19 +335,19 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     ),
     TORRENT_SEED_RATIO: pick('TORRENT_SEED_RATIO', '1'),
     TORRENT_SEED_MINUTES: pick('TORRENT_SEED_MINUTES', '30'),
-    TORRENT_UPLOAD_LIMIT_KB: pick('TORRENT_UPLOAD_LIMIT_KB', '500'),
+    TORRENT_UPLOAD_LIMIT_KB: pick('TORRENT_UPLOAD_LIMIT_KB', '0'),
     CHAT_DIR: pick('CHAT_DIR', defaultFamilyDir(env, platform, 'Chat')),
-    CHAT_MAX_FILE_MB: pick('CHAT_MAX_FILE_MB', '200'),
+    CHAT_MAX_FILE_MB: pick('CHAT_MAX_FILE_MB', '0'),
     CALLS_STUN_URLS: env.CALLS_STUN_URLS?.trim() ?? '',
     CALLS_TURN_URLS: env.CALLS_TURN_URLS?.trim() ?? '',
     CALLS_TURN_SECRET: env.CALLS_TURN_SECRET?.trim() ?? '',
     CALLS_TURN_TTL_SEC: pick('CALLS_TURN_TTL_SEC', '3600'),
     CALLS_CF_TURN_KEY_ID: env.CALLS_CF_TURN_KEY_ID?.trim() ?? '',
     CALLS_CF_TURN_TOKEN_FILE: env.CALLS_CF_TURN_TOKEN_FILE?.trim() ?? '',
-    DOWNLOAD_MAX_FILE_GB: pick('DOWNLOAD_MAX_FILE_GB', '50'),
-    UPLOAD_MAX_FILE_GB: pick('UPLOAD_MAX_FILE_GB', '20'),
+    DOWNLOAD_MAX_FILE_GB: pick('DOWNLOAD_MAX_FILE_GB', '0'),
+    UPLOAD_MAX_FILE_GB: pick('UPLOAD_MAX_FILE_GB', '0'),
     USER_QUOTA_GB: env.USER_QUOTA_GB?.trim() ?? '',
-    MIN_FREE_GB: pick('MIN_FREE_GB', '50'),
+    MIN_FREE_GB: pick('MIN_FREE_GB', '2'),
     OLIVIA_ENABLED: pick('OLIVIA_ENABLED', '1').toLowerCase(),
     OLIVIA_LLM_URL: env.OLIVIA_LLM_URL?.trim() ?? '',
     OLIVIA_LLM_MODEL: pick('OLIVIA_LLM_MODEL', 'local'),
@@ -427,7 +427,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
       uploadLimitKb: v.TORRENT_UPLOAD_LIMIT_KB,
     }),
     chatDir: path.resolve(v.CHAT_DIR),
-    chatMaxAttachmentBytes: Math.round(v.CHAT_MAX_FILE_MB * 1024 ** 2),
+    chatMaxAttachmentBytes: noLimitIfZero(v.CHAT_MAX_FILE_MB * 1024 ** 2),
     calls: Object.freeze({
       stunUrls: Object.freeze(parseIceUrls('CALLS_STUN_URLS', v.CALLS_STUN_URLS, ['stun', 'stuns'])),
       turnUrls: Object.freeze(parseIceUrls('CALLS_TURN_URLS', v.CALLS_TURN_URLS, ['turn', 'turns'])),
@@ -435,8 +435,8 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
       turnTtlSec: v.CALLS_TURN_TTL_SEC,
       cloudflare: parseCloudflareTurn(v.CALLS_CF_TURN_KEY_ID, v.CALLS_CF_TURN_TOKEN_FILE),
     }),
-    downloadMaxFileBytes: Math.round(v.DOWNLOAD_MAX_FILE_GB * 1024 ** 3),
-    uploadMaxFileBytes: Math.round(v.UPLOAD_MAX_FILE_GB * 1024 ** 3),
+    downloadMaxFileBytes: noLimitIfZero(v.DOWNLOAD_MAX_FILE_GB * 1024 ** 3),
+    uploadMaxFileBytes: noLimitIfZero(v.UPLOAD_MAX_FILE_GB * 1024 ** 3),
     userQuotaBytes: parseQuota(v.USER_QUOTA_GB),
     minFreeBytes: Math.round(v.MIN_FREE_GB * 1024 ** 3),
     oliviaEnabled: v.OLIVIA_ENABLED === '1' || v.OLIVIA_ENABLED === 'true',
@@ -554,4 +554,10 @@ function parseGitPush(value: string): { remote: string; branch: string } | null 
     );
   }
   return { remote: match[1] as string, branch: match[2] as string };
+}
+
+/** The size limits are off by default: 0 means «no limit» (a number the checks never reach). */
+export const NO_LIMIT = Number.MAX_SAFE_INTEGER;
+function noLimitIfZero(bytes: number): number {
+  return bytes <= 0 ? NO_LIMIT : Math.round(bytes);
 }

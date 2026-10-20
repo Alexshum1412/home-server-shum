@@ -414,9 +414,11 @@ export function FilesPage() {
       <QuotaNote quota={data.data?.quota} />
       {data.data?.freeBytes != null ? (
         <p class="meta">
-          Свободно на сервере: {formatBytes(data.data.freeBytes)}. Один файл — до{' '}
-          {formatBytes(data.data.maxUploadBytes)}. Файл с тем же именем не заменяет прежний: рядом сохраняется
-          копия с номером.
+          Свободно на сервере: {formatBytes(data.data.freeBytes)}.{' '}
+          {data.data.maxUploadBytes >= 1e15
+            ? 'Размер файла не ограничен.'
+            : `Один файл — до ${formatBytes(data.data.maxUploadBytes)}.`}{' '}
+          Файл с тем же именем не заменяет прежний: рядом сохраняется копия с номером.
         </p>
       ) : null}
 
