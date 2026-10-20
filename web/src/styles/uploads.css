@@ -250,3 +250,79 @@ fieldset.bulk-bar {
   border-radius: var(--r-md);
   background: var(--c-surface);
 }
+
+.deadlines,
+.status-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: 0;
+  list-style: none;
+}
+
+.deadline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
+
+.deadline--soon {
+  border-color: var(--c-warn, #b7791f);
+}
+
+.deadline--late {
+  border-color: var(--c-bad, #c53030);
+}
+
+.deadline-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.deadline-form__remind {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.status-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
+
+.status-list__item > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.status-list__item--bad {
+  border-color: var(--c-bad, #c53030);
+}
+
+.status-list__item--warn {
+  border-color: var(--c-warn, #b7791f);
+}
+
+.digest-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: var(--sp-3);
+  border-radius: var(--r-md);
+  background: var(--c-surface-2);
+}

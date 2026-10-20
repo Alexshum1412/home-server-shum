@@ -10,6 +10,10 @@ export type RouteId =
   | 'calendar'
   | 'notes'
   | 'tasks'
+  | 'deadlines'
+  | 'digest'
+  | 'status'
+  | 'safety'
   | 'notifications'
   | 'olivia'
   | 'print'
@@ -42,6 +46,10 @@ export const ROUTES: readonly RouteDef[] = [
   { id: 'calendar', path: '/calendar', title: 'Календарь' },
   { id: 'notes', path: '/notes', title: 'Заметки' },
   { id: 'tasks', path: '/tasks', title: 'Дела' },
+  { id: 'deadlines', path: '/deadlines', title: 'Сроки и гарантии' },
+  { id: 'digest', path: '/digest', title: 'Утренний дайджест' },
+  { id: 'status', path: '/status', title: 'Что с сервером' },
+  { id: 'safety', path: '/safety', title: 'Безопасность', adminOnly: true },
   { id: 'notifications', path: '/notifications', title: 'Уведомления' },
   { id: 'olivia', path: '/olivia', title: 'Оливия' },
   { id: 'print', path: '/print', title: 'Печать' },

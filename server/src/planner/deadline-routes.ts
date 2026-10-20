@@ -47,7 +47,7 @@ export function registerDeadlineRoutes(
     }
   });
 
-  app.put('/api/deadlines/:id', { preHandler: guards.requireUser }, async (request, reply) => {
+  app.post('/api/deadlines/:id', { preHandler: guards.requireUser }, async (request, reply) => {
     const id = idSchema.safeParse(request.params);
     const parsed = deadlineBody.safeParse(request.body);
     if (!id.success || !parsed.success)
@@ -61,7 +61,7 @@ export function registerDeadlineRoutes(
     }
   });
 
-  app.delete('/api/deadlines/:id', { preHandler: guards.requireUser }, async (request, reply) => {
+  app.post('/api/deadlines/:id/delete', { preHandler: guards.requireUser }, async (request, reply) => {
     const id = idSchema.safeParse(request.params);
     if (!id.success) return sendError(reply, 400, 'bad_request', 'Не указан срок.');
     try {

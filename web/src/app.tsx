@@ -15,6 +15,8 @@ import { AdminPage } from './pages/Admin.tsx';
 import { CalendarPage } from './pages/Calendar.tsx';
 import { ChatPage } from './pages/Chat.tsx';
 import { CinemaPage } from './pages/Cinema.tsx';
+import { DeadlinesPage } from './pages/Deadlines.tsx';
+import { DigestPage } from './pages/Digest.tsx';
 import { DownloadsPage } from './pages/Downloads.tsx';
 import { FeatureOffPage } from './pages/FeatureOff.tsx';
 import { FilesPage } from './pages/Files.tsx';
@@ -28,7 +30,9 @@ import { NotificationsPage } from './pages/Notifications.tsx';
 import { OliviaPage } from './pages/Olivia.tsx';
 import { PhotosPage } from './pages/Photos.tsx';
 import { PrintPage } from './pages/Print.tsx';
+import { SafetyPage } from './pages/Safety.tsx';
 import { ServerPage } from './pages/ServerPage.tsx';
+import { StatusPage } from './pages/Status.tsx';
 import { SystemPage } from './pages/System.tsx';
 import { TasksPage } from './pages/Tasks.tsx';
 import { navigate, startRouter, useLocation } from './router.ts';
@@ -65,6 +69,14 @@ function Page(props: { route: RouteId; onSessionChanged: (session: SessionRespon
       return <NotesPage />;
     case 'tasks':
       return <TasksPage />;
+    case 'deadlines':
+      return <DeadlinesPage />;
+    case 'digest':
+      return <DigestPage />;
+    case 'status':
+      return <StatusPage />;
+    case 'safety':
+      return <SafetyPage />;
     case 'print':
       return <PrintPage />;
     case 'system':
