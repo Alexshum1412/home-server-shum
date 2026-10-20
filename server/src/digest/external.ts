@@ -36,7 +36,7 @@ export async function geocode(
 ): Promise<{ name: string; latitude: number; longitude: number } | null> {
   try {
     const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=ru&format=json`;
-    const body = (await getJson(fetchImpl, url, 8000)) as {
+    const body = (await getJson(fetchImpl, url, 4000)) as {
       results?: Array<{ name: string; latitude: number; longitude: number }>;
     };
     const first = body.results?.[0];
@@ -58,7 +58,7 @@ export async function weatherToday(
       'https://api.open-meteo.com/v1/forecast' +
       `?latitude=${latitude.toFixed(3)}&longitude=${longitude.toFixed(3)}` +
       '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1';
-    const body = (await getJson(fetchImpl, url, 8000)) as {
+    const body = (await getJson(fetchImpl, url, 4000)) as {
       daily?: {
         weather_code?: number[];
         temperature_2m_max?: number[];
@@ -81,7 +81,7 @@ export async function weatherToday(
 
 export async function currencyToday(fetchImpl: Fetch = fetch): Promise<string | null> {
   try {
-    const body = (await getJson(fetchImpl, 'https://www.cbr-xml-daily.ru/daily_json.js', 8000)) as {
+    const body = (await getJson(fetchImpl, 'https://www.cbr-xml-daily.ru/daily_json.js', 4000)) as {
       Valute?: Record<string, { Value: number; Previous: number; Nominal: number }>;
     };
     const parts: string[] = [];

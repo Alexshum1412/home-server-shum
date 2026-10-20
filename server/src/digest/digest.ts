@@ -80,6 +80,16 @@ export function createDigest(options: {
   const queue = createSerialQueue();
   const fetchImpl = options.fetch ?? fetch;
   let running = false;
+  // Weather and rates change slowly: one answer is kept for half an hour (a failure for five minutes), so that a click does not wait for a slow site.
+  const cache = new Map<string, { at: number; value: string | null }>();
+  async function cached(key: string, load: () => Promise<string | null>): Promise<string | null> {
+    const now = options.clock().getTime();
+    const hit = cache.get(key);
+    if (hit && now - hit.at < (hit.value === null ? 300_000 : 1_800_000)) return hit.value;
+    const value = await load();
+    cache.set(key, { at: now, value });
+    return value;
+  }
   const lastManual = new Map<string, number>();
 
   async function load(): Promise<StoredFile> {
@@ -138,9 +148,11 @@ export function createDigest(options: {
     const settings = data.settings;
     const [weather, currency] = await Promise.all([
       settings.latitude !== null && settings.longitude !== null
-        ? weatherToday(settings.latitude, settings.longitude, fetchImpl)
+        ? cached(`weather:${settings.latitude},${settings.longitude}`, () =>
+            weatherToday(settings.latitude as number, settings.longitude as number, fetchImpl),
+          )
         : Promise.resolve(null),
-      settings.currency ? currencyToday(fetchImpl) : Promise.resolve(null),
+      settings.currency ? cached('currency', () => currencyToday(fetchImpl)) : Promise.resolve(null),
     ]);
     if (weather) lines.push(`Погода${settings.city ? ` (${settings.city})` : ''}: ${weather}.`);
     for (const group of await Promise.all([
