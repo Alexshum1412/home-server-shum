@@ -23,6 +23,7 @@ import { useResource } from '../hooks/useResource.ts';
 import { formatDateTime } from '../lib/format.ts';
 import { auditActionLabel, HEALTH_LEVEL } from '../lib/labels.ts';
 import { useData, useIsAdmin } from '../state.tsx';
+import { FeaturesBlock } from './FeaturesBlock.tsx';
 
 type ActionState =
   | { kind: 'idle' }
@@ -340,6 +341,7 @@ export function AdminPage() {
         icon={ShieldCheck}
         lead="Состояние сервера, учётные записи и журнал. Произвольные команды на компьютере отсюда выполнить нельзя."
       />
+      <FeaturesBlock onResult={(ok, text) => (ok ? toast.showOk(text) : toast.showError(text))} />
       <OliviaBlock toast={toast} />
       <ServicesBlock />
       <UsersBlock toast={toast} />

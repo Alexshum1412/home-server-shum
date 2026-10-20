@@ -22,6 +22,7 @@ export type AuditAction =
   | 'file.mkdir'
   | 'olivia.action'
   | 'server.action'
+  | 'features.change'
   | 'planner.change'
   | 'user.create'
   | 'user.reset_password'

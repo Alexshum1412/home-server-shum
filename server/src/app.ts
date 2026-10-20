@@ -31,6 +31,8 @@ import { createAria2, ensureAria2Secret } from './downloads/aria2.ts';
 import { createDownloadManager, type DownloadManager, statfsFree } from './downloads/manager.ts';
 import { registerDownloadRoutes } from './downloads/routes.ts';
 import { createTorrentManager, type TorrentManager } from './downloads/torrents.ts';
+import { createFeatureStore, type FeatureStore } from './features/features.ts';
+import { registerFeatureRoutes } from './features/routes.ts';
 import { createHashIndex } from './files/hashes.ts';
 import { createQuota } from './files/quota.ts';
 import { registerFileRoutes } from './files/routes.ts';
@@ -142,6 +144,8 @@ export interface AppContext {
   calls: CallManager;
   // Family tasks, shopping lists and reminders («Дела»).
   tasks: TaskStore;
+  // The functions the administrator switched on or off.
+  features: FeatureStore;
   taskReminders: ReminderWatcher;
   /** What the extra home-network listeners (LAN_BIND) actually did; filled in by index.ts. */
   lan: { bound: string[]; failed: Array<{ address: string; reason: string }> };
@@ -500,6 +504,8 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   await torrents.load();
   // Family tasks («Дела»): the store and the reminders (the once-a-minute tick starts in onReady).
   const tasks = createTasksStore(config.dataDir, { clock });
+  const features = createFeatureStore(config.dataDir);
+  await features.load();
   const taskReminders = createReminderWatcher({
     tasks,
     findUser: (username) => users.findByUsername(username),
@@ -526,6 +532,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     notify,
     chat,
     calls,
+    features,
     tasks,
     taskReminders,
     lan: { bound: [], failed: [] },
@@ -573,6 +580,14 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     if (requestChannel(request, config) !== 'public') return;
     if (!publicRouteAllowed(request.method, request.routeOptions.url ?? '', config)) {
       return sendError(reply, 403, 'channel_restricted', PUBLIC_RESTRICTED_MESSAGE);
+    }
+  });
+
+  // A function the administrator switched off answers 403 on its part of the API (the switches themselves stay).
+  app.addHook('onRequest', async (request, reply) => {
+    const off = features.offFeatureFor(urlPath(request.url));
+    if (off !== null) {
+      return sendError(reply, 403, 'feature_off', 'Эта функция отключена администратором.');
     }
   });
 
@@ -820,6 +835,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     }),
   });
   registerTaskRoutes(app, { tasks, users, guards, audit });
+  registerFeatureRoutes(app, { features, guards, audit });
   const printQueue = createPrintQueue({
     dataDir: config.dataDir,
     printerUrl: config.printerIppUrl,

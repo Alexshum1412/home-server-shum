@@ -23,6 +23,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useId, useRef, useState } from 'preact/hooks';
 import type { SessionUser } from '../../../shared/api.ts';
 import { useChat } from '../chat/ChatProvider.tsx';
+import { useFeatures } from '../features.tsx';
 import { ROLE_LABEL } from '../lib/labels.ts';
 import { isActivePath, isAdminOnly, matchRoute } from '../lib/routes.ts';
 import { SearchButton } from '../search/Search.tsx';
@@ -163,10 +164,11 @@ function TabBar(props: {
     };
   }, [open]);
 
+  const { pageOn } = useFeatures();
   return (
     <nav class="tabbar" aria-label="Основная навигация">
       <ul class="tabbar__list">
-        {PRIMARY.map((item) => (
+        {PRIMARY.filter((item) => pageOn(item.path)).map((item) => (
           <li key={item.path}>
             <NavLink item={item} path={props.path} class="tabbar__link" badges={props.badges} compact />
           </li>
@@ -223,7 +225,11 @@ export function AppShell(props: { path: string; notice?: string | null; children
     session.demo ||
     system.data?.demo === true ||
     services.data?.services.some((service) => service.demo) === true;
-  const secondary = SECONDARY.filter((item) => isAdmin || !isAdminOnly(matchRoute(item.path)));
+  const { pageOn } = useFeatures();
+  const secondary = SECONDARY.filter(
+    (item) => (isAdmin || !isAdminOnly(matchRoute(item.path))) && pageOn(item.path),
+  );
+  const primary = PRIMARY.filter((item) => pageOn(item.path));
   const badges = useBadges();
   const moreCount = secondary.reduce((sum, item) => sum + (badges[item.path] ?? 0), 0);
   const onLogout = () => void logout();
@@ -242,7 +248,7 @@ export function AppShell(props: { path: string; notice?: string | null; children
           <SearchButton />
           <nav class="sidenav" aria-label="Основная навигация">
             <ul class="sidenav__list">
-              {[...PRIMARY, ...secondary].map((item) => (
+              {[...primary, ...secondary].map((item) => (
                 <li key={item.path}>
                   <NavLink item={item} path={props.path} class="sidenav__link" badges={badges} />
                 </li>

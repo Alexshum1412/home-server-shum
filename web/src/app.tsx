@@ -1,4 +1,5 @@
 import { RefreshCw, WifiOff } from 'lucide-preact';
+import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { SessionResponse } from '../../shared/api.ts';
 import { type ApiFailure, apiGet, apiPost, NO_CONNECTION, onUnauthorized, toFailure } from './api.ts';
@@ -6,7 +7,8 @@ import { CallOverlay } from './calls/CallOverlay.tsx';
 import { CallProvider } from './calls/CallProvider.tsx';
 import { ChatProvider } from './chat/ChatProvider.tsx';
 import { AppShell } from './components/AppShell.tsx';
-import { documentTitle, type RouteId } from './lib/routes.ts';
+import { FeaturesProvider, useFeatures } from './features.tsx';
+import { documentTitle, ROUTES, type RouteId } from './lib/routes.ts';
 import { setPageTitle } from './lib/title.ts';
 import { AccountPage } from './pages/Account.tsx';
 import { AdminPage } from './pages/Admin.tsx';
@@ -14,6 +16,7 @@ import { CalendarPage } from './pages/Calendar.tsx';
 import { ChatPage } from './pages/Chat.tsx';
 import { CinemaPage } from './pages/Cinema.tsx';
 import { DownloadsPage } from './pages/Downloads.tsx';
+import { FeatureOffPage } from './pages/FeatureOff.tsx';
 import { FilesPage } from './pages/Files.tsx';
 import { ForcedPasswordPage } from './pages/ForcedPassword.tsx';
 import { HelpPage } from './pages/Help.tsx';
@@ -79,6 +82,14 @@ function Page(props: { route: RouteId; onSessionChanged: (session: SessionRespon
     default:
       return <NotFoundPage />;
   }
+}
+
+/** A page of a function that the administrator switched off shows a plain explanation instead. */
+function Gate(props: { route: RouteId; children: ComponentChildren }) {
+  const { pageOn } = useFeatures();
+  const def = ROUTES.find((item) => item.id === props.route);
+  if (def && !pageOn(def.path)) return <FeatureOffPage />;
+  return <>{props.children}</>;
 }
 
 function BootScreen() {
@@ -199,16 +210,23 @@ export function App() {
   return (
     <SessionProvider value={sessionValue}>
       <DataProvider>
-        <ChatProvider>
-          <CallProvider>
-            <SearchProvider>
-              <AppShell path={path} notice={notice}>
-                <Page route={route} onSessionChanged={(session) => setBoot({ status: 'authed', session })} />
-              </AppShell>
-            </SearchProvider>
-            <CallOverlay />
-          </CallProvider>
-        </ChatProvider>
+        <FeaturesProvider>
+          <ChatProvider>
+            <CallProvider>
+              <SearchProvider>
+                <AppShell path={path} notice={notice}>
+                  <Gate route={route}>
+                    <Page
+                      route={route}
+                      onSessionChanged={(session) => setBoot({ status: 'authed', session })}
+                    />
+                  </Gate>
+                </AppShell>
+              </SearchProvider>
+              <CallOverlay />
+            </CallProvider>
+          </ChatProvider>
+        </FeaturesProvider>
       </DataProvider>
     </SessionProvider>
   );

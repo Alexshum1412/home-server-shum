@@ -124,6 +124,7 @@ const AUDIT_ACTIONS: Record<string, string> = {
   'file.mkdir': 'Создана папка',
   'olivia.action': 'Действие Оливии',
   'server.action': 'Управление программами сервера',
+  'features.change': 'Включение и выключение функций',
   'planner.change': 'Календарь или заметки',
   'user.create': 'Создан пользователь',
   'user.reset_password': 'Выдан новый временный пароль',

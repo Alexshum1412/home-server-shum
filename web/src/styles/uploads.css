@@ -235,3 +235,18 @@ fieldset.bulk-bar {
   max-height: 60dvh;
   overflow: auto;
 }
+
+.features {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: 0;
+  list-style: none;
+}
+
+.features__item {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
