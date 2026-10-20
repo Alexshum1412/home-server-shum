@@ -125,6 +125,8 @@ const AUDIT_ACTIONS: Record<string, string> = {
   'olivia.action': 'Действие Оливии',
   'server.action': 'Управление программами сервера',
   'features.change': 'Включение и выключение функций',
+  'safety.change': 'Безопасность: приманки и устройства в сети',
+  'decoy.touched': 'Открыт файл-приманка',
   'planner.change': 'Календарь или заметки',
   'user.create': 'Создан пользователь',
   'user.reset_password': 'Выдан новый временный пароль',

@@ -32,6 +32,8 @@ export interface FileRouteDeps {
   sessions: UploadSessions;
   hashes: HashIndex;
   quota: Quota;
+  /** Somebody opened or downloaded a file (the decoys listen here). */
+  onOpen?: (loc: Location, username: string) => void;
 }
 
 const rootSchema = z.enum(['files', 'photos']);
@@ -118,6 +120,10 @@ export function registerFileRoutes(app: FastifyInstance, deps: FileRouteDeps): v
       const query = request.query as Record<string, string | undefined>;
       const loc = location(request, query);
       const { file, stat, name } = await storage.openFile(loc, currentUser(request).username);
+      // A small request for the first bytes of a video (Range) is not an opening of the file; the whole file is.
+      if (!request.headers.range || request.headers.range.startsWith('bytes=0-')) {
+        deps.onOpen?.(loc, currentUser(request).username);
+      }
       const type = contentTypeFor(name);
       const inline = query.inline === '1' && type.inline;
       reply.header('Content-Type', inline ? type.type : 'application/octet-stream');

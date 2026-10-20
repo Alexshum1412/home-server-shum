@@ -31,6 +31,7 @@ import { createAria2, ensureAria2Secret } from './downloads/aria2.ts';
 import { createDownloadManager, type DownloadManager, statfsFree } from './downloads/manager.ts';
 import { registerDownloadRoutes } from './downloads/routes.ts';
 import { createTorrentManager, type TorrentManager } from './downloads/torrents.ts';
+import { createExtras } from './extras.ts';
 import { createFeatureStore, type FeatureStore } from './features/features.ts';
 import { registerFeatureRoutes } from './features/routes.ts';
 import { createHashIndex } from './files/hashes.ts';
@@ -726,6 +727,22 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     hashes: photoHashes,
   });
   const calendar = createCalendarStore(config.dataDir, { clock });
+  // Deadlines, the journal of incidents, the forecast of the disk, decoys, devices of the network, the status and the morning digest.
+  const extras = createExtras({
+    config,
+    clock,
+    users,
+    guards,
+    audit,
+    notify,
+    collector,
+    tasks,
+    calendar,
+    downloads,
+    freeBytes,
+    log,
+    previousRun: run.previous,
+  });
   const retireAccount = async (username: string, userId: string): Promise<string> => {
     progress.forget(userId);
     await mediaLists.forget(userId);
@@ -735,6 +752,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     const moved = await storage.archiveUser(username);
     const events = await calendar.retireOwner(username);
     const chores = await tasks.retireOwner(username);
+    await extras.retireOwner(username);
     const parts: string[] = [];
     if (moved.length > 0) parts.push('файлы и фото перенесены в корзину сервера');
     if (events.deleted > 0) parts.push(`личных событий удалено: ${events.deleted}`);
@@ -771,6 +789,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     sessions: uploadSessions,
     hashes: photoHashes,
     quota,
+    onOpen: (loc, username) => extras.onFileOpened(loc, username),
   });
   registerMediaRoutes(app, { library: createMediaLibrary(config.mediaDir), guards });
   registerCatalogRoutes(app, {
@@ -836,6 +855,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   });
   registerTaskRoutes(app, { tasks, users, guards, audit });
   registerFeatureRoutes(app, { features, guards, audit });
+  extras.registerRoutes(app);
   const printQueue = createPrintQueue({
     dataDir: config.dataDir,
     printerUrl: config.printerIppUrl,
@@ -907,6 +927,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (sweepTimer) clearInterval(sweepTimer);
     if (reminderTimer) clearInterval(reminderTimer);
+    extras.stop();
     await reminderRun;
     // Closed on purpose: the next start must not mistake this for a crash.
     await runState.end().catch(() => undefined);
@@ -930,6 +951,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     app.addHook('onReady', async () => {
       registry.start();
       collector.start();
+      extras.start();
       await downloads.load();
       torrents.start();
       // Pieces of uploads that nobody finished are removed after a day (once now, then every hour).

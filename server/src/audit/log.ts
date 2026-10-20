@@ -23,6 +23,8 @@ export type AuditAction =
   | 'olivia.action'
   | 'server.action'
   | 'features.change'
+  | 'safety.change'
+  | 'decoy.touched'
   | 'planner.change'
   | 'user.create'
   | 'user.reset_password'
