@@ -599,7 +599,8 @@
 
 /* Five actions per file need room: beside the name only on a really wide screen, below it otherwise. */
 @media (min-width: 90rem) {
-  .files__item {
+  /* Two columns only for a row that has actions; a note or a plain line keeps its name wide (it was squeezed to letters). */
+  .files__item:has(.files__actions) {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
   }

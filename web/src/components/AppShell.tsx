@@ -1,25 +1,14 @@
 import {
-  Activity,
   Bell,
-  CalendarClock,
-  CalendarDays,
   Clapperboard,
   Download,
   Ellipsis,
-  FolderOpen,
-  HeartPulse,
   House,
-  Images,
   ListChecks,
   LogOut,
   MessagesSquare,
-  Newspaper,
-  NotebookPen,
   Printer,
   Server,
-  ShieldAlert,
-  ShieldCheck,
-  Smartphone,
   Sparkles,
   UserRound,
 } from 'lucide-preact';
@@ -29,53 +18,70 @@ import type { SessionUser } from '../../../shared/api.ts';
 import { useChat } from '../chat/ChatProvider.tsx';
 import { useFeatures } from '../features.tsx';
 import { ROLE_LABEL } from '../lib/labels.ts';
-import { isActivePath, isAdminOnly, matchRoute } from '../lib/routes.ts';
+import { NAV_GROUPS, type NavGroup } from '../lib/nav-groups.ts';
 import { SearchButton } from '../search/Search.tsx';
 import { useData, useSession } from '../state.tsx';
 import { ConnectionBanner, DemoBanner } from './Banners.tsx';
 import type { IconComponent } from './icons.ts';
+import { SectionTabs } from './SectionTabs.tsx';
 
 interface NavItem {
+  id: string;
+  /** Where a click leads: the first page of the section that the person may open. */
   path: string;
+  /** All the pages of the section (the section is «current» on any of them). */
+  paths: readonly string[];
   label: string;
   icon: IconComponent;
-  /** Shorter text for the bottom bar, where six items share a phone's width. */
+  /** Shorter text for the bottom bar, where five items share a phone's width. */
   short?: string;
 }
 
-/** Always visible: in the bottom tab bar on phones. */
-const PRIMARY: readonly NavItem[] = [
-  { path: '/', label: 'Главная', icon: House },
-  { path: '/cinema', label: 'Кинотеатр', icon: Clapperboard, short: 'Кино' },
-  { path: '/chat', label: 'Чат', icon: MessagesSquare },
-  { path: '/photos', label: 'Фото', icon: Images },
-  { path: '/files', label: 'Файлы', icon: FolderOpen },
-];
+const ICONS: Record<string, IconComponent> = {
+  home: House,
+  olivia: Sparkles,
+  chat: MessagesSquare,
+  notifications: Bell,
+  planner: ListChecks,
+  media: Clapperboard,
+  downloads: Download,
+  print: Printer,
+  server: Server,
+  account: UserRound,
+};
 
-/** Under «Ещё» on phones. */
-const SECONDARY: readonly NavItem[] = [
-  { path: '/olivia', label: 'Оливия', icon: Sparkles },
-  { path: '/notifications', label: 'Уведомления', icon: Bell },
-  { path: '/calendar', label: 'Календарь', icon: CalendarDays },
-  { path: '/notes', label: 'Заметки', icon: NotebookPen },
-  { path: '/tasks', label: 'Дела', icon: ListChecks },
-  { path: '/deadlines', label: 'Сроки и гарантии', icon: CalendarClock, short: 'Сроки' },
-  { path: '/digest', label: 'Дайджест', icon: Newspaper },
-  { path: '/downloads', label: 'Загрузки', icon: Download },
-  { path: '/print', label: 'Печать', icon: Printer },
-  { path: '/status', label: 'Что с сервером', icon: HeartPulse },
-  { path: '/system', label: 'Состояние', icon: Activity },
-  { path: '/safety', label: 'Безопасность', icon: ShieldAlert },
-  { path: '/server', label: 'Сервер', icon: Server },
-  { path: '/help', label: 'Подключение', icon: Smartphone },
-  { path: '/admin', label: 'Администрирование', icon: ShieldCheck },
-  { path: '/account', label: 'Мой профиль', icon: UserRound },
-];
+/** In the bottom tab bar on phones; everything else is under «Ещё». */
+const PRIMARY_IDS = ['home', 'media', 'chat', 'olivia'];
 
-/** Number of things waiting in a section (unread messages, unseen notifications). */
+/** The sections this person may see: a section whose pages are all off (or all for administrators) is hidden. */
+function visibleItems(
+  group: readonly NavGroup[],
+  isAdmin: boolean,
+  pageOn: (path: string) => boolean,
+): NavItem[] {
+  const items: NavItem[] = [];
+  for (const section of group) {
+    const tabs = section.tabs.filter((tab) => (isAdmin || tab.adminOnly !== true) && pageOn(tab.path));
+    const first = tabs[0];
+    if (!first) continue;
+    items.push({
+      id: section.id,
+      path: tabs.some((tab) => tab.path === section.to) ? section.to : first.path,
+      paths: section.tabs.map((tab) => tab.path),
+      label: section.label,
+      icon: ICONS[section.id] ?? House,
+      ...(section.short ? { short: section.short } : {}),
+    });
+  }
+  return items;
+}
+
+const normal = (path: string) => (path.length > 1 ? path.replace(/\/+$/, '') : path);
+
+/** Number of things waiting in a section (unread messages, unseen notifications), by section. */
 function useBadges(): Record<string, number> {
   const { unread, notifications } = useChat();
-  return { '/chat': unread, '/notifications': notifications?.unread ?? 0 };
+  return { chat: unread, notifications: notifications?.unread ?? 0 };
 }
 
 function NavLink(props: {
@@ -88,8 +94,8 @@ function NavLink(props: {
 }) {
   const { item } = props;
   const Icon = item.icon;
-  const active = isActivePath(props.path, item.path);
-  const count = props.badges[item.path] ?? 0;
+  const active = item.paths.includes(normal(props.path));
+  const count = props.badges[item.id] ?? 0;
   return (
     <a
       class={props.class}
@@ -110,7 +116,6 @@ function NavLink(props: {
     </a>
   );
 }
-
 function UserBlock(props: { user: SessionUser; onLogout: () => void; class: string }) {
   return (
     <div class={props.class}>
@@ -129,6 +134,7 @@ function UserBlock(props: { user: SessionUser; onLogout: () => void; class: stri
 /** Bottom tab bar (≤ 768 px) with the «Ещё» sheet for the remaining sections. */
 function TabBar(props: {
   path: string;
+  primary: readonly NavItem[];
   secondary: readonly NavItem[];
   user: SessionUser;
   badges: Record<string, number>;
@@ -140,7 +146,7 @@ function TabBar(props: {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const sheetId = useId();
-  const moreActive = props.secondary.some((item) => isActivePath(props.path, item.path));
+  const moreActive = props.secondary.some((item) => item.paths.includes(normal(props.path)));
 
   useEffect(() => {
     if (!open) return;
@@ -172,12 +178,11 @@ function TabBar(props: {
     };
   }, [open]);
 
-  const { pageOn } = useFeatures();
   return (
     <nav class="tabbar" aria-label="Основная навигация">
       <ul class="tabbar__list">
-        {PRIMARY.filter((item) => pageOn(item.path)).map((item) => (
-          <li key={item.path}>
+        {props.primary.map((item) => (
+          <li key={item.id}>
             <NavLink item={item} path={props.path} class="tabbar__link" badges={props.badges} compact />
           </li>
         ))}
@@ -206,7 +211,7 @@ function TabBar(props: {
       <div id={sheetId} ref={sheetRef} class="sheet" hidden={!open}>
         <ul class="sheet__list">
           {props.secondary.map((item) => (
-            <li key={item.path}>
+            <li key={item.id}>
               <NavLink
                 item={item}
                 path={props.path}
@@ -234,12 +239,11 @@ export function AppShell(props: { path: string; notice?: string | null; children
     system.data?.demo === true ||
     services.data?.services.some((service) => service.demo) === true;
   const { pageOn } = useFeatures();
-  const secondary = SECONDARY.filter(
-    (item) => (isAdmin || !isAdminOnly(matchRoute(item.path))) && pageOn(item.path),
-  );
-  const primary = PRIMARY.filter((item) => pageOn(item.path));
+  const items = visibleItems(NAV_GROUPS, isAdmin, pageOn);
+  const primary = items.filter((item) => PRIMARY_IDS.includes(item.id));
+  const secondary = items.filter((item) => !PRIMARY_IDS.includes(item.id));
   const badges = useBadges();
-  const moreCount = secondary.reduce((sum, item) => sum + (badges[item.path] ?? 0), 0);
+  const moreCount = secondary.reduce((sum, item) => sum + (badges[item.id] ?? 0), 0);
   const onLogout = () => void logout();
 
   return (
@@ -256,8 +260,8 @@ export function AppShell(props: { path: string; notice?: string | null; children
           <SearchButton />
           <nav class="sidenav" aria-label="Основная навигация">
             <ul class="sidenav__list">
-              {[...primary, ...secondary].map((item) => (
-                <li key={item.path}>
+              {items.map((item) => (
+                <li key={item.id}>
                   <NavLink item={item} path={props.path} class="sidenav__link" badges={badges} />
                 </li>
               ))}
@@ -281,10 +285,12 @@ export function AppShell(props: { path: string; notice?: string | null; children
             ) : null}
             <ConnectionBanner />
           </div>
+          <SectionTabs path={props.path} />
           {props.children}
         </main>
         <TabBar
           path={props.path}
+          primary={primary}
           secondary={secondary}
           user={session.user}
           badges={{ ...badges, more: moreCount }}

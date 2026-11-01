@@ -7,6 +7,7 @@ import type { Clock } from '../lib/time.ts';
 import type { NotificationCenter } from '../notify/center.ts';
 import { localMoment } from '../planner/task-dates.ts';
 import { currencyToday, weatherToday } from './external.ts';
+import { englishLine, germanLine, newsLine, recipeLine } from './interests.ts';
 import type { DigestLlm } from './llm.ts';
 
 interface StoredUserState {
@@ -73,6 +74,17 @@ export function createDigest(options: {
   llm: DigestLlm;
   notify: NotificationCenter['notify'];
   telegramTokenFile: string;
+  /** What the person told about themselves (city, interests, the Telegram chat they linked). */
+  profile?: (username: string) => Promise<{
+    city: string;
+    latitude: number | null;
+    longitude: number | null;
+    interests: string[];
+    about: string;
+    telegramChatId: string;
+  }>;
+  /** Also tells the bot to send a text to a chat (the bot of the family); used instead of the plain sender when given. */
+  sendTelegram?: (chatId: string, text: string) => Promise<boolean>;
   fetch?: typeof fetch;
   onError?: (message: string) => void;
 }) {
@@ -118,6 +130,7 @@ export function createDigest(options: {
   }
 
   async function sendTelegram(chatId: string, text: string): Promise<boolean> {
+    if (options.sendTelegram) return options.sendTelegram(chatId, text);
     const token = await telegramToken();
     if (!token || chatId === '') return false;
     try {
@@ -146,15 +159,25 @@ export function createDigest(options: {
       `Сегодня ${WEEKDAYS[date.getUTCDay()]}, ${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}.`,
     ];
     const settings = data.settings;
+    const mine = (await options.profile?.(user.username)) ?? {
+      city: '',
+      latitude: null,
+      longitude: null,
+      interests: [],
+      about: '',
+      telegramChatId: '',
+    };
+    // The person's own city wins over the family's.
+    const latitude = mine.latitude ?? settings.latitude;
+    const longitude = mine.longitude ?? settings.longitude;
+    const city = mine.latitude !== null ? mine.city : settings.city;
     const [weather, currency] = await Promise.all([
-      settings.latitude !== null && settings.longitude !== null
-        ? cached(`weather:${settings.latitude},${settings.longitude}`, () =>
-            weatherToday(settings.latitude as number, settings.longitude as number, fetchImpl),
-          )
+      latitude !== null && longitude !== null
+        ? cached(`weather:${latitude},${longitude}`, () => weatherToday(latitude, longitude, fetchImpl))
         : Promise.resolve(null),
       settings.currency ? cached('currency', () => currencyToday(fetchImpl)) : Promise.resolve(null),
     ]);
-    if (weather) lines.push(`Погода${settings.city ? ` (${settings.city})` : ''}: ${weather}.`);
+    if (weather) lines.push(`Погода${city ? ` (${city})` : ''}: ${weather}.`);
     for (const group of await Promise.all([
       options.sources.tasks(user, today),
       options.sources.events(user, today, tomorrow),
@@ -164,6 +187,14 @@ export function createDigest(options: {
     ])) {
       lines.push(...group);
     }
+    if (mine.interests.includes('german')) lines.push(germanLine(today));
+    if (mine.interests.includes('english')) lines.push(englishLine(today));
+    if (mine.interests.includes('recipes')) lines.push(recipeLine(today));
+    if (mine.interests.includes('news')) {
+      const news = await cached('news', () => newsLine(fetchImpl));
+      if (news) lines.push(news);
+    }
+    if (mine.about !== '') lines.push(`Чем человек интересуется (его слова): ${mine.about}`);
     if (currency) lines.push(`Курсы ЦБ: ${currency}.`);
     return lines;
   }
@@ -193,7 +224,8 @@ export function createDigest(options: {
       key: `digest:${localMoment(options.clock()).day}`,
       push: false,
     });
-    if (state.telegramChatId !== '') await sendTelegram(state.telegramChatId, text);
+    const chat = (await options.profile?.(user.username))?.telegramChatId || state.telegramChatId;
+    if (chat !== '') await sendTelegram(chat, text);
   }
 
   const view = (data: StoredFile, telegramReady: boolean): DigestSettings => ({

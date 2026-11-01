@@ -59,6 +59,9 @@ import type { ActionDeps } from './olivia/actions.ts';
 import { startBackupProcess } from './olivia/actions.ts';
 import { createAssistant } from './olivia/assistant/assistant.ts';
 import { registerAssistantRoutes } from './olivia/assistant/routes.ts';
+import { createBigModel } from './olivia/big-model.ts';
+import { createOliviaChat } from './olivia/chat.ts';
+import { registerOliviaChatRoutes } from './olivia/chat-routes.ts';
 import type { LlmFetch } from './olivia/llm.ts';
 import { registerOliviaRoutes } from './olivia/routes.ts';
 import { createCalendarStore } from './planner/calendar.ts';
@@ -70,19 +73,22 @@ import { createTasksStore, type TaskStore } from './planner/tasks.ts';
 import type { IppTransport } from './print/ipp.ts';
 import { createPrintQueue } from './print/queue.ts';
 import { registerPrintRoutes } from './print/routes.ts';
+import { createProfileStore } from './profile/profiles.ts';
+import { registerProfileRoutes } from './profile/routes.ts';
 import { createRealtimeHub, type RealtimeHub } from './realtime/hub.ts';
 import { registerSearchRoutes } from './search/routes.ts';
 import { createUnifiedSearch } from './search/unified.ts';
 import { createServiceRegistry, type FetchLike, type ServiceRegistry } from './services/checker.ts';
 import { registerServiceRoutes } from './services/routes.ts';
 import { DEFAULT_WEB_ROOT, registerStatic, sendSpaFallback } from './static.ts';
-import { readJellyfinApiKey } from './supervisor/apps.ts';
+import { llamaPaths, readJellyfinApiKey } from './supervisor/apps.ts';
 import { pipeNameFor } from './supervisor/main.ts';
 import { createAlertWatcher } from './system/alert-watcher.ts';
 import { createSystemCollector, type ProbeTimeouts, type SystemCollector } from './system/collector.ts';
 import { createDefaultProbes, type SystemProbes } from './system/probes.ts';
 import { registerSystemRoutes } from './system/routes.ts';
 import { clockTime, createRunState } from './system/run-state.ts';
+import { createTelegramBot, type TelegramBot } from './telegram/bot.ts';
 
 export const BODY_LIMIT = 64 * 1024;
 
@@ -364,6 +370,10 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   });
   const guards = createGuards({ config, users, sessions });
   const hub = createRealtimeHub({ clock, headers: SECURITY_HEADERS });
+  // The notifications of the portal also go to the phone through the Telegram bot (set up below).
+  let telegramMirror:
+    | ((userId: string, item: { title: string; body: string; url: string; key?: string }) => void)
+    | undefined;
   const notify = createNotificationCenter({
     dataDir: config.dataDir,
     clock,
@@ -371,6 +381,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     subject: config.publicUrl ?? 'mailto:family-server@example.invalid',
     fetch: options.pushFetch,
     onError: (message) => log.warn(message),
+    mirror: (userId, item) => telegramMirror?.(userId, item),
   });
   await notify.load();
   // Did the last run end on purpose? A portal that was killed or lost power is told to the administrators below.
@@ -727,6 +738,20 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     hashes: photoHashes,
   });
   const calendar = createCalendarStore(config.dataDir, { clock });
+  const profiles = createProfileStore(config.dataDir);
+  const llama = llamaPaths(process.env, config);
+  // The bigger local model (about 4 GB): started when a deeper talk or the night digest needs it, stopped when idle.
+  const bigModel = createBigModel({
+    exe: llama.exe,
+    model:
+      process.env.DIGEST_MODEL_FILE?.trim() ||
+      path.join(path.dirname(llama.model), 'gemma-3-4b-it-Q4_K_M.gguf'),
+    port: Number(process.env.DIGEST_LLM_PORT) || 8082,
+    keyFile: config.oliviaLlm?.keyFile,
+    threads: Math.max(1, Math.min(8, Number(process.env.OLIVIA_LLM_THREADS) || 3)),
+    idleMs: 600_000,
+  });
+  let telegramBot: TelegramBot | undefined;
   // Deadlines, the journal of incidents, the forecast of the disk, decoys, devices of the network, the status and the morning digest.
   const extras = createExtras({
     config,
@@ -739,6 +764,9 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     tasks,
     calendar,
     downloads,
+    bigModel,
+    profiles,
+    sendTelegram: async (chatId, text) => (telegramBot ? telegramBot.sendToChat(chatId, text) : false),
     freeBytes,
     log,
     previousRun: run.previous,
@@ -894,6 +922,50 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     llmFetch: options.oliviaLlmFetch ?? fetch,
   });
   registerAssistantRoutes(app, { config, clock, guards, audit, assistant });
+  const oliviaChat = createOliviaChat({
+    dataDir: config.dataDir,
+    clock,
+    assistant,
+    quickUrl: config.oliviaLlm?.url ?? null,
+    keyFile: config.oliviaLlm?.keyFile,
+    big: bigModel,
+  });
+  registerOliviaChatRoutes(app, { chat: oliviaChat, users, guards, config });
+  registerProfileRoutes(app, { profiles, guards, bot: () => telegramBot });
+  telegramBot = createTelegramBot({
+    tokenFile: process.env.DIGEST_TELEGRAM_TOKEN_FILE?.trim() || `\\FamilyServer\\secrets\\telegram.token`,
+    clock,
+    publicUrl: config.publicUrl ?? '',
+    profiles,
+    users,
+    chat: oliviaChat,
+    downloads: {
+      isTorrentCheck: (id) => torrents.isTorrentCheck(id),
+      getCheck: (owner, id) => torrents.getCheck(owner, id),
+      add: async (owner, checkId, destination) =>
+        torrents.isTorrentCheck(checkId)
+          ? torrents.add(owner, checkId, destination)
+          : downloads.add(owner, checkId),
+    },
+    storage,
+    digest: (user) => extras.digestText(user),
+    tasksToday: (user) => extras.tasksText(user),
+    statusText: () => extras.statusText(),
+    onError: (message) => log.warn(message),
+  });
+  const bot = telegramBot;
+  // A notification of the portal is carried to the phone of a person who linked Telegram and did not switch that off.
+  telegramMirror = (userId, item) => {
+    if (item.key?.startsWith('digest:')) return;
+    void (async () => {
+      const user = (await users.list()).find((entry) => entry.id === userId);
+      if (!user) return;
+      const profile = await profiles.get(user.username);
+      if (profile.telegramChatId === '' || !profile.telegramNotify) return;
+      const link = config.publicUrl ? `\n${config.publicUrl}${item.url}` : '';
+      await bot.sendToChat(profile.telegramChatId, `🔔 ${item.title}\n${item.body}${link}`);
+    })().catch(() => undefined);
+  };
   registerServerPageRoutes(app, {
     guards,
     audit,
@@ -928,6 +1000,8 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     if (sweepTimer) clearInterval(sweepTimer);
     if (reminderTimer) clearInterval(reminderTimer);
     extras.stop();
+    telegramBot?.stop();
+    bigModel.stop();
     await reminderRun;
     // Closed on purpose: the next start must not mistake this for a crash.
     await runState.end().catch(() => undefined);
@@ -952,6 +1026,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
       registry.start();
       collector.start();
       extras.start();
+      void telegramBot?.start();
       await downloads.load();
       torrents.start();
       // Pieces of uploads that nobody finished are removed after a day (once now, then every hour).

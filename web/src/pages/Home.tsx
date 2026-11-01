@@ -51,6 +51,7 @@ import {
   UNKNOWN,
 } from '../lib/labels.ts';
 import { useData, useIsAdmin, useSession } from '../state.tsx';
+import { HomeTiles } from './HomeTiles.tsx';
 import { TodayTasks } from './TodayTasks.tsx';
 
 /**
@@ -363,14 +364,10 @@ function ChatNote() {
 
 export function HomePage() {
   const { session } = useSession();
-  const { services, system } = useData();
+  const { system } = useData();
   const isAdmin = useIsAdmin();
   const now = useNow(60_000);
-  const list = services.data?.services;
-  const loaded = services.data !== null;
-  const servicesFailed = services.error !== null && !loaded;
   const alerts = system.data?.alerts ?? [];
-  const alertsFirst = alerts.some((alert) => alert.level === 'critical');
   return (
     <div class="page page--home">
       <div class="home-hero">
@@ -379,33 +376,13 @@ export function HomePage() {
         </h1>
         <p class="home-hero__date">{formatLongDate(now)}</p>
       </div>
-      {/* The cinema is the first thing the family sees; only critical problems go above it. */}
-      {alertsFirst ? <AlertList alerts={alerts} compact /> : null}
-      <CinemaScreen
-        service={findService(list, 'media')}
-        loaded={loaded}
-        failed={servicesFailed}
-        isAdmin={isAdmin}
-      />
-      {alertsFirst ? null : <AlertList alerts={alerts} compact />}
-      <MediaStrip />
-      <ChatNote />
+      <AlertList alerts={alerts} compact />
+      <HomeTiles />
       <TodayEvents now={now} />
       <TodayTasks now={now} />
-      <section class="home-section">
-        <h2 id="services-title" class="section-title">
-          Сервисы
-        </h2>
-        <ServiceTiles
-          services={list}
-          loaded={loaded}
-          servicesFailed={servicesFailed}
-          system={system.data}
-          systemFailed={system.error !== null}
-          isAdmin={isAdmin}
-        />
-      </section>
-      <HouseStatus system={system} />
+      <ChatNote />
+      <MediaStrip />
+      {isAdmin ? <HouseStatus system={system} /> : null}
     </div>
   );
 }

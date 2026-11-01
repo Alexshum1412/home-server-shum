@@ -136,6 +136,8 @@ export interface NotificationCenterOptions {
   subject: string;
   fetch?: PushFetch;
   onError?: (message: string) => void;
+  /** Called for every notification put into a person's list (the Telegram bot carries it to the phone). */
+  mirror?: (userId: string, item: { title: string; body: string; url: string; key?: string }) => void;
 }
 
 function toView(item: FeedItem): NotificationView {
@@ -319,6 +321,16 @@ export function createNotificationCenter(options: NotificationCenterOptions): No
           items.push(item);
           feed.set(userId, trim(items));
           options.hub.publish([userId], { type: 'notification', notification: toView(item) });
+          try {
+            options.mirror?.(userId, {
+              title: item.title,
+              body: item.body,
+              url: item.url,
+              ...(item.key ? { key: item.key } : {}),
+            });
+          } catch {
+            // a failing mirror must not stop a notification
+          }
           save();
         }
         if (input.push !== false) {

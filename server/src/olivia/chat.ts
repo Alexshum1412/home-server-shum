@@ -1,0 +1,304 @@
+import path from 'node:path';
+import type { OliviaAnswer } from '../../../shared/api.ts';
+import type { StoredUser } from '../auth/users.ts';
+import { createSerialQueue, readJsonFile, writeJsonAtomic } from '../lib/json-store.ts';
+import type { Clock } from '../lib/time.ts';
+import type { Assistant } from './assistant/assistant.ts';
+import { routeByRules } from './assistant/router.ts';
+import type { BigModel } from './big-model.ts';
+import { llamaHeaders } from './llm-key.ts';
+import { newsHeadlines, readPage, searchWeb, webIntent } from './web.ts';
+
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  at: string;
+  model?: 'quick' | 'big' | 'rules';
+}
+
+export type ConverseResult =
+  | { kind: 'tool'; answer: OliviaAnswer }
+  | { kind: 'chat'; text: string; model: 'quick' | 'big'; sources: string[] };
+
+const KEEP = 40;
+
+const SYSTEM = (name: string, now: string) =>
+  `Ты Оливия — добрая и внимательная помощница семьи, живёшь на домашнем компьютере. Сейчас ${now}. Ты говоришь с человеком по имени ${name}. ` +
+  'Отвечай по-русски, понятно и по делу, без лишних вступлений. Можешь советовать рецепты и идеи, объяснять школьные темы, ' +
+  'решать задачи по шагам, помогать с текстами и письмами, просто поддержать разговор. Если в разговоре есть блок «Данные из интернета», опирайся на него ' +
+  'и не придумывай то, чего там нет. Если не знаешь или не уверена — так и скажи: не выдумывай факты, даты и цифры. ' +
+  'За свежими сведениями человек может написать «найди в интернете …». Медицинские и юридические вопросы — только общая информация и совет обратиться к специалисту.';
+
+/** Keeps the end of a list of texts within a budget of characters (a small model has a small memory). */
+function within(turns: ChatTurn[], budget: number): ChatTurn[] {
+  const out: ChatTurn[] = [];
+  let used = 0;
+  for (const turn of [...turns].reverse()) {
+    used += turn.text.length;
+    if (used > budget && out.length > 0) break;
+    out.push(turn);
+  }
+  return out.reverse();
+}
+
+async function* streamChat(
+  url: string,
+  keyFile: string | undefined,
+  messages: Array<{ role: string; content: string }>,
+  maxTokens: number,
+  signal: AbortSignal,
+  fetchImpl: typeof fetch,
+): AsyncGenerator<string> {
+  const response = await fetchImpl(`${url.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: llamaHeaders(keyFile),
+    body: JSON.stringify({ model: 'local', stream: true, temperature: 0.6, max_tokens: maxTokens, messages }),
+    signal,
+  });
+  if (!response.ok || !response.body) throw new Error(`model answered ${response.status}`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newline = buffer.indexOf('\n');
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      newline = buffer.indexOf('\n');
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (data === '[DONE]') return;
+      try {
+        const piece = (JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> }).choices?.[0]
+          ?.delta?.content;
+        if (piece) yield piece;
+      } catch {
+        // a torn line: skipped
+      }
+    }
+  }
+}
+
+/** The conversation of Olivia: the server helper first (clear questions about the server), otherwise a talk with the local model. */
+export function createOliviaChat(options: {
+  dataDir: string;
+  clock: Clock;
+  assistant: Assistant;
+  quickUrl: string | null;
+  keyFile: string | undefined;
+  big: BigModel;
+  fetch?: typeof fetch;
+}) {
+  const fetchImpl = options.fetch ?? fetch;
+  const file = path.join(options.dataDir, 'olivia-chats.json');
+  const queue = createSerialQueue();
+  const busy = new Set<string>();
+
+  async function load(): Promise<Record<string, ChatTurn[]>> {
+    try {
+      const data = (await readJsonFile(file)) as { chats?: Record<string, ChatTurn[]> } | undefined;
+      return data?.chats && typeof data.chats === 'object' ? data.chats : {};
+    } catch {
+      return {};
+    }
+  }
+
+  const append = (username: string, ...turns: ChatTurn[]) =>
+    queue.run(async () => {
+      const all = await load();
+      all[username] = [...(all[username] ?? []), ...turns].slice(-KEEP);
+      await writeJsonAtomic(file, { version: 1, chats: all });
+    });
+
+  return {
+    history: (username: string) => queue.run(async () => (await load())[username] ?? []),
+    clear: (username: string) =>
+      queue.run(async () => {
+        const all = await load();
+        delete all[username];
+        await writeJsonAtomic(file, { version: 1, chats: all });
+      }),
+    modelsState: () => ({
+      quick: options.quickUrl !== null,
+      smart: { available: options.big.available(), running: options.big.isRunning() },
+    }),
+    isBusy: (username: string) => busy.has(username),
+
+    /**
+     * Answers one message. `onStatus` tells what she is doing (searching the web, waking the bigger model), `onToken` gets
+     * the text as it is written. Only one message per person at a time.
+     */
+    async converse(
+      user: StoredUser,
+      message: string,
+      opts: {
+        smart?: boolean;
+        web?: boolean;
+        channel?: 'private' | 'public';
+        signal?: AbortSignal;
+        onStatus?: (text: string) => void;
+        onToken?: (piece: string) => void;
+      } = {},
+    ): Promise<ConverseResult> {
+      const text = message.trim().slice(0, 2000);
+      // «Скачай мне …» without a link: she does not look for torrents by name (that would mean pirated copies), but she looks in the library.
+      if (
+        !/https?:\/\/|magnet:/i.test(text) &&
+        /(?:^|\s)(?:скач(?:ай|ать|айте)|загруз(?:и|ить)|торрент\S*|раздач\S*)(?:\s|$)/i.test(text)
+      ) {
+        const topic = text
+          .replace(
+            /скач\S*|загруз\S*|торрент\S*|раздач\S*|мне|пожалуйста|на русском|в хорошем качестве|первый сезон|сезон|серии?/gi,
+            ' ',
+          )
+          .replace(/\s+/g, ' ')
+          .trim();
+        const found =
+          topic.length > 2
+            ? await options.assistant.ask(user, `найди фильм ${topic}`, opts.channel ?? 'private')
+            : null;
+        const cards = found?.tool === 'media' ? found.cards : [];
+        const explain =
+          'Сама искать раздачи на торрент-трекерах по названию я не буду: так легко нарваться на пиратские копии и вредные файлы. Если у вас есть законная раздача, пришлите ссылку, магнитную ссылку или файл .torrent — я проверю её и поставлю в очередь по вашей кнопке «Скачать».';
+        const answer: OliviaAnswer = {
+          reply:
+            cards.length > 0 ? `В нашей медиатеке уже есть подходящее — смотрите ниже. ${explain}` : explain,
+          via: 'rules',
+          tool: 'download_request',
+          cards,
+          note: null,
+        };
+        await append(
+          user.username,
+          { role: 'user', text, at: options.clock().toISOString() },
+          { role: 'assistant', text: answer.reply, at: options.clock().toISOString(), model: 'rules' },
+        );
+        return { kind: 'tool', answer };
+      }
+      const intent = opts.web === false ? null : webIntent(text);
+      if (!intent) {
+        const plan = routeByRules(text);
+        if (plan.tool !== 'unknown') {
+          const answer = await options.assistant.ask(user, text, opts.channel ?? 'private');
+          await append(
+            user.username,
+            { role: 'user', text, at: options.clock().toISOString() },
+            { role: 'assistant', text: answer.reply, at: options.clock().toISOString(), model: 'rules' },
+          );
+          return { kind: 'tool', answer };
+        }
+      }
+      busy.add(user.username);
+      try {
+        const sources: string[] = [];
+        let context = '';
+        if (intent?.kind === 'news') {
+          opts.onStatus?.('Смотрю свежие новости…');
+          const items = await newsHeadlines(fetchImpl, 8);
+          if (items.length > 0) {
+            context = `Заголовки Би-би-си (русская служба):\n${items.map((t, i) => `${i + 1}. ${t}`).join('\n')}`;
+            sources.push('https://www.bbc.com/russian');
+          }
+        } else if (intent?.kind === 'page') {
+          opts.onStatus?.('Читаю страницу…');
+          const page = await readPage(intent.url, fetchImpl);
+          if (page) {
+            context = `Страница «${page.title}» (${page.url}):\n${page.text}`;
+            sources.push(page.url);
+          } else {
+            context = 'Страницу не удалось открыть или прочитать (закрыта, не текст или недоступна).';
+          }
+        } else if (intent?.kind === 'search') {
+          opts.onStatus?.('Ищу в интернете…');
+          const hits = await searchWeb(intent.query, fetchImpl);
+          if (hits.length > 0) {
+            context = hits.map((hit, i) => `${i + 1}. ${hit.title} — ${hit.snippet} (${hit.url})`).join('\n');
+            for (const hit of hits.slice(0, 3)) sources.push(hit.url);
+          } else {
+            context = 'По запросу ничего не нашлось или поиск недоступен.';
+          }
+        }
+        const history = within(
+          await queue.run(async () => (await load())[user.username] ?? []),
+          opts.smart ? 6000 : 2200,
+        );
+        const now = options.clock().toLocaleString('ru-RU', { dateStyle: 'full', timeStyle: 'short' });
+        const asked =
+          context === ''
+            ? text
+            : `${text}\n\nДанные из интернета (на ${now}):\n${context.slice(0, opts.smart ? 5000 : 1800)}`;
+        const messages = [
+          { role: 'system', content: SYSTEM(user.displayName, now) },
+          ...history.map((turn) => ({ role: turn.role, content: turn.text })),
+          { role: 'user', content: asked },
+        ];
+        const run = async (url: string, model: 'quick' | 'big') => {
+          let out = '';
+          const controller = new AbortController();
+          opts.signal?.addEventListener('abort', () => controller.abort(), { once: true });
+          const timer = setTimeout(() => controller.abort(), model === 'big' ? 600_000 : 180_000);
+          try {
+            for await (const piece of streamChat(
+              url,
+              options.keyFile,
+              messages,
+              model === 'big' ? 700 : 450,
+              controller.signal,
+              fetchImpl,
+            )) {
+              out += piece;
+              opts.onToken?.(piece);
+            }
+          } finally {
+            clearTimeout(timer);
+          }
+          return { out: out.trim(), model };
+        };
+        let result: { out: string; model: 'quick' | 'big' } | null = null;
+        if (opts.smart && options.big.available()) {
+          opts.onStatus?.(
+            options.big.isRunning() ? 'Думаю (большая модель)…' : 'Включаю большую модель, это до минуты…',
+          );
+          result = await options.big.use(async (address) => {
+            if (!address) return null;
+            try {
+              return await run(address, 'big');
+            } catch {
+              return null;
+            }
+          });
+        }
+        if (!result && options.quickUrl) {
+          try {
+            result = await run(options.quickUrl, 'quick');
+          } catch {
+            result = null;
+          }
+        }
+        const reply =
+          result && result.out !== ''
+            ? result.out
+            : 'Языковая модель сейчас не отвечает, поэтому поговорить по-настоящему не получится. Я по-прежнему отвечаю на вопросы про сервер: попробуйте «что с сервером» или «сколько места на диске».';
+        const final = sources.length > 0 && result ? `${reply}\n\nИсточники:\n${sources.join('\n')}` : reply;
+        await append(
+          user.username,
+          { role: 'user', text, at: options.clock().toISOString() },
+          {
+            role: 'assistant',
+            text: final,
+            at: options.clock().toISOString(),
+            model: result?.model ?? 'rules',
+          },
+        );
+        return { kind: 'chat', text: final, model: result?.model ?? 'quick', sources };
+      } finally {
+        busy.delete(user.username);
+      }
+    },
+  };
+}
+
+export type OliviaChat = ReturnType<typeof createOliviaChat>;

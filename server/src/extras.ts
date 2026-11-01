@@ -21,15 +21,16 @@ import { checkInternet, type InternetState } from './health/net-check.ts';
 import { buildFamilyStatus } from './health/status.ts';
 import type { Clock } from './lib/time.ts';
 import type { NotificationCenter } from './notify/center.ts';
+import type { BigModel } from './olivia/big-model.ts';
 import type { CalendarStore } from './planner/calendar.ts';
 import { createDeadlineWatcher, registerDeadlineRoutes } from './planner/deadline-routes.ts';
 import { createDeadlineStore } from './planner/deadlines.ts';
 import { localMoment } from './planner/task-dates.ts';
 import type { TaskStore } from './planner/tasks.ts';
+import type { ProfileStore } from './profile/profiles.ts';
 import { createDecoys } from './security/decoys.ts';
 import { createNetworkWatcher } from './security/network.ts';
 import { registerSafetyRoutes } from './security/routes.ts';
-import { llamaPaths } from './supervisor/apps.ts';
 import type { SystemCollector } from './system/collector.ts';
 
 export interface ExtrasDeps {
@@ -43,6 +44,12 @@ export interface ExtrasDeps {
   tasks: TaskStore;
   calendar: CalendarStore;
   downloads: DownloadManager;
+  /** The bigger local model, started on demand. */
+  bigModel: BigModel;
+  /** The things each person told about themselves. */
+  profiles: ProfileStore;
+  /** Sends a text to a Telegram chat (the family's bot); false when it cannot. */
+  sendTelegram?: (chatId: string, text: string) => Promise<boolean>;
   freeBytes: (dir: string) => Promise<number | null>;
   log: { warn: (message: string) => void };
   /** How the previous run of the portal ended. */
@@ -100,41 +107,50 @@ export function createExtras(deps: ExtrasDeps) {
   const llm = createDigestLlm({
     quickUrl: config.oliviaLlm?.url ?? null,
     keyFile: config.oliviaLlm?.keyFile,
-    exe: llamaPaths(process.env, config).exe,
-    bigModel:
-      process.env.DIGEST_MODEL_FILE?.trim() ||
-      path.join(path.dirname(llamaPaths(process.env, config).model), 'gemma-3-4b-it-Q4_K_M.gguf'),
-    bigPort: Number(process.env.DIGEST_LLM_PORT) || 8082,
-    threads: Math.max(1, Math.min(8, Number(process.env.OLIVIA_LLM_THREADS) || 3)),
+    big: deps.bigModel,
   });
 
+  /** The tasks of the person for today and overdue ones (own, or given to them), as short lines. */
+  async function tasksLines(user: StoredUser, today: string): Promise<string[]> {
+    const { tasks: all } = await tasks.list({ username: user.username, isAdmin: user.role === 'admin' });
+    const mine = all.filter(
+      (t) =>
+        !t.done &&
+        t.due !== null &&
+        t.due <= today &&
+        (t.assignee === user.username || (t.assignee === null && t.owner === user.username)),
+    );
+    return mine
+      .slice(0, 6)
+      .map(
+        (t) =>
+          `${t.due === today ? 'Сегодня' : 'Просрочено'}: «${t.title}»${t.dueTime ? ` в ${t.dueTime}` : ''}`,
+      );
+  }
   const digest = createDigest({
     dataDir: config.dataDir,
     clock,
     users: () => users.list(),
     llm,
     notify: (input) => notify.notify(input),
+    profile: async (username) => {
+      const p = await deps.profiles.get(username);
+      return {
+        city: p.city,
+        latitude: p.latitude,
+        longitude: p.longitude,
+        interests: p.interests,
+        about: p.about,
+        telegramChatId: p.telegramChatId,
+      };
+    },
+    ...(deps.sendTelegram ? { sendTelegram: deps.sendTelegram } : {}),
     telegramTokenFile:
       process.env.DIGEST_TELEGRAM_TOKEN_FILE?.trim() ||
       `${process.env.SystemDrive ?? 'C:'}\\FamilyServer\\secrets\\telegram.token`,
     onError: (message) => deps.log.warn(message),
     sources: {
-      tasks: async (user: StoredUser, today: string) => {
-        const { tasks: all } = await tasks.list({ username: user.username, isAdmin: user.role === 'admin' });
-        const mine = all.filter(
-          (t) =>
-            !t.done &&
-            t.due !== null &&
-            t.due <= today &&
-            (t.assignee === user.username || (t.assignee === null && t.owner === user.username)),
-        );
-        return mine
-          .slice(0, 6)
-          .map(
-            (t) =>
-              `${t.due === today ? 'Сегодня' : 'Просрочено'}: «${t.title}»${t.dueTime ? ` в ${t.dueTime}` : ''}`,
-          );
-      },
+      tasks: async (user: StoredUser, today: string) => tasksLines(user, today),
       events: async (user: StoredUser, today: string, tomorrow: string) => {
         const { occurrences } = await calendar.occurrences(
           { username: user.username, isAdmin: user.role === 'admin' },
@@ -322,6 +338,31 @@ export function createExtras(deps: ExtrasDeps) {
       for (const timer of timers) clearInterval(timer);
     },
     retireOwner: (username: string) => deadlines.retireOwner(username),
+    /** The digest for one person at once (the bot's button). */
+    async digestText(user: StoredUser): Promise<string> {
+      const result = await digest.runNow(user);
+      if (result !== 'too_soon') return result.text;
+      return (
+        (await digest.state(user.username)).mine.last?.text ??
+        'Дайджест только что делали: подождите пять минут.'
+      );
+    },
+    async tasksText(user: StoredUser): Promise<string> {
+      const day = localMoment(clock()).day;
+      const lines = await tasksLines(user, day);
+      return lines.length > 0
+        ? `Дела на сегодня:\n${lines.map((line) => `• ${line}`).join('\n')}`
+        : 'На сегодня дел нет.';
+    },
+    async statusText(): Promise<string> {
+      const status = buildFamilyStatus({
+        system: collector.snapshot('family'),
+        internet,
+        forecast: await diskHistory.forecast(),
+        now: clock(),
+      });
+      return `.\n${status.items.map((item) => `• ${item.title}: ${item.text}`).join('\n')}`;
+    },
     today: () => localMoment(clock()).day,
   };
 }
