@@ -13,8 +13,8 @@ test.describe.configure({ mode: 'serial' });
 
 const log = (page: Page) => page.getByRole('log');
 const say = async (page: Page, text: string) => {
-  await page.getByLabel('Вопрос Оливии').fill(text);
-  await page.getByRole('button', { name: 'Спросить' }).click();
+  await page.getByLabel('Сообщение Оливии').fill(text);
+  await page.getByRole('button', { name: 'Отправить' }).click();
 };
 
 test.describe('Olivia', () => {

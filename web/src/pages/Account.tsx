@@ -11,6 +11,7 @@ import { formatDateTime } from '../lib/format.ts';
 import { ROLE_LABEL } from '../lib/labels.ts';
 import { readTheme, saveTheme, THEME_LABEL, type Theme } from '../lib/theme.ts';
 import { useSession } from '../state.tsx';
+import { ProfileEditor } from './ProfileEditor.tsx';
 
 function ThemeChoice() {
   const name = useId();
@@ -131,6 +132,8 @@ export function AccountPage(props: { onSessionChanged: (session: SessionResponse
   const { session } = useSession();
   const { user } = session;
   const [changed, setChanged] = useState(false);
+  const [saved, setSaved] = useState('');
+  const [problem, setProblem] = useState('');
   return (
     <div class="page page--narrow">
       <PageHeader
@@ -156,6 +159,35 @@ export function AccountPage(props: { onSessionChanged: (session: SessionResponse
             <dd>{ROLE_LABEL[user.role]}</dd>
           </div>
         </dl>
+      </section>
+      <section class="page-section" aria-labelledby="account-about">
+        <h2 id="account-about" class="section-title">
+          О себе: город, интересы, Telegram
+        </h2>
+        <p class="section-lead">
+          От этого зависит ваш утренний дайджест и то, что присылает бот. Можно менять когда угодно.
+        </p>
+        {saved ? (
+          <p class="banner banner--ok" role="status">
+            {saved}
+          </p>
+        ) : null}
+        {problem ? (
+          <p class="banner banner--bad" role="alert">
+            {problem}
+          </p>
+        ) : null}
+        <ProfileEditor
+          submitLabel="Сохранить"
+          onSaved={(message) => {
+            setSaved(message);
+            setProblem('');
+          }}
+          onProblem={(message) => {
+            setProblem(message);
+            setSaved('');
+          }}
+        />
       </section>
       <ThemeChoice />
       <DevicesBlock />

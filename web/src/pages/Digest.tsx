@@ -14,7 +14,6 @@ export function DigestPage() {
   const ids = useId();
   const toast = useToast();
   const data = useResource<DigestResponse>('/api/digest');
-  const [chat, setChat] = useState<string | null>(null);
   const [city, setCity] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -94,37 +93,10 @@ export function DigestPage() {
               />
               Присылать мне дайджест каждое утро ({d.settings.time})
             </label>
-            <label class="field__label" htmlFor={`${ids}-tg`}>
-              Номер чата в Telegram (необязательно)
-            </label>
-            <input
-              id={`${ids}-tg`}
-              class="field__input"
-              inputMode="numeric"
-              disabled={!d.settings.telegramReady}
-              value={chat ?? d.mine.telegramChatId}
-              onInput={(e) => setChat(e.currentTarget.value)}
-            />
             <p class="meta">
-              {d.settings.telegramReady
-                ? 'Напишите нашему боту любое сообщение, а свой номер чата узнайте у бота @userinfobot. Тогда дайджест придёт и в Telegram (через серверы Telegram).'
-                : 'Telegram пока не подключён: администратору нужно создать бота и положить его ключ на сервер (инструкция в docs/runbooks/digest.md).'}
+              Город, интересы и привязка Telegram — в разделе «Мой профиль» (вкладка «Профиль»). Бот присылает
+              дайджест туда, куда вы его привязали.
             </p>
-            <div class="action-row">
-              <button
-                type="button"
-                class="button button--secondary"
-                disabled={busy || !d.settings.telegramReady || chat === null}
-                onClick={() =>
-                  void run(
-                    () => apiPost('/api/digest/mine', { telegramChatId: chat ?? '' }),
-                    'Номер сохранён.',
-                  )
-                }
-              >
-                Сохранить номер
-              </button>
-            </div>
           </section>
 
           {d.isAdmin ? (

@@ -1,4 +1,4 @@
-import { Download, FolderOpen, Send, Sparkles, TriangleAlert } from 'lucide-preact';
+import { Download, FolderOpen, Send, Sparkles, Square, Trash2, TriangleAlert } from 'lucide-preact';
 import { useEffect, useId, useRef, useState } from 'preact/hooks';
 import type {
   DownloadCheckResponse,
@@ -17,22 +17,29 @@ interface Turn {
   id: number;
   from: 'me' | 'olivia';
   text: string;
+  streaming?: boolean;
   cards?: OliviaCard[];
   via?: OliviaAnswer['via'];
   note?: string | null;
 }
 
 const WELCOME =
-  'Здравствуйте! Я Оливия, помощница семейного сервера. Могу найти фильм, фото или файл по названию, рассказать, сколько места на диске и что с резервной копией, показать загрузки и события календаря, объяснить, как пользоваться порталом, и подготовить загрузку по ссылке. Сама я ничего не удаляю и не скачиваю — важное делаете вы кнопкой.';
+  'Здравствуйте! Я Оливия. Со мной можно просто поговорить: посоветую рецепт, объясню тему, помогу с домашним заданием и текстом, перескажу страницу, если пришлёте ссылку. Напишите «найди в интернете …» или «что в новостях» — посмотрю свежие данные. А ещё я знаю про сервер: найду фильм, фото или файл, покажу место на диске, загрузки и календарь, проверю ссылку для загрузки. Сама ничего не удаляю и не скачиваю — важное делаете вы кнопкой.';
 
 const SUGGESTIONS: ReadonlyArray<{ label: string; text: string }> = [
-  { label: 'Что ты умеешь?', text: 'Что ты умеешь?' },
+  {
+    label: 'Что приготовить на ужин?',
+    text: 'Посоветуй, что приготовить на ужин из курицы и картошки, с рецептом',
+  },
+  { label: 'Что в новостях?', text: 'Что в новостях сегодня?' },
+  {
+    label: 'Помоги с уроками',
+    text: 'Помоги решить задачу: у Пети 12 яблок, он отдал треть друзьям. Сколько осталось? Объясни по шагам',
+  },
+  { label: 'Найди в интернете…', text: 'Найди в интернете, как выбрать хороший телевизор' },
   { label: 'Сколько места на диске?', text: 'Сколько места на диске?' },
-  { label: 'Что с загрузками?', text: 'Что с моими загрузками?' },
-  { label: 'Что сегодня в календаре?', text: 'Что у нас сегодня в календаре?' },
-  { label: 'Как установить на телефон?', text: 'Как установить портал на телефон?' },
+  { label: 'Что умеешь?', text: 'Что ты умеешь?' },
 ];
-
 const STATE: Record<DownloadTaskView['state'], string> = {
   queued: 'в очереди',
   downloading: 'скачивается',
@@ -195,64 +202,145 @@ function Card(props: { card: OliviaCard }) {
   }
 }
 
+interface ChatInfo {
+  turns: Array<{ role: 'user' | 'assistant'; text: string }>;
+  models: { quick: boolean; smart: { available: boolean; running: boolean } };
+}
+
+type StreamEvent =
+  | { t: 'status'; text: string }
+  | { t: 'token'; text: string }
+  | { t: 'answer'; answer: OliviaAnswer }
+  | { t: 'end'; model: string; text: string }
+  | { t: 'error'; message: string };
+
 export function OliviaPage() {
   const ids = useId();
   const [turns, setTurns] = useState<Turn[]>([{ id: 0, from: 'olivia', text: WELCOME }]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [working, setWorking] = useState('');
+  const [smart, setSmart] = useState(false);
+  const [info, setInfo] = useState<ChatInfo | null>(null);
   const [status, setStatus] = useState<OliviaStatusResponse | null>(null);
   const next = useRef(1);
   const log = useRef<HTMLDivElement>(null);
-  const field = useRef<HTMLInputElement>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
+  const abort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     apiGet<OliviaStatusResponse>('/api/olivia/status').then(setStatus, () => undefined);
+    apiGet<ChatInfo>('/api/olivia/chat').then(
+      (loaded) => {
+        setInfo(loaded);
+        if (loaded.turns.length > 0) {
+          setTurns([
+            { id: 0, from: 'olivia', text: WELCOME },
+            ...loaded.turns.map((turn) => ({
+              id: next.current++,
+              from: turn.role === 'user' ? ('me' as const) : ('olivia' as const),
+              text: turn.text,
+            })),
+          ]);
+        }
+      },
+      () => undefined,
+    );
   }, []);
-  // Scrolls the conversation itself (not the page) to its last line, and again once posters have loaded and
-  // changed the height.
+  // Scrolls the conversation itself (not the page) to its last line while the text arrives.
   useEffect(() => {
-    const toEnd = () => {
-      const box = log.current;
-      if (box) box.scrollTop = box.scrollHeight;
-    };
-    toEnd();
-    const later = setTimeout(toEnd, 350);
-    return () => clearTimeout(later);
-  }, [turns.length, busy]);
+    const box = log.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [turns, busy, working]);
 
   async function ask(message: string) {
     const question = message.trim();
     if (question === '' || busy) return;
     setText('');
-    setTurns((current) => [...current, { id: next.current++, from: 'me', text: question }]);
+    const answerId = next.current + 1;
+    next.current += 2;
+    setTurns((current) => [
+      ...current,
+      { id: answerId - 1, from: 'me', text: question },
+      { id: answerId, from: 'olivia', text: '', streaming: true },
+    ]);
     setBusy(true);
+    setWorking('Оливия думает…');
+    const controller = new AbortController();
+    abort.current = controller;
+    const patch = (change: Partial<Turn>) =>
+      setTurns((current) => current.map((turn) => (turn.id === answerId ? { ...turn, ...change } : turn)));
     try {
-      const answer = await apiPost<OliviaAnswer>('/api/olivia/ask', { message: question });
-      setTurns((current) => [
-        ...current,
-        {
-          id: next.current++,
-          from: 'olivia',
-          text: answer.reply,
-          cards: answer.cards,
-          via: answer.via,
-          note: answer.note,
-        },
-      ]);
+      const response = await fetch('/api/olivia/chat', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
+        body: JSON.stringify({ message: question, smart }),
+        signal: controller.signal,
+      });
+      if (!response.ok || !response.body) {
+        const body = (await response.json().catch(() => ({}))) as { message?: string };
+        patch({ text: body.message ?? 'Не получилось ответить. Попробуйте ещё раз.', streaming: false });
+        return;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let shown = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newline = buffer.indexOf('\n');
+        while (newline >= 0) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          newline = buffer.indexOf('\n');
+          if (line === '') continue;
+          const event = JSON.parse(line) as StreamEvent;
+          if (event.t === 'status') setWorking(event.text);
+          else if (event.t === 'token') {
+            shown += event.text;
+            setWorking('');
+            patch({ text: shown });
+          } else if (event.t === 'answer')
+            patch({
+              text: event.answer.reply,
+              cards: event.answer.cards,
+              via: event.answer.via,
+              note: event.answer.note,
+              streaming: false,
+            });
+          else if (event.t === 'end') patch({ text: event.text, streaming: false });
+          else if (event.t === 'error') patch({ text: event.message, streaming: false });
+        }
+      }
+      patch({ streaming: false });
     } catch (error) {
-      const failure = toFailure(error);
-      setTurns((current) => [
-        ...current,
-        {
-          id: next.current++,
-          from: 'olivia',
+      if ((error as { name?: string }).name === 'AbortError') patch({ streaming: false });
+      else {
+        const failure = toFailure(error);
+        patch({
           text: failure.unreachable ? `${NO_CONNECTION}. Попробуйте чуть позже.` : failure.message,
-        },
-      ]);
+          streaming: false,
+        });
+      }
     } finally {
       setBusy(false);
+      setWorking('');
+      abort.current = null;
       field.current?.focus();
     }
+  }
+
+  async function clear() {
+    if (!window.confirm('Начать разговор заново? Оливия забудет прежние сообщения.')) return;
+    try {
+      await apiPost('/api/olivia/chat/clear', {});
+    } catch {
+      // the screen is cleared anyway
+    }
+    setTurns([{ id: 0, from: 'olivia', text: WELCOME }]);
   }
 
   return (
@@ -260,7 +348,7 @@ export function OliviaPage() {
       <PageHeader
         title="Оливия"
         icon={Sparkles}
-        lead="Помощница семейного сервера. Видит только то, что можете видеть вы, и сама ничего не меняет."
+        lead="Помощница и собеседница: советы, рецепты, уроки, свежие новости из интернета и всё про сервер. Всё считается на домашнем компьютере."
       />
       {status ? (
         <p class={status.model.reachable ? 'meta' : 'banner banner--info'} role="status">
@@ -277,7 +365,10 @@ export function OliviaPage() {
           {turns.map((turn) => (
             <div key={turn.id} class={turn.from === 'me' ? 'olivia-turn olivia-turn--me' : 'olivia-turn'}>
               <p class="olivia-turn__who">{turn.from === 'me' ? 'Вы' : 'Оливия'}</p>
-              <p class="olivia-turn__text">{turn.text}</p>
+              <p class="olivia-turn__text">
+                {turn.text}
+                {turn.streaming && turn.text === '' ? '…' : ''}
+              </p>
               {turn.cards && turn.cards.length > 0 ? (
                 <div class="olivia-turn__cards">
                   {turn.cards.map((card, index) => (
@@ -293,9 +384,9 @@ export function OliviaPage() {
               ) : null}
             </div>
           ))}
-          {busy ? (
+          {busy && working !== '' ? (
             <p class="olivia-turn olivia-turn--wait" role="status">
-              Оливия думает…
+              {working}
             </p>
           ) : null}
         </div>
@@ -314,31 +405,60 @@ export function OliviaPage() {
           ))}
         </fieldset>
         <form
-          class="olivia__form"
+          class="olivia__form olivia__form--talk"
           onSubmit={(event) => {
             event.preventDefault();
             void ask(text);
           }}
         >
           <label class="visually-hidden" htmlFor={`${ids}-q`}>
-            Вопрос Оливии
+            Сообщение Оливии
           </label>
-          <input
+          <textarea
             ref={field}
             id={`${ids}-q`}
             class="field__input olivia__input"
-            type="text"
-            maxLength={600}
-            autoComplete="off"
-            placeholder="Например: найди фильм про каникулы"
+            rows={2}
+            maxLength={2000}
+            placeholder="Напишите что угодно: вопрос, задачу, просьбу… (Enter — отправить, Shift+Enter — новая строка)"
             value={text}
             onInput={(event) => setText(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                void ask(text);
+              }
+            }}
           />
-          <button type="submit" class="button button--primary" disabled={busy || text.trim() === ''}>
-            <Send size={20} aria-hidden="true" />
-            Спросить
-          </button>
+          {busy ? (
+            <button type="button" class="button button--secondary" onClick={() => abort.current?.abort()}>
+              <Square size={18} aria-hidden="true" />
+              Стоп
+            </button>
+          ) : (
+            <button type="submit" class="button button--primary" disabled={text.trim() === ''}>
+              <Send size={20} aria-hidden="true" />
+              Отправить
+            </button>
+          )}
         </form>
+        <div class="olivia__tools">
+          {info?.models.smart.available ? (
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={smart}
+                disabled={busy}
+                onChange={(event) => setSmart(event.currentTarget.checked)}
+              />
+              Умный режим (большая модель: отвечает лучше, но медленнее — до минуты на старт)
+            </label>
+          ) : null}
+          <button type="button" class="button button--quiet" disabled={busy} onClick={() => void clear()}>
+            <Trash2 size={18} aria-hidden="true" />
+            Начать заново
+          </button>
+        </div>
       </section>
     </div>
   );

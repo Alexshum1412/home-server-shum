@@ -38,6 +38,8 @@ import { TasksPage } from './pages/Tasks.tsx';
 import { navigate, startRouter, useLocation } from './router.ts';
 import { SearchProvider } from './search/Search.tsx';
 import { DataProvider, SessionProvider } from './state.tsx';
+import { Onboarding } from './tour/Onboarding.tsx';
+import { TourProvider } from './tour/Tour.tsx';
 
 type Boot =
   | { status: 'loading' }
@@ -226,14 +228,17 @@ export function App() {
           <ChatProvider>
             <CallProvider>
               <SearchProvider>
-                <AppShell path={path} notice={notice}>
-                  <Gate route={route}>
-                    <Page
-                      route={route}
-                      onSessionChanged={(session) => setBoot({ status: 'authed', session })}
-                    />
-                  </Gate>
-                </AppShell>
+                <TourProvider path={path}>
+                  <AppShell path={path} notice={notice}>
+                    <Gate route={route}>
+                      <Page
+                        route={route}
+                        onSessionChanged={(session) => setBoot({ status: 'authed', session })}
+                      />
+                    </Gate>
+                  </AppShell>
+                  <Onboarding />
+                </TourProvider>
               </SearchProvider>
               <CallOverlay />
             </CallProvider>

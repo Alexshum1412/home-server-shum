@@ -21,6 +21,7 @@ import { ROLE_LABEL } from '../lib/labels.ts';
 import { NAV_GROUPS, type NavGroup } from '../lib/nav-groups.ts';
 import { SearchButton } from '../search/Search.tsx';
 import { useData, useSession } from '../state.tsx';
+import { HelpButton } from '../tour/Tour.tsx';
 import { ConnectionBanner, DemoBanner } from './Banners.tsx';
 import type { IconComponent } from './icons.ts';
 import { SectionTabs } from './SectionTabs.tsx';
@@ -100,6 +101,7 @@ function NavLink(props: {
     <a
       class={props.class}
       href={item.path}
+      data-tour={item.id}
       aria-current={active ? 'page' : undefined}
       onClick={props.onClick}
     >
@@ -190,6 +192,7 @@ function TabBar(props: {
           <button
             ref={buttonRef}
             type="button"
+            data-tour="more"
             class={moreActive ? 'tabbar__link tabbar__link--active' : 'tabbar__link'}
             aria-expanded={open}
             aria-controls={sheetId}
@@ -258,6 +261,7 @@ export function AppShell(props: { path: string; notice?: string | null; children
             <span class="brand__name">Семейный сервер</span>
           </a>
           <SearchButton />
+          <HelpButton path={props.path} />
           <nav class="sidenav" aria-label="Основная навигация">
             <ul class="sidenav__list">
               {items.map((item) => (

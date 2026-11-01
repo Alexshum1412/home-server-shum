@@ -132,7 +132,13 @@ export function SearchProvider(props: { children: ComponentChildren }) {
 export function SearchButton() {
   const { open } = useSearch();
   return (
-    <button type="button" class="search-trigger" onClick={open} aria-keyshortcuts="Control+K Meta+K">
+    <button
+      type="button"
+      class="search-trigger"
+      data-tour="search"
+      onClick={open}
+      aria-keyshortcuts="Control+K Meta+K"
+    >
       <Search size={20} aria-hidden="true" />
       <span class="search-trigger__text">Поиск</span>
       <kbd class="search-trigger__key">Ctrl K</kbd>

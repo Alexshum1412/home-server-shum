@@ -56,8 +56,10 @@ async function person(
     deviceScaleFactor: options.phone ? 2 : 1,
   });
   const page = await context.newPage();
+  await page.addInitScript(() => localStorage.setItem('fs-tour-seen-v1', '1'));
   const res = await page.request.post('/api/login', { data: PEOPLE[who] });
   expect(res.status(), `login as ${who}`).toBe(200);
+  await page.request.post('/api/profile', { data: { onboarded: true } });
   contexts.set(key, context);
   pages.set(key, page);
   return page;
@@ -258,8 +260,8 @@ test.describe('family guide pictures', () => {
 
     await go(anna, '/olivia');
     const ask = async (text: string) => {
-      await anna.getByLabel('Вопрос Оливии').fill(text);
-      await anna.getByRole('button', { name: 'Спросить' }).click();
+      await anna.getByLabel('Сообщение Оливии').fill(text);
+      await anna.getByRole('button', { name: 'Отправить' }).click();
     };
     await ask('найди фильм про каникулы');
     await expect(anna.locator('.olivia-card--poster').first()).toBeVisible();

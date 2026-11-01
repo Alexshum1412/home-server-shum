@@ -405,3 +405,102 @@ fieldset.bulk-bar {
   min-width: 0;
   gap: 2px;
 }
+
+.profile-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.profile-editor__interests {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.tour__dim {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.6);
+}
+
+.tour__spot {
+  position: fixed;
+  border-radius: var(--r-md);
+  box-shadow:
+    0 0 0 9999px rgb(0 0 0 / 0.6),
+    0 0 0 3px var(--c-accent);
+  pointer-events: none;
+}
+
+.tour__card {
+  position: fixed;
+  z-index: 1001;
+  width: min(24rem, calc(100vw - 1.5rem));
+  padding: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  background: var(--c-bg);
+  color: var(--c-text);
+  box-shadow: 0 10px 40px rgb(0 0 0 / 0.35);
+}
+
+.tour__card--center {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.tour__card--sheet {
+  right: 0.75rem;
+  bottom: 5.5rem;
+  left: 0.75rem;
+  width: auto;
+}
+
+.tour__card:focus {
+  outline: none;
+}
+
+.help-button {
+  gap: var(--sp-1);
+}
+
+@media (max-width: 47.99rem) {
+  .help-button__text {
+    display: none;
+  }
+}
+
+.olivia__form--talk {
+  align-items: flex-end;
+}
+
+.olivia__form--talk .olivia__input {
+  min-height: 3.5rem;
+  resize: vertical;
+}
+
+.olivia__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-4);
+  margin-top: var(--sp-2);
+}
+
+.olivia-turn__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
