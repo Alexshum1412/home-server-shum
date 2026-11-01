@@ -1032,8 +1032,8 @@ button.people__row:hover:not(:disabled) {
   display: grid;
   gap: var(--sp-3);
   align-content: start;
-  min-height: 14rem;
-  max-height: calc(var(--viewport-h) - 26rem);
+  min-height: 12rem;
+  max-height: max(12rem, calc(var(--viewport-h) - 35rem));
   padding: var(--sp-4);
   overflow-y: auto;
   border: 1px solid var(--c-border);

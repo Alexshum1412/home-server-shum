@@ -409,7 +409,7 @@ fieldset.bulk-bar {
 .profile-editor {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2);
+  gap: var(--sp-3);
 }
 
 .profile-editor__interests {

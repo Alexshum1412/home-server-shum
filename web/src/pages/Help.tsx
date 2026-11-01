@@ -1,4 +1,4 @@
-import { Globe, House, Laptop, Smartphone, TriangleAlert } from 'lucide-preact';
+import { Globe, House, Laptop, Smartphone, Tv, TriangleAlert } from 'lucide-preact';
 import type { ConnectionResponse } from '../../../shared/api.ts';
 import { CopyField } from '../components/CopyField.tsx';
 import { ErrorState } from '../components/ErrorState.tsx';
@@ -150,6 +150,43 @@ function LanAddress(props: { data: ConnectionResponse; isAdmin: boolean }) {
   );
 }
 
+function TvSteps() {
+  return (
+    <section class="prose-block">
+      <h2 class="section-title">
+        <Tv class="section-title__icon" size={20} aria-hidden="true" />
+        Смотреть фильмы на телевизоре
+      </h2>
+      <p class="section-lead">
+        Если приложение Jellyfin на телевизоре не запускается (так бывает на новых Samsung), есть три других
+        способа. Телевизор должен быть в той же домашней сети, что и сервер.
+      </p>
+      <ol class="steps">
+        <li>
+          <strong>Plex.</strong> Установите на телевизоре приложение Plex (в магазине приложений), войдите в
+          свой аккаунт Plex — телевизор сам найдёт домашний сервер и покажет библиотеки «Фильмы», «Сериалы»,
+          «Мультфильмы». Администратору один раз нужно зайти на самом сервере по адресу
+          http://127.0.0.1:32400/web, войти в аккаунт Plex и добавить папки из «C:\FamilyData\Media».
+        </li>
+        <li>
+          <strong>Телевизионный браузер.</strong> Откройте в браузере телевизора (Samsung Internet) адрес
+          портала из домашней сети (он показан выше), войдите и откройте «Медиа» → «Кинотеатр» → «Запасной
+          просмотр»: простые файлы (mp4, webm) играют прямо из портала.
+        </li>
+        <li>
+          <strong>По сети (DLNA).</strong> В Plex включён DLNA-сервер: в списке источников телевизора
+          («Источники», «Медиа-устройства») появится «Plex Media Server»; фильмы можно запускать без
+          приложения.
+        </li>
+        <li>
+          <strong>С телефона на экран.</strong> Если у телевизора есть Chromecast или Smart View, можно
+          «отправить» вкладку или видео с телефона.
+        </li>
+      </ol>
+    </section>
+  );
+}
+
 function Limits(props: { hasLanAddress: boolean }) {
   return (
     <section class="prose-block">
@@ -182,6 +219,7 @@ export function HelpPage() {
         <FirstSteps />
         <InstallSteps />
         <LanAddress data={connection.data} isAdmin={isAdmin} />
+        <TvSteps />
       </>
     );
   } else if (connection.error) {
