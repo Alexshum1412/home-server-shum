@@ -22,7 +22,7 @@ test.describe('Olivia', () => {
     page,
   }) => {
     await signIn(page, 'family', '/olivia');
-    await expect(page.getByRole('heading', { level: 1, name: 'Оливия' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Оливия' })).toBeVisible();
     await expect(page.getByText('Языковая модель не подключена')).toBeVisible();
     await expect(log(page).getByText('Здравствуйте! Я Оливия')).toBeVisible();
     await page.getByRole('button', { name: 'Сколько места на диске?' }).click();

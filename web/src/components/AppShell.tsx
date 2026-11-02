@@ -52,7 +52,7 @@ const ICONS: Record<string, IconComponent> = {
 };
 
 /** In the bottom tab bar on phones; everything else is under «Ещё». */
-const PRIMARY_IDS = ['home', 'chat', 'media', 'memory'];
+const PRIMARY_IDS = ['home', 'chat', 'planner', 'media'];
 
 /** The sections this person may see: a section whose pages are all off (or all for administrators) is hidden. */
 function visibleItems(

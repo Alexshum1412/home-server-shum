@@ -227,6 +227,43 @@ export function createExtras(deps: ExtrasDeps) {
 
   return {
     digest,
+    /** Numbers for the reports: the forecast of the disk, the journal, the internet. */
+    async reportData() {
+      return {
+        forecast: await diskHistory.forecast(),
+        incidents: await incidents.list(8),
+        internetUp: internet.up,
+      };
+    },
+    /** The lines of the week ahead for one person (tasks, events, deadlines, downloads), for the summary report. */
+    async weekLines(user: StoredUser) {
+      const day = localMoment(clock()).day;
+      const end = new Date(`T00:00:00Z`);
+      end.setUTCDate(end.getUTCDate() + 7);
+      const { occurrences } = await calendar.occurrences(
+        { username: user.username, isAdmin: user.role === 'admin' },
+        day,
+        end.toISOString().slice(0, 10),
+      );
+      const since = new Date(clock().getTime() - 7 * 86_400_000).toISOString();
+      return {
+        tasks: await tasksLines(user, day),
+        events: occurrences
+          .slice(0, 10)
+          .map((o: CalendarOccurrence) => `: ${o.event.title}${o.event.time ? ` в ${o.event.time}` : ''}`),
+        deadlines: (await deadlines.soon(user.username, 30))
+          .slice(0, 10)
+          .map(
+            (d) =>
+              ` — ${d.daysLeft < 0 ? 'просрочено' : d.daysLeft === 0 ? 'сегодня' : `через ${d.daysLeft} дн.`}`,
+          ),
+        downloads: deps.downloads
+          .list(user.username)
+          .filter((d) => d.state === 'completed' && d.completedAt !== null && d.completedAt >= since)
+          .slice(0, 10)
+          .map((d) => d.fileName),
+      };
+    },
     incidents,
     /** Called by the file routes when somebody opens a file. */
     onFileOpened(loc: { root: string; space: string; path: string }, username: string): void {

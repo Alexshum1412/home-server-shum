@@ -4,14 +4,53 @@ import { z } from 'zod';
 import { currentUser, type Guards } from '../auth/guards.ts';
 import { sendError } from '../lib/http.ts';
 import type { Archive } from './archive.ts';
+import { IMAGE_EXT, type Ocr } from './ocr.ts';
 
 const ID = /^[A-Za-z0-9_-]{6,64}$/;
 
 export function registerArchiveRoutes(
   app: FastifyInstance,
-  deps: { archive: Archive; guards: Guards },
+  deps: {
+    archive: Archive;
+    guards: Guards;
+    ocr: Ocr;
+    notes: {
+      save: (
+        space: 'personal',
+        username: string,
+        name: string,
+        text: string,
+        revision: null,
+      ) => Promise<unknown>;
+    };
+  },
 ): void {
   const { archive, guards } = deps;
+
+  // A photo of a document or a page: the text of it, and a note with it (a raw upload like the other uploads).
+  app.put(
+    '/api/archive/ocr',
+    { preHandler: guards.requireUser, config: { rawUpload: true }, bodyLimit: 26 * 1024 * 1024 },
+    async (request, reply) => {
+      if (!deps.ocr.available())
+        return sendError(reply, 503, 'unavailable', 'Распознавание текста на этом сервере не подключено.');
+      const name = String((request.query as { name?: string }).name ?? 'scan.png');
+      if (!IMAGE_EXT.test(name)) return sendError(reply, 415, 'bad_type', 'Нужна картинка: jpg, png, webp.');
+      const chunks: Buffer[] = [];
+      let total = 0;
+      for await (const chunk of request.body as AsyncIterable<Buffer>) {
+        total += chunk.length;
+        if (total > 25 * 1024 * 1024) return sendError(reply, 413, 'too_large', 'Картинка слишком большая.');
+        chunks.push(chunk);
+      }
+      const ext = /\.[A-Za-z0-9]+$/.exec(name)?.[0] ?? '.png';
+      const text = await deps.ocr.read(Buffer.concat(chunks), ext);
+      if (!text)
+        return sendError(reply, 422, 'no_text', 'Текст прочитать не получилось: нужно ровное и чёткое фото.');
+      const title = await archive.addNote(currentUser(request).username, text);
+      return { text, note: title };
+    },
+  );
 
   app.get('/api/archive', { preHandler: guards.requireUser }, async (request, reply) => {
     const me = currentUser(request);

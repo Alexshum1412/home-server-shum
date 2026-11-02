@@ -1143,3 +1143,374 @@ fieldset.chips--set {
   align-self: center;
   margin: var(--sp-2) auto 0;
 }
+
+/* ============================================================================================
+ * The look of the chats: after Telegram. A wallpaper, round avatars, bubbles with a tail and
+ * the time inside, a pill-shaped bar at the bottom, a list with the time and a round counter.
+ * Olivia is drawn with the very same classes: her conversation looks like any other.
+ * ========================================================================================== */
+
+:root {
+  --tg-wall: #cfe0d0;
+  --tg-wall-a: rgba(255, 255, 255, 0.35);
+  --tg-in: #ffffff;
+  --tg-in-text: #17212b;
+  --tg-out: #e3f5cf;
+  --tg-out-text: #0e2a12;
+  --tg-meta: #7a8a98;
+  --tg-meta-out: #5f9d4f;
+  --tg-bar: #ffffff;
+  --tg-head: #ffffff;
+  --tg-link: #2b7bbf;
+  --tg-send: #3a8fd9;
+  --tg-day: rgba(60, 80, 70, 0.42);
+  --tg-row-hover: rgba(60, 100, 160, 0.08);
+  --tg-row-active: #3a8fd9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --tg-wall: #0e1621;
+    --tg-wall-a: rgba(255, 255, 255, 0.03);
+    --tg-in: #182533;
+    --tg-in-text: #f2f6fa;
+    --tg-out: #2b5278;
+    --tg-out-text: #ffffff;
+    --tg-meta: #7f93a6;
+    --tg-meta-out: #a5c8ea;
+    --tg-bar: #17212b;
+    --tg-head: #17212b;
+    --tg-link: #6ab3f3;
+    --tg-send: #3a8fd9;
+    --tg-day: rgba(10, 20, 30, 0.6);
+    --tg-row-hover: rgba(255, 255, 255, 0.05);
+    --tg-row-active: #2b5278;
+  }
+}
+
+:root[data-theme="dark"] {
+  --tg-wall: #0e1621;
+  --tg-wall-a: rgba(255, 255, 255, 0.03);
+  --tg-in: #182533;
+  --tg-in-text: #f2f6fa;
+  --tg-out: #2b5278;
+  --tg-out-text: #ffffff;
+  --tg-meta: #7f93a6;
+  --tg-meta-out: #a5c8ea;
+  --tg-bar: #17212b;
+  --tg-head: #17212b;
+  --tg-link: #6ab3f3;
+  --tg-send: #3a8fd9;
+  --tg-day: rgba(10, 20, 30, 0.6);
+  --tg-row-hover: rgba(255, 255, 255, 0.05);
+  --tg-row-active: #2b5278;
+}
+
+/* the list of chats */
+.convs {
+  gap: 0;
+}
+
+.conv {
+  gap: 0.8rem;
+  min-height: 4.4rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 0.75rem;
+}
+
+.conv:hover {
+  background: var(--tg-row-hover);
+}
+
+.conv[aria-current="page"] {
+  background: var(--tg-row-active);
+  color: #fff;
+}
+
+.conv[aria-current="page"] .conv__time,
+.conv[aria-current="page"] .conv__preview {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.conv .avatar {
+  width: 3.2rem;
+  height: 3.2rem;
+  font-size: 1.1rem;
+}
+
+.conv__title {
+  font-size: 1rem;
+}
+
+.conv__badge {
+  min-width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: var(--tg-send);
+  color: #fff;
+  line-height: 1.5rem;
+}
+
+.avatar--olivia {
+  background: linear-gradient(135deg, #7c5cff, #3aa0ff);
+  color: #fff;
+}
+
+.conv .avatar--olivia,
+.thread__head .avatar--olivia {
+  width: 3.2rem;
+  height: 3.2rem;
+}
+
+/* the open chat */
+.thread {
+  border: 0;
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at 20% 15%, var(--tg-wall-a) 0 2px, transparent 3px) 0 0 / 38px 38px,
+    radial-gradient(circle at 70% 60%, var(--tg-wall-a) 0 2px, transparent 3px) 0 0 / 52px 52px,
+    var(--tg-wall);
+}
+
+.thread__head {
+  gap: 0.7rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 0;
+  background: var(--tg-head);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.thread__head .avatar {
+  width: 2.7rem;
+  height: 2.7rem;
+}
+
+.thread__name {
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+.thread__members {
+  color: var(--tg-meta);
+  font-size: 0.8rem;
+}
+
+.thread__smart {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--tg-meta);
+  font-size: 0.8rem;
+}
+
+.thread__scroll {
+  padding: 0.6rem 0.7rem 0.4rem;
+}
+
+.msg-day {
+  background: var(--tg-day);
+  color: #fff;
+  font-weight: 600;
+  padding: 0.15rem 0.8rem;
+}
+
+.msg {
+  margin-top: 0.35rem;
+}
+
+.msg--grouped {
+  margin-top: 0.1rem;
+}
+
+.msg__author {
+  color: var(--tg-link);
+  font-weight: 700;
+}
+
+.msg__bubble {
+  position: relative;
+  max-width: min(34rem, 84%);
+  padding: 0.35rem 0.6rem 0.25rem;
+  border-radius: 1rem;
+  border-bottom-left-radius: 0.3rem;
+  background: var(--tg-in);
+  color: var(--tg-in-text);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+}
+
+.msg--mine .msg__bubble {
+  border-radius: 1rem;
+  border-bottom-right-radius: 0.3rem;
+  background: var(--tg-out);
+  color: var(--tg-out-text);
+}
+
+.msg--grouped .msg__bubble,
+.msg--mine.msg--grouped .msg__bubble {
+  border-radius: 1rem;
+}
+
+.msg__bubble a,
+.msg--mine .msg__bubble a {
+  color: var(--tg-link);
+}
+
+.msg__text {
+  line-height: 1.38;
+}
+
+.msg__meta {
+  justify-content: flex-end;
+  gap: 0.3rem;
+  margin-top: -0.1rem;
+  color: var(--tg-meta);
+  font-size: 0.7rem;
+}
+
+.msg--mine .msg__meta {
+  color: var(--tg-meta-out);
+}
+
+.msg__ticks {
+  letter-spacing: -0.2em;
+  font-size: 0.78rem;
+}
+
+.msg__note {
+  margin: 0;
+  color: var(--tg-meta);
+  font-size: 0.75rem;
+}
+
+.msg--mine .msg__file-size {
+  color: var(--tg-meta-out);
+}
+
+.msg--mine .msg__deleted {
+  color: var(--tg-meta-out);
+}
+
+/* typing dots of Olivia */
+.typing {
+  display: inline-flex;
+  gap: 0.22rem;
+  align-items: center;
+  padding: 0.35rem 0.15rem;
+}
+
+.typing i {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--tg-meta);
+  animation: typing-dot 1.2s infinite ease-in-out;
+}
+
+.typing i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-0.18rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing i {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/* quick answers above the bar */
+.chips--bar {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  overflow-x: auto;
+  border: 0;
+  background: transparent;
+  scrollbar-width: none;
+}
+
+.chips--bar .chip {
+  flex: none;
+  border-radius: 999px;
+  background: var(--tg-bar);
+  color: var(--tg-link);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+}
+
+/* the bar at the bottom */
+.composer {
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-top: 0;
+  background: var(--tg-bar);
+}
+
+.composer__input {
+  border: 0;
+  border-radius: 1.3rem;
+  background: var(--c-surface-2);
+  padding-inline: 1rem;
+}
+
+.composer__send {
+  border-radius: 50%;
+  background: var(--tg-send);
+  color: #fff;
+}
+
+.composer__attach {
+  color: var(--tg-meta);
+}
+
+/* cards inside the bubbles of Olivia */
+.msg__bubble .olivia-turn__cards {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.msg__bubble .olivia-card {
+  background: rgba(127, 127, 127, 0.12);
+  border-radius: 0.7rem;
+}
+.olivia-card--report {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.3rem;
+}
+.report__image {
+  display: block;
+  width: 100%;
+  max-width: 30rem;
+  max-height: 22rem;
+  object-fit: cover;
+  object-position: top;
+  border-radius: 0.6rem;
+}
+
+.chips--bar { flex-wrap: nowrap; min-inline-size: 0; }
+.chips--bar .chip { white-space: nowrap; }
+.thread__title { min-width: 0; }
+@media (max-width: 40rem) {
+  .thread__smart span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .thread__head .avatar { width: 2.3rem; height: 2.3rem; }
+}
+
+fieldset.chips.chips--set.chips--bar { display: flex; flex-flow: row nowrap; overflow-x: auto; }

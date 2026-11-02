@@ -44,6 +44,7 @@ const PROGRAM_TITLE: Record<ProgramId, string> = {
   aria2: 'Торрент-клиент (aria2)',
   llama: 'Языковая модель Оливии',
   searxng: 'Поиск в интернете (SearXNG)',
+  kavita: 'Читалка комиксов и манги (Kavita)',
 };
 
 const STATE_TEXT: Record<ProgramState, string> = {

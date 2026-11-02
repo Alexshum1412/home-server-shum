@@ -16,6 +16,7 @@ import { ArchivePage } from './pages/Archive.tsx';
 import { CalendarPage } from './pages/Calendar.tsx';
 import { ChatPage } from './pages/Chat.tsx';
 import { CinemaPage } from './pages/Cinema.tsx';
+import { ComicsPage } from './pages/Comics.tsx';
 import { DeadlinesPage } from './pages/Deadlines.tsx';
 import { DigestPage } from './pages/Digest.tsx';
 import { DownloadsPage } from './pages/Downloads.tsx';
@@ -63,6 +64,8 @@ function Page(props: { route: RouteId; onSessionChanged: (session: SessionRespon
       return <OliviaPage />;
     case 'family':
       return <FamilyPage />;
+    case 'comics':
+      return <ComicsPage />;
     case 'archive':
       return <ArchivePage />;
     case 'photos':

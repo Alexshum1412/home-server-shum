@@ -46,18 +46,40 @@ interface NotesLike {
 
 const MAX_PAGES_PER_PERSON = 2000;
 
-/** Words of a text without endings: «сумерках» and «сумерки» meet at «сумерк». */
+const ENDINGS =
+  /(?:ами|ями|ого|его|ому|ему|ыми|ими|ах|ях|ом|ем|ам|ям|ов|ев|ей|ой|ий|ый|ая|яя|ое|ее|ые|ие|ую|юю|ть|ы|и|а|я|о|е|у|ю|ь)$/;
+
+/** Words of a question that say nothing about the topic. */
+const STOP = new Set(
+  'как что где про мне мои моих для или это все при найди найти покажи есть было были нашей наших заметках заметки заметка архиве сохранял сохранял сохранённых сохраненных страницах страницы знаний знания'.split(
+    ' ',
+  ),
+);
+
+const stem = (word: string): string => {
+  const base = word.length > 4 ? word.replace(ENDINGS, '') : word;
+  return base.length > 6 ? base.slice(0, 6) : base;
+};
+
+/** Words of a text without endings: «борщом» and «борща» meet at «борщ». */
 export function tokens(text: string): string[] {
   return text
     .toLowerCase()
     .replace(/ё/g, 'е')
     .split(/[^\p{L}\p{N}]+/u)
     .filter((word) => word.length >= 3)
-    .map((word) =>
-      word.length > 6 ? word.slice(0, 6) : word.length > 4 ? word.slice(0, word.length - 1) : word,
-    );
+    .map(stem);
 }
 
+const queryTokens = (query: string): string[] =>
+  tokens(
+    query
+      .toLowerCase()
+      .replace(/ё/g, 'е')
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((word) => !STOP.has(word))
+      .join(' '),
+  );
 function snippetOf(text: string, wanted: Set<string>): string {
   const lower = text.toLowerCase().replace(/ё/g, 'е');
   let at = -1;
@@ -176,7 +198,7 @@ export function createArchive(options: {
 
     /** Notes (own and shared) and pages (own and shared) that match the words, best first. */
     async search(username: string, query: string, limit = 6): Promise<KnowledgeHit[]> {
-      const wanted = new Set(tokens(query));
+      const wanted = new Set(queryTokens(query));
       if (wanted.size === 0) return [];
       const docs: Array<{ kind: 'page' | 'note'; title: string; text: string; href: string }> = [];
       for (const owner of await allUsernames()) {

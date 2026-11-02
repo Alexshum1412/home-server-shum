@@ -13,6 +13,7 @@ interface Media {
   name: string;
   kind: 'audio' | 'video' | 'image';
   size: number;
+  transcript?: string;
 }
 interface Entry {
   id: string;
@@ -99,6 +100,14 @@ function EntryCard(props: { entry: Entry; onDelete?: () => void; who?: string })
       <h3 class="family__question">{entry.question}</h3>
       {entry.text ? <p class="family__text">{entry.text}</p> : null}
       <MediaView entry={entry} />
+      {entry.media
+        .filter((media) => media.transcript)
+        .map((media) => (
+          <p key={media.file} class="family__transcript">
+            <span class="meta">Расшифровка записи: </span>
+            {media.transcript}
+          </p>
+        ))}
       {props.onDelete ? (
         <button type="button" class="button button--quiet" onClick={props.onDelete}>
           <Trash2 size={16} aria-hidden="true" />

@@ -11,6 +11,8 @@ export interface FeatureDef {
   page: string;
   /** Beginnings of the API paths that belong to the function. */
   prefixes: readonly string[];
+  /** A new function that stays off until the administrator switches it on. */
+  defaultOff?: boolean;
 }
 
 export const FEATURES: readonly FeatureDef[] = [
@@ -91,6 +93,29 @@ export const FEATURES: readonly FeatureDef[] = [
     lead: 'Сохранённые страницы и поиск по ним, заметкам и документам.',
     page: '/archive',
     prefixes: ['/api/archive'],
+  },
+  {
+    id: 'reports',
+    title: 'Отчёты Оливии',
+    lead: 'Отчёты картинкой и документом: состояние сервера, сводка недели.',
+    page: '',
+    prefixes: ['/api/reports'],
+  },
+  {
+    id: 'transcribe',
+    title: 'Голос в текст (семейный архив)',
+    lead: 'Записи голоса в архиве расшифровываются в текст программой на этом компьютере. Медленно, нагружает процессор.',
+    page: '',
+    prefixes: ['/api/family/transcribe'],
+    defaultOff: true,
+  },
+  {
+    id: 'comics',
+    title: 'Комиксы, манга и книги (Kavita)',
+    lead: 'Читалка комиксов и манги: ссылка на Kavita и подсказки.',
+    page: '/comics',
+    prefixes: ['/api/comics'],
+    defaultOff: true,
   },
   {
     id: 'print',

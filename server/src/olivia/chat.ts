@@ -3,6 +3,7 @@ import type { OliviaAnswer } from '../../../shared/api.ts';
 import type { StoredUser } from '../auth/users.ts';
 import { createSerialQueue, readJsonFile, writeJsonAtomic } from '../lib/json-store.ts';
 import type { Clock } from '../lib/time.ts';
+import { reportIntent } from '../reports/service.ts';
 import type { Assistant } from './assistant/assistant.ts';
 import { routeByRules } from './assistant/router.ts';
 import type { BigModel } from './big-model.ts';
@@ -107,6 +108,14 @@ export function createOliviaChat(options: {
   big: BigModel;
   /** Address of the own search engine (SearXNG on this PC); null — the public fallbacks only. */
   searxUrl?: string | null;
+  /** Reports as a picture and a document (state of the server, the week ahead). */
+  reports?: {
+    available: () => boolean;
+    make: (
+      user: StoredUser,
+      kind: 'server' | 'week',
+    ) => Promise<{ id: string; title: string; summary: string; png: string; pdf: string } | null>;
+  };
   /** The family's own knowledge: saved pages and notes (search) and saving a page. */
   knowledge?: {
     search: (
@@ -200,6 +209,41 @@ export function createOliviaChat(options: {
           user.username,
           { role: 'user', text, at: options.clock().toISOString() },
           { role: 'assistant', text: answer.reply, at: options.clock().toISOString(), model: 'rules' },
+        );
+        return { kind: 'tool', answer };
+      }
+      // «Сделай отчёт о сервере»: a picture and a document with the metrics, charts and warnings.
+      const wanted = options.reports ? reportIntent(text) : null;
+      if (wanted && options.reports) {
+        opts.onStatus?.('Составляю отчёт с графиками…');
+        let reply: string;
+        let cards: OliviaAnswer['cards'] = [];
+        if (wanted === 'server' && user.role !== 'admin') {
+          reply =
+            'Подробный отчёт о сервере доступен администратору. Для всех есть страница «Сервер → Что с сервером» и вопрос «что с сервером».';
+        } else if (!options.reports.available()) {
+          reply = 'Отчёт составить не получилось: на сервере нет браузера Chrome, который рисует страницу.';
+        } else {
+          const made = await options.reports.make(user, wanted);
+          if (made) {
+            reply = `Готово: ${made.summary} Отчёт — картинкой и документом ниже.`;
+            cards = [
+              {
+                kind: 'report',
+                id: made.id,
+                title: made.title,
+                summary: made.summary,
+                png: made.png,
+                pdf: made.pdf,
+              },
+            ];
+          } else reply = 'Отчёт не получился. Попробуйте ещё раз чуть позже.';
+        }
+        const answer: OliviaAnswer = { reply, via: 'rules', tool: 'report', cards, note: null };
+        await append(
+          user.username,
+          { role: 'user', text, at: options.clock().toISOString() },
+          { role: 'assistant', text: reply, at: options.clock().toISOString(), model: 'rules' },
         );
         return { kind: 'tool', answer };
       }

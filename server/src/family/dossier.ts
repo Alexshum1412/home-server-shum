@@ -5,7 +5,7 @@
  * (it is the family's archive), and this is said on the page.
  */
 import { createWriteStream } from 'node:fs';
-import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { isDisabled, type StoredUser } from '../auth/users.ts';
@@ -25,6 +25,8 @@ export interface DossierMedia {
   name: string;
   kind: 'audio' | 'video' | 'image';
   size: number;
+  /** The words of a voice recording, when the administrator switched the transcription on. */
+  transcript?: string;
 }
 
 export interface DossierEntry {
@@ -115,6 +117,8 @@ export function createDossier(options: {
   /** Tells the person about the question (the portal's notification and the bot). */
   onAsk: (user: StoredUser, question: FamilyQuestion, reminder: boolean) => Promise<void>;
   random?: () => number;
+  /** Called after a recording or a photo is saved (the transcription of voice starts here). */
+  afterAttach?: (info: { username: string; entryId: string; media: DossierMedia; file: string }) => void;
 }) {
   const root = path.join(options.dataDir, 'dossier');
   const file = path.join(root, 'dossier.json');
@@ -152,7 +156,7 @@ export function createDossier(options: {
         const drive = path.parse(target).root;
         await stat(drive);
         await mkdir(path.join(target, 'media'), { recursive: true });
-        await writeFile(path.join(target, 'dossier.json'), await readFile(file));
+        await writeFile(path.join(target, 'dossier.json'), JSON.stringify({ version: 1, ...data }));
         for (const entry of data.entries) {
           for (const media of entry.media) {
             const from = path.join(mediaDir, entry.username, media.file);
@@ -357,6 +361,7 @@ export function createDossier(options: {
         entry.media.push(media);
         await save(data);
         void mirror(data);
+        options.afterAttach?.({ username, entryId, media, file: path.join(mediaDir, username, stored) });
         return media;
       });
     },
@@ -369,6 +374,18 @@ export function createDossier(options: {
         return entry && media
           ? { path: path.join(mediaDir, entry.username, media.file), owner: entry.username, name: media.name }
           : null;
+      });
+    },
+
+    /** The words of a recording (made later in the background). */
+    setTranscript(entryId: string, file: string, transcript: string): Promise<void> {
+      return queue.run(async () => {
+        const data = await load();
+        const media = data.entries.find((e) => e.id === entryId)?.media.find((m) => m.file === file);
+        if (!media) return;
+        media.transcript = transcript;
+        await save(data);
+        void mirror(data);
       });
     },
 

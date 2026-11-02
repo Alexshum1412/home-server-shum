@@ -34,7 +34,8 @@ test.describe('deadlines, digest, status, safety, switches', () => {
     await expect(page.getByRole('status').filter({ hasText: 'Дайджест готов' })).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.locator('.digest-text')).toContainText('Доброе утро');
+    await expect(page.locator('.digest')).toContainText('Доброе утро');
+    await expect(page.locator('.digest')).toContainText('Хорошего дня');
     await expect(page.getByText('собран по шаблону')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Для администратора' })).toHaveCount(0);
   });

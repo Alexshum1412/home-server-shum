@@ -10,11 +10,11 @@ test.describe('the new menu, the first sign-in and the tour', () => {
     const names = await mainNav(page).getByRole('link').allTextContents();
     expect(names.map((name) => name.trim())).toEqual([
       'Главная',
-      'Оливия',
       'Чат',
       'Уведомления',
       'Дела',
       'Медиа',
+      'Память',
       'Загрузки',
       'Печать',
       'Сервер',
@@ -48,7 +48,8 @@ test.describe('the new menu, the first sign-in and the tour', () => {
   test('the home page has the big buttons, not the status of the cinema', async ({ page }) => {
     await signIn(page, 'family', '/');
     const tiles = page.getByRole('navigation', { name: 'Разделы портала' });
-    await expect(tiles.getByRole('link', { name: /Оливия/ })).toBeVisible();
+    await expect(tiles.getByRole('link', { name: /Чат/ })).toBeVisible();
+    await expect(tiles.getByRole('link', { name: /Память/ })).toBeVisible();
     await expect(tiles.getByRole('link', { name: /Медиа/ })).toBeVisible();
     await expect(page.getByText('Сервисы', { exact: true })).toHaveCount(0);
   });
@@ -59,7 +60,7 @@ test.describe('the new menu, the first sign-in and the tour', () => {
     await signIn(page, 'callee', '/', { firstTime: true });
     const dialog = page.getByRole('dialog', { name: 'Давайте познакомимся' });
     await expect(dialog).toBeVisible();
-    await dialog.getByLabel(/Учу немецкий/).check();
+    await dialog.getByLabel(/Немецкий/).check();
     await dialog.getByRole('button', { name: 'Сохранить и продолжить' }).click();
     const tour = page.getByRole('dialog', { name: 'Добро пожаловать!' });
     await expect(tour).toBeVisible();

@@ -1310,3 +1310,10 @@ fieldset.segmented {
   max-height: 30rem;
   overflow: auto;
 }
+
+.family__transcript {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--c-border);
+  font-style: italic;
+}

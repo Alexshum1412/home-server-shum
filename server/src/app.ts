@@ -13,6 +13,7 @@ import { registerAdminRoutes } from './admin/routes.ts';
 import { createServerPage, type ServerPageDeps } from './admin/server-page.ts';
 import { registerServerPageRoutes } from './admin/server-routes.ts';
 import { createArchive } from './archive/archive.ts';
+import { createOcr, ocrPaths } from './archive/ocr.ts';
 import { registerArchiveRoutes } from './archive/routes.ts';
 import { type AuditLog, createAuditLog } from './audit/log.ts';
 import { createGuards, currentUser, type Guards } from './auth/guards.ts';
@@ -36,6 +37,7 @@ import { createTorrentManager, type TorrentManager } from './downloads/torrents.
 import { createExtras } from './extras.ts';
 import { createDossier } from './family/dossier.ts';
 import { registerFamilyRoutes } from './family/routes.ts';
+import { createTranscriber, transcribePaths } from './family/transcribe.ts';
 import { createFeatureStore, type FeatureStore } from './features/features.ts';
 import { registerFeatureRoutes } from './features/routes.ts';
 import { createHashIndex } from './files/hashes.ts';
@@ -80,6 +82,9 @@ import { registerPrintRoutes } from './print/routes.ts';
 import { createProfileStore } from './profile/profiles.ts';
 import { registerProfileRoutes } from './profile/routes.ts';
 import { createRealtimeHub, type RealtimeHub } from './realtime/hub.ts';
+import { createRenderer, rendererPaths } from './reports/render.ts';
+import { registerReportRoutes } from './reports/routes.ts';
+import { createReports } from './reports/service.ts';
 import { registerSearchRoutes } from './search/routes.ts';
 import { createUnifiedSearch } from './search/unified.ts';
 import { createServiceRegistry, type FetchLike, type ServiceRegistry } from './services/checker.ts';
@@ -745,8 +750,15 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   const profiles = createProfileStore(config.dataDir);
   const llama = llamaPaths(process.env, config);
   // The bigger local model (about 4 GB): started when a deeper talk or the night digest needs it, stopped when idle.
+  // A Vulkan build of the same llama.cpp lets the video card help the processor (see docs/runbooks/local-ai.md).
+  const gpuExe = path.join(
+    process.env.LLAMA_GPU_HOME?.trim() || 'C:\\FamilyServer\\apps\\llama-vulkan',
+    'llama-server.exe',
+  );
+  const useGpu = process.env.OLIVIA_GPU !== '0' && existsSync(gpuExe);
   const bigModel = createBigModel({
-    exe: llama.exe,
+    exe: useGpu ? gpuExe : llama.exe,
+    gpuLayers: useGpu ? Math.max(0, Math.min(40, Number(process.env.OLIVIA_GPU_LAYERS) || 12)) : 0,
     model:
       process.env.DIGEST_MODEL_FILE?.trim() ||
       path.join(path.dirname(llama.model), 'gemma-3-4b-it-Q4_K_M.gguf'),
@@ -759,6 +771,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   const notesStore = createNotes(storage);
   // Pages saved for later and the search over everything the family keeps (pages, notes).
   const archive = createArchive({ dataDir: config.dataDir, clock, notes: notesStore });
+  const ocr = createOcr(ocrPaths(process.env));
   // Deadlines, the journal of incidents, the forecast of the disk, decoys, devices of the network, the status and the morning digest.
   const extras = createExtras({
     config,
@@ -853,7 +866,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     notify,
     audit,
   });
-  registerArchiveRoutes(app, { archive, guards });
+  registerArchiveRoutes(app, { archive, guards, ocr, notes: notesStore });
   registerPlannerRoutes(app, {
     calendar,
     notes: notesStore,
@@ -931,7 +944,26 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     llmFetch: options.oliviaLlmFetch ?? fetch,
   });
   registerAssistantRoutes(app, { config, clock, guards, audit, assistant });
+  // Reports as a picture and a document (the headless Chrome of this PC draws the page).
+  const reports = createReports({
+    dataDir: config.dataDir,
+    clock,
+    renderer: createRenderer(rendererPaths(process.env)),
+    system: (admin) => collector.snapshot(admin ? 'admin' : 'family'),
+    history: () => collector.history().points,
+    extras: () => extras.reportData(),
+    downloads: () => {
+      const all = downloads.list(null);
+      return {
+        active: all.filter((d) => d.state === 'downloading' || d.state === 'queued').length,
+        done24h: all.filter((d) => d.state === 'completed').length,
+      };
+    },
+    week: (user) => extras.weekLines(user),
+  });
+  registerReportRoutes(app, { reports, guards });
   const oliviaChat = createOliviaChat({
+    reports,
     dataDir: config.dataDir,
     clock,
     assistant,
@@ -947,7 +979,16 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   registerOliviaChatRoutes(app, { chat: oliviaChat, users, guards, config });
   registerProfileRoutes(app, { profiles, guards, bot: () => telegramBot });
   // The family archive: a question every few days, answers kept on this disk and copied to the others.
+  const transcriber = createTranscriber(transcribePaths(process.env));
   const dossier = createDossier({
+    afterAttach: ({ username, entryId, media, file }) => {
+      if (media.kind === 'image' || !features.isOn('transcribe') || !transcriber.available()) return;
+      void transcriber
+        .transcribe(file)
+        .then((text) => (text ? dossier.setTranscript(entryId, media.file, text) : undefined))
+        .catch(() => undefined);
+      void username;
+    },
     dataDir: config.dataDir,
     clock,
     copies: (
@@ -974,6 +1015,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   });
   registerFamilyRoutes(app, { dossier, guards });
   telegramBot = createTelegramBot({
+    reportFile: (user, id, ext) => reports.file(user, id, ext),
     family: dossier,
     tokenFile: process.env.DIGEST_TELEGRAM_TOKEN_FILE?.trim() || `\\FamilyServer\\secrets\\telegram.token`,
     clock,
@@ -1018,6 +1060,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
           : 'Сохранённых страниц пока нет.';
       },
     },
+    ocr,
     deadlinesText: (user) => extras.deadlinesText(user),
     resetChat: (user) => oliviaChat.clear(user.username),
     digestToggle: async (user) => {

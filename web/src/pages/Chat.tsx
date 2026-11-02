@@ -1,4 +1,4 @@
-import { MessageCirclePlus, MessagesSquare, Wifi, WifiOff } from 'lucide-preact';
+import { MessageCirclePlus, MessagesSquare, Sparkles, Wifi, WifiOff } from 'lucide-preact';
 import { useEffect, useState } from 'preact/hooks';
 import { Avatar } from '../chat/Avatar.tsx';
 import { useChat } from '../chat/ChatProvider.tsx';
@@ -12,6 +12,7 @@ import { Loading } from '../components/Skeleton.tsx';
 import { readParam, withQuery } from '../lib/query.ts';
 import { useRealtimeStatus } from '../lib/realtime.ts';
 import { navigate, useLocation } from '../router.ts';
+import { OliviaThread } from './Olivia.tsx';
 
 export function ChatPage() {
   const { list, error, loading, reload } = useChat();
@@ -19,6 +20,7 @@ export function ChatPage() {
   const live = useRealtimeStatus();
   const selectedId = readParam(search, 'c');
   const [creating, setCreating] = useState(false);
+  const withOlivia = selectedId === 'olivia';
   const selected = list?.conversations.find((conversation) => conversation.id === selectedId) ?? null;
 
   // On a wide screen the family room opens by itself, so the page is never an empty frame.
@@ -42,7 +44,7 @@ export function ChatPage() {
       {loading && !list ? <Loading label="Загружаем чаты…" /> : null}
       {!list && error ? <ErrorState failure={error} onRetry={reload} /> : null}
       {list ? (
-        <div class={selected ? 'chat chat--thread' : 'chat'}>
+        <div class={selected || withOlivia ? 'chat chat--thread' : 'chat'}>
           <aside class="chat__side" aria-label="Список чатов">
             <div class="chat__side-head">
               <button type="button" class="button button--primary" onClick={() => setCreating(true)}>
@@ -62,6 +64,25 @@ export function ChatPage() {
               </p>
             </div>
             <ul class="convs">
+              <li>
+                <a
+                  class="conv conv--olivia"
+                  href={withQuery('/chat', { c: 'olivia' })}
+                  aria-current={withOlivia ? 'page' : undefined}
+                >
+                  <span class="avatar avatar--olivia" aria-hidden="true">
+                    <Sparkles size={20} />
+                  </span>
+                  <span class="conv__body">
+                    <span class="conv__row">
+                      <span class="conv__title">Оливия</span>
+                    </span>
+                    <span class="conv__row">
+                      <span class="conv__preview">Помощница: советы, рецепты, уроки, интернет, отчёты</span>
+                    </span>
+                  </span>
+                </a>
+              </li>
               {list.conversations.map((conversation) => {
                 const other =
                   conversation.kind === 'direct'
@@ -107,7 +128,9 @@ export function ChatPage() {
             </ul>
           </aside>
           <div class="chat__main">
-            {selected ? (
+            {withOlivia ? (
+              <OliviaThread onBack={() => navigate('/chat')} />
+            ) : selected ? (
               <Thread
                 key={selected.id}
                 conversation={selected}

@@ -1,4 +1,13 @@
-import { Download, FolderOpen, Send, Sparkles, Square, Trash2, TriangleAlert } from 'lucide-preact';
+import {
+  ArrowLeft,
+  Download,
+  FileText,
+  FolderOpen,
+  SendHorizontal,
+  Sparkles,
+  Square,
+  Trash2,
+} from 'lucide-preact';
 import { useEffect, useId, useRef, useState } from 'preact/hooks';
 import type {
   DownloadCheckResponse,
@@ -6,18 +15,18 @@ import type {
   DownloadTaskView,
   OliviaAnswer,
   OliviaCard,
-  OliviaStatusResponse,
 } from '../../../shared/api.ts';
 import { apiGet, apiPost, NO_CONNECTION, toFailure } from '../api.ts';
 import { PosterCard } from '../cinema/Poster.tsx';
-import { PageHeader } from '../components/PageHeader.tsx';
 import { formatBytes } from '../lib/format.ts';
+import { navigate } from '../router.ts';
 
 interface Turn {
   id: number;
   from: 'me' | 'olivia';
   text: string;
   streaming?: boolean;
+  at?: string;
   cards?: OliviaCard[];
   via?: OliviaAnswer['via'];
   note?: string | null;
@@ -199,11 +208,23 @@ function Card(props: { card: OliviaCard }) {
       );
     case 'download-check':
       return <DownloadCheckCard first={card.check} />;
+    case 'report':
+      return (
+        <div class="olivia-card olivia-card--report">
+          <a href={card.png} target="_blank" rel="noopener noreferrer">
+            <img class="report__image" src={card.png} alt={card.title} loading="lazy" />
+          </a>
+          <a class="button button--secondary" href={card.pdf} download>
+            <FileText size={18} aria-hidden="true" />
+            Скачать документ (PDF)
+          </a>
+        </div>
+      );
   }
 }
 
 interface ChatInfo {
-  turns: Array<{ role: 'user' | 'assistant'; text: string }>;
+  turns: Array<{ role: 'user' | 'assistant'; text: string; at?: string }>;
   models: { quick: boolean; smart: { available: boolean; running: boolean } };
 }
 
@@ -214,32 +235,37 @@ type StreamEvent =
   | { t: 'end'; model: string; text: string }
   | { t: 'error'; message: string };
 
-export function OliviaPage() {
+const clock = (date: Date) => date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+
+/** The conversation with Olivia, drawn exactly like a conversation with a person (same bubbles, same bar). */
+export function OliviaThread(props: { onBack: () => void }) {
   const ids = useId();
-  const [turns, setTurns] = useState<Turn[]>([{ id: 0, from: 'olivia', text: WELCOME }]);
+  const [turns, setTurns] = useState<Turn[]>([
+    { id: 0, from: 'olivia', text: WELCOME, at: clock(new Date()) },
+  ]);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [working, setWorking] = useState('');
   const [smart, setSmart] = useState(true);
   const [info, setInfo] = useState<ChatInfo | null>(null);
-  const [status, setStatus] = useState<OliviaStatusResponse | null>(null);
   const next = useRef(1);
   const log = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const abort = useRef<AbortController | null>(null);
+  const touchOnly = useRef(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
 
   useEffect(() => {
-    apiGet<OliviaStatusResponse>('/api/olivia/status').then(setStatus, () => undefined);
     apiGet<ChatInfo>('/api/olivia/chat').then(
       (loaded) => {
         setInfo(loaded);
         if (loaded.turns.length > 0) {
           setTurns([
-            { id: 0, from: 'olivia', text: WELCOME },
+            { id: 0, from: 'olivia', text: WELCOME, at: '' },
             ...loaded.turns.map((turn) => ({
               id: next.current++,
               from: turn.role === 'user' ? ('me' as const) : ('olivia' as const),
               text: turn.text,
+              at: turn.at ? clock(new Date(turn.at)) : '',
             })),
           ]);
         }
@@ -257,15 +283,17 @@ export function OliviaPage() {
     const question = message.trim();
     if (question === '' || busy) return;
     setText('');
+    if (field.current) field.current.style.height = 'auto';
     const answerId = next.current + 1;
     next.current += 2;
+    const now = clock(new Date());
     setTurns((current) => [
       ...current,
-      { id: answerId - 1, from: 'me', text: question },
-      { id: answerId, from: 'olivia', text: '', streaming: true },
+      { id: answerId - 1, from: 'me', text: question, at: now },
+      { id: answerId, from: 'olivia', text: '', streaming: true, at: now },
     ]);
     setBusy(true);
-    setWorking('Оливия думает…');
+    setWorking('печатает…');
     const controller = new AbortController();
     abort.current = controller;
     const patch = (change: Partial<Turn>) =>
@@ -340,136 +368,172 @@ export function OliviaPage() {
     } catch {
       // the screen is cleared anyway
     }
-    setTurns([{ id: 0, from: 'olivia', text: WELCOME }]);
+    setTurns([{ id: 0, from: 'olivia', text: WELCOME, at: '' }]);
   }
 
+  const grow = (element: HTMLTextAreaElement) => {
+    element.style.height = 'auto';
+    element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
+  };
+
   return (
-    <div class="page page--narrow">
-      <PageHeader
-        title="Оливия"
-        icon={Sparkles}
-        lead="Помощница и собеседница: советы, рецепты, уроки, свежие новости из интернета и всё про сервер. Всё считается на домашнем компьютере."
-      />
-      {status ? (
-        <p class={status.model.reachable ? 'meta' : 'banner banner--info'} role="status">
-          {status.model.reachable ? (
-            <Sparkles size={16} aria-hidden="true" />
-          ) : (
-            <TriangleAlert size={18} aria-hidden="true" />
-          )}{' '}
-          {status.model.message}
-        </p>
-      ) : null}
-      <section class="olivia" aria-label="Разговор с Оливией">
-        <div
-          ref={log}
-          class="olivia__log"
-          role="log"
-          aria-label="Разговор"
-          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be reachable from the keyboard
-          tabIndex={0}
-          aria-live="polite"
-          aria-relevant="additions"
-        >
-          {turns.map((turn) => (
-            <div key={turn.id} class={turn.from === 'me' ? 'olivia-turn olivia-turn--me' : 'olivia-turn'}>
-              <p class="olivia-turn__who">{turn.from === 'me' ? 'Вы' : 'Оливия'}</p>
-              <p class="olivia-turn__text">
-                {turn.text}
-                {turn.streaming && turn.text === '' ? '…' : ''}
-              </p>
-              {turn.cards && turn.cards.length > 0 ? (
-                <div class="olivia-turn__cards">
-                  {turn.cards.map((card, index) => (
-                    <Card key={index} card={card} />
-                  ))}
-                </div>
-              ) : null}
-              {turn.via === 'model' ? (
-                <p class="meta">Вопрос разобрала локальная модель; ответ составлен по готовым данным.</p>
-              ) : null}
-              {turn.note ? (
-                <p class="meta">Модель не помогла ({turn.note}) — поняла по готовым правилам.</p>
-              ) : null}
-            </div>
-          ))}
-          {busy && working !== '' ? (
-            <p class="olivia-turn olivia-turn--wait" role="status">
-              {working}
-            </p>
-          ) : null}
+    <section class="thread thread--olivia" aria-label="Чат: Оливия">
+      <header class="thread__head">
+        <button type="button" class="button button--quiet thread__back" onClick={props.onBack}>
+          <ArrowLeft size={20} aria-hidden="true" />
+          <span class="visually-hidden">К списку чатов</span>
+        </button>
+        <span class="avatar avatar--olivia" aria-hidden="true">
+          <Sparkles size={20} />
+        </span>
+        <div class="thread__title">
+          <h2 class="thread__name">Оливия</h2>
+          <p class="thread__members" role="status">
+            {busy ? (working !== '' ? working : 'печатает…') : 'помощница семьи · на домашнем компьютере'}
+          </p>
         </div>
-        <fieldset class="chips chips--set">
-          <legend class="visually-hidden">Подсказки</legend>
-          {SUGGESTIONS.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              class="chip"
-              disabled={busy}
-              onClick={() => void ask(item.text)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </fieldset>
-        <form
-          class="olivia__form olivia__form--talk"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void ask(text);
-          }}
-        >
-          <label class="visually-hidden" htmlFor={`${ids}-q`}>
-            Сообщение Оливии
-          </label>
-          <textarea
-            ref={field}
-            id={`${ids}-q`}
-            class="field__input olivia__input"
-            rows={2}
-            maxLength={2000}
-            placeholder="Напишите что угодно: вопрос, задачу, просьбу… (Enter — отправить, Shift+Enter — новая строка)"
-            value={text}
-            onInput={(event) => setText(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                void ask(text);
-              }
-            }}
-          />
-          {busy ? (
-            <button type="button" class="button button--secondary" onClick={() => abort.current?.abort()}>
-              <Square size={18} aria-hidden="true" />
-              Стоп
-            </button>
-          ) : (
-            <button type="submit" class="button button--primary" disabled={text.trim() === ''}>
-              <Send size={20} aria-hidden="true" />
-              Отправить
-            </button>
-          )}
-        </form>
-        <div class="olivia__tools">
+        <div class="thread__actions">
           {info?.models.smart.available ? (
-            <label class="check">
+            <label class="thread__smart" title="Умный режим: большая модель отвечает лучше и подробнее, но медленнее">
               <input
                 type="checkbox"
                 checked={smart}
                 disabled={busy}
                 onChange={(event) => setSmart(event.currentTarget.checked)}
               />
-              Умный режим: большая модель отвечает лучше и подробнее, но медленнее (первый ответ — до полутора
-              минут, пока она включается). Выключите, если нужен быстрый ответ попроще.
+              <span>Умный режим</span>
             </label>
           ) : null}
           <button type="button" class="button button--quiet" disabled={busy} onClick={() => void clear()}>
-            <Trash2 size={18} aria-hidden="true" />
-            Начать заново
+            <Trash2 size={20} aria-hidden="true" />
+            <span class="thread__action-text">Начать заново</span>
           </button>
         </div>
-      </section>
-    </div>
+      </header>
+
+      <div
+        ref={log}
+        class="thread__scroll"
+        role="log"
+        aria-label="Разговор с Оливией"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be reachable from the keyboard
+        tabIndex={0}
+        aria-live="polite"
+        aria-relevant="additions"
+      >
+        <ol class="msgs" aria-label="Сообщения">
+          {turns.map((turn, index) => {
+            const previous = turns[index - 1];
+            const grouped = !!previous && previous.from === turn.from;
+            const mine = turn.from === 'me';
+            return (
+              <li key={turn.id} class="msgs__item olivia-turn">
+                <div class={`msg${mine ? ' msg--mine' : ''}${grouped ? ' msg--grouped' : ''}`}>
+                  <div class="msg__bubble">
+                    <p class="msg__text">
+                      {turn.text}
+                      {turn.streaming && turn.text === '' ? (
+                        <span class="typing" aria-label="Оливия печатает">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                      ) : null}
+                    </p>
+                    {turn.cards && turn.cards.length > 0 ? (
+                      <div class="olivia-turn__cards">
+                        {turn.cards.map((card, cardIndex) => (
+                          <Card key={cardIndex} card={card} />
+                        ))}
+                      </div>
+                    ) : null}
+                    {turn.via === 'model' ? (
+                      <p class="msg__note">
+                        Вопрос разобрала локальная модель; ответ составлен по готовым данным.
+                      </p>
+                    ) : null}
+                    {turn.note ? (
+                      <p class="msg__note">Модель не помогла ({turn.note}) — поняла по готовым правилам.</p>
+                    ) : null}
+                    {turn.at ? (
+                      <p class="msg__meta">
+                        <time>{turn.at}</time>
+                        {mine ? <span class="msg__ticks">✓✓</span> : null}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+
+      <fieldset class="chips chips--set chips--bar">
+        <legend class="visually-hidden">Подсказки</legend>
+        {SUGGESTIONS.map((item) => (
+          <button
+            key={item.label}
+            type="button"
+            class="chip"
+            disabled={busy}
+            onClick={() => void ask(item.text)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </fieldset>
+      <form
+        class="composer"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void ask(text);
+        }}
+      >
+        <label class="visually-hidden" htmlFor={`${ids}-q`}>
+          Сообщение Оливии
+        </label>
+        <textarea
+          ref={field}
+          id={`${ids}-q`}
+          class="field__input composer__input"
+          rows={1}
+          maxLength={2000}
+          placeholder="Сообщение"
+          value={text}
+          onInput={(event) => {
+            setText(event.currentTarget.value);
+            grow(event.currentTarget);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey && !touchOnly.current && !event.isComposing) {
+              event.preventDefault();
+              void ask(text);
+            }
+          }}
+        />
+        {busy ? (
+          <button
+            type="button"
+            class="button button--primary composer__send"
+            onClick={() => abort.current?.abort()}
+          >
+            <Square size={20} aria-hidden="true" />
+            <span class="visually-hidden">Стоп</span>
+          </button>
+        ) : (
+          <button type="submit" class="button button--primary composer__send" disabled={text.trim() === ''}>
+            <SendHorizontal size={22} aria-hidden="true" />
+            <span class="visually-hidden">Отправить</span>
+          </button>
+        )}
+      </form>
+    </section>
   );
+}
+
+/** The old address: Olivia lives in «Чат» now. */
+export function OliviaPage() {
+  useEffect(() => navigate('/chat?c=olivia', { replace: true }), []);
+  return null;
 }

@@ -26,10 +26,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: 'chat',
     label: 'Чат',
     to: '/chat',
-    tabs: [
-      { path: '/chat', label: 'Люди' },
-      { path: '/olivia', label: 'Оливия' },
-    ],
+    tabs: [{ path: '/chat', label: 'Чат' }],
   },
   {
     id: 'notifications',
@@ -57,6 +54,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { path: '/cinema', label: 'Кинотеатр' },
       { path: '/photos', label: 'Фото' },
       { path: '/files', label: 'Файлы' },
+      { path: '/comics', label: 'Комиксы' },
     ],
   },
   {

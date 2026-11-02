@@ -336,5 +336,24 @@ export function buildAppSpecs(options: AppListOptions): AppSpec[] {
       stderrLog: path.join(logDir, 'searxng.err.log'),
     });
   }
+  // The reader of comics, manga and books (Kavita): a separate program with its own accounts, on this PC only.
+  const kavitaHome = env.KAVITA_HOME?.trim() || `${root}\\apps\\kavita\\Kavita`;
+  const kavitaExe = path.join(kavitaHome, 'Kavita.exe');
+  if (env.SUPERVISE_KAVITA?.trim() !== '0' && existsSync(kavitaExe)) {
+    specs.push({
+      name: 'kavita',
+      title: 'Читалка комиксов и манги (Kavita)',
+      command: kavitaExe,
+      args: [],
+      cwd: kavitaHome,
+      env: { ...process.env },
+      healthUrl: 'http://127.0.0.1:5000/api/health',
+      startupGraceMs: 3 * 60_000,
+      stopTimeoutMs: 10_000,
+      lowPriority: true,
+      stdoutLog: path.join(logDir, 'kavita.out.log'),
+      stderrLog: path.join(logDir, 'kavita.err.log'),
+    });
+  }
   return specs;
 }

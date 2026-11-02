@@ -1184,7 +1184,9 @@ export type OliviaCard =
   | { kind: 'task'; task: DownloadTaskView }
   /** A download she prepared; it starts only when the person presses the button. */
   | { kind: 'download-check'; check: DownloadCheckResponse }
-  | { kind: 'event'; when: string; title: string };
+  | { kind: 'event'; when: string; title: string }
+  /** A report that Olivia made: a picture to look at and a document to keep. */
+  | { kind: 'report'; id: string; title: string; summary: string; png: string; pdf: string };
 
 export interface OliviaAnswer {
   reply: string;

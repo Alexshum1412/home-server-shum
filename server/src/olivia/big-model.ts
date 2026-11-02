@@ -11,6 +11,8 @@ export interface BigModelOptions {
   port: number;
   keyFile: string | undefined;
   threads: number;
+  /** Layers of the model that the video card takes (a Vulkan build of llama.cpp); 0 or absent — the processor only. */
+  gpuLayers?: number;
   /** It is stopped when nobody used it for this long. */
   idleMs: number;
   fetch?: typeof fetch;
@@ -80,6 +82,8 @@ export function createBigModel(options: BigModelOptions) {
         '--no-webui',
       ];
       if (options.keyFile) args.push('--api-key-file', options.keyFile);
+      // The video card (2 GB) takes a part of the layers: measured on this PC, generation is about 45 % faster.
+      if ((options.gpuLayers ?? 0) > 0) args.push('-ngl', String(options.gpuLayers));
       child = spawn(options.exe, args, {
         cwd: path.dirname(options.exe),
         stdio: 'ignore',

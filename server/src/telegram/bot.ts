@@ -89,6 +89,10 @@ export interface BotDeps {
     saved: (user: StoredUser) => Promise<string>;
   };
   deadlinesText: (user: StoredUser) => Promise<string>;
+  /** The path of a made report's file (picture or document) for its owner. */
+  reportFile: (user: StoredUser, id: string, ext: 'png' | 'pdf') => Promise<string | null>;
+  /** Text from a picture (Tesseract on this PC), or null when nothing could be read. */
+  ocr: { available: () => boolean; read: (bytes: Buffer, ext: string) => Promise<string | null> };
   /** Forgets the talk with Olivia. */
   resetChat: (user: StoredUser) => Promise<void>;
   /** Switches the morning digest of the person; returns the new state. */
@@ -516,11 +520,33 @@ export function createTelegramBot(deps: BotDeps) {
     return { text: lines.join('\n'), rows };
   }
 
+  /** A report goes to the chat as a picture and a document. */
+  async function sendReport(user: StoredUser, chatId: number, card: Extract<OliviaCard, { kind: 'report' }>) {
+    for (const [ext, method, field, mime] of [
+      ['png', 'sendPhoto', 'photo', 'image/png'],
+      ['pdf', 'sendDocument', 'document', 'application/pdf'],
+    ] as const) {
+      const file = await deps.reportFile(user, card.id, ext);
+      if (!file || !token) continue;
+      const form = new FormData();
+      form.set('chat_id', String(chatId));
+      if (ext === 'png') form.set('caption', card.summary.slice(0, 900));
+      form.set(field, new Blob([await readFile(file)], { type: mime }), `otchet.${ext}`);
+      await fetchImpl(`https://api.telegram.org/bot${token}/${method}`, {
+        method: 'POST',
+        body: form,
+        signal: AbortSignal.timeout(60_000),
+      }).catch(() => undefined);
+    }
+  }
+
   async function ask(user: StoredUser, chatId: number, message: string) {
     const stop = typing(chatId);
     try {
       const result = await deps.chat.converse(user, message, { smart: true });
       if (result.kind === 'tool') {
+        for (const card of result.answer.cards)
+          if (card.kind === 'report') await sendReport(user, chatId, card);
         const extra = cardsToText(result.answer.cards);
         await send(
           chatId,
@@ -550,6 +576,46 @@ export function createTelegramBot(deps: BotDeps) {
       await send(chatId, 'Поставила в очередь загрузок. Когда будет готово, пришлю уведомление.');
     } catch (error) {
       await send(chatId, error instanceof Error ? error.message : 'Не получилось начать загрузку.');
+    }
+  }
+
+  /** A photo with the caption «распознай»: the text of the picture goes back to the chat and into a note. */
+  async function recognise(user: StoredUser, chatId: number, message: TgMessage): Promise<void> {
+    const file = message.photo?.at(-1) ?? message.document;
+    if (!file) return;
+    if (!deps.ocr.available()) {
+      await send(chatId, 'Распознавание текста на этом сервере не подключено.');
+      return;
+    }
+    if ((file.file_size ?? 0) > 20 * 1024 * 1024) {
+      await send(chatId, 'Файл больше 20 МБ: Telegram не даёт боту его скачать.');
+      return;
+    }
+    const stop = typing(chatId);
+    try {
+      const info = await api<{ file_path: string }>('getFile', { file_id: file.file_id });
+      if (!info?.file_path) throw new Error('Telegram не отдал файл.');
+      const response = await fetchImpl(`https://api.telegram.org/file/bot${token}/${info.file_path}`, {
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!response.ok) throw new Error('Не получилось скачать картинку.');
+      const ext = info.file_path.includes('.')
+        ? info.file_path.slice(info.file_path.lastIndexOf('.'))
+        : '.jpg';
+      const text = await deps.ocr.read(Buffer.from(await response.arrayBuffer()), ext);
+      if (!text) {
+        await send(
+          chatId,
+          'Текст на картинке прочитать не получилось: пришлите фото ровнее и при хорошем свете.',
+        );
+        return;
+      }
+      const name = await deps.knowledge.note(user, text);
+      await send(chatId, `Вот что распознала:\n\n${text.slice(0, 3000)}\n\n${name}`);
+    } catch (error) {
+      await send(chatId, error instanceof Error ? error.message : 'Не получилось распознать.');
+    } finally {
+      stop();
     }
   }
 
@@ -884,6 +950,13 @@ export function createTelegramBot(deps: BotDeps) {
       }
       if (answering.has(chatId)) {
         await takeAnswer(user, chatId, message);
+        return;
+      }
+      if (
+        /распозн|распознай|скан|ocr|текст с (?:фото|картинк)/i.test(message.caption ?? '') &&
+        (message.photo || /^image\//.test(message.document?.mime_type ?? ''))
+      ) {
+        await recognise(user, chatId, message);
         return;
       }
       await saveFile(user, chatId, message);
