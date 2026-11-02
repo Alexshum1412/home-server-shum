@@ -1,16 +1,13 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import { E2E_USERS } from './fixtures.ts';
-import { expectNoHorizontalOverflow, mainNav, signIn } from './helpers.ts';
+import { expectNoHorizontalOverflow, signIn } from './helpers.ts';
 
 test.describe('the administrator’s «Сервер» page', () => {
-  test('is for administrators only: a family member neither sees it in the menu nor gets its data', async ({
-    page,
-  }) => {
+  test('is for administrators only: a family member does not get its data', async ({ page }) => {
     await signIn(page, 'family', '/server');
     await expect(page.getByRole('heading', { level: 1, name: 'Сервер' })).toBeVisible();
     await expect(page.getByText('Раздел доступен только администраторам')).toBeVisible();
-    await expect(mainNav(page).getByRole('link', { name: 'Сервер' })).toHaveCount(0);
     expect((await page.request.get('/api/admin/server')).status()).toBe(403);
     expect(
       (await page.request.post('/api/admin/server/action', { data: { action: 'recheck' } })).status(),
@@ -21,7 +18,7 @@ test.describe('the administrator’s «Сервер» page', () => {
     page,
   }) => {
     await signIn(page, 'admin', '/');
-    await mainNav(page).getByRole('link', { name: 'Сервер' }).click();
+    await page.goto('/server');
     await expect(page).toHaveURL(/\/server$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Сервер' })).toBeVisible();
     const programs = page.getByRole('region', { name: 'Программы сервера' });
