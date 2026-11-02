@@ -87,12 +87,16 @@ test.describe('deadlines, digest, status, safety, switches', () => {
       await expect(admin.getByRole('status').filter({ hasText: 'выключена' })).toBeVisible();
       await signIn(page, 'family', '/tasks');
       await expect(page.getByText('Администратор отключил эту функцию')).toBeVisible();
-      await expect(mainNav(page).getByRole('link', { name: 'Дела' })).toHaveCount(0);
+      // the section stays (the calendar and the notes are on), but its tab «Дела и покупки» is gone
+      await expect(mainNav(page).getByRole('link', { name: 'Дела' })).toHaveAttribute('href', '/calendar');
+      await expect(
+        page.getByRole('navigation', { name: 'Раздел «Дела»' }).getByRole('link', { name: 'Дела и покупки' }),
+      ).toHaveCount(0);
       expect((await page.request.get('/api/tasks')).status()).toBe(403);
     } finally {
       if (!(await box.isChecked())) await box.click();
+      await expect(box).toBeChecked();
     }
-    await expect(admin.getByRole('status').filter({ hasText: 'включена' })).toBeVisible();
     await page.goto('/tasks');
     await expect(page.getByRole('heading', { level: 1, name: 'Дела' })).toBeVisible();
     await context.close();

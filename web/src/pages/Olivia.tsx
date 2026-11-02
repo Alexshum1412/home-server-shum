@@ -220,7 +220,7 @@ export function OliviaPage() {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [working, setWorking] = useState('');
-  const [smart, setSmart] = useState(false);
+  const [smart, setSmart] = useState(true);
   const [info, setInfo] = useState<ChatInfo | null>(null);
   const [status, setStatus] = useState<OliviaStatusResponse | null>(null);
   const next = useRef(1);
@@ -451,7 +451,8 @@ export function OliviaPage() {
                 disabled={busy}
                 onChange={(event) => setSmart(event.currentTarget.checked)}
               />
-              Умный режим (большая модель: отвечает лучше, но медленнее — до минуты на старт)
+              Умный режим: большая модель отвечает лучше и подробнее, но медленнее (первый ответ — до полутора
+              минут, пока она включается). Выключите, если нужен быстрый ответ попроще.
             </label>
           ) : null}
           <button type="button" class="button button--quiet" disabled={busy} onClick={() => void clear()}>

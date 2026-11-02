@@ -1,4 +1,4 @@
-import { Globe, House, Laptop, Smartphone, Tv, TriangleAlert } from 'lucide-preact';
+import { Globe, House, Laptop, Smartphone, TriangleAlert, Tv } from 'lucide-preact';
 import type { ConnectionResponse } from '../../../shared/api.ts';
 import { CopyField } from '../components/CopyField.tsx';
 import { ErrorState } from '../components/ErrorState.tsx';

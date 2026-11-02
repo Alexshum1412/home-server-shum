@@ -223,7 +223,7 @@ export function createTelegramBot(deps: BotDeps) {
   async function ask(user: StoredUser, chatId: number, message: string) {
     const stop = typing(chatId);
     try {
-      const result = await deps.chat.converse(user, message, { smart: false });
+      const result = await deps.chat.converse(user, message, { smart: true });
       if (result.kind === 'tool') {
         const extra = cardsToText(result.answer.cards);
         await send(
