@@ -151,8 +151,7 @@ function offsiteView(status: ParsedBackupStatus, now: Date): NonNullable<BackupI
       state: 'not_configured',
       lastAt: null,
       tested: false,
-      message:
-        'Зашифрованной копии вне дома нет: все копии лежат дома (диск и флешка), и не зашифрованы. Настройка — docs/runbooks/backup-restore.md.',
+      message: 'Зашифрованной копии вне дома нет: все копии лежат дома (диск и флешка), и не зашифрованы.',
     };
   }
   const lastAt = offsite.lastPackAt ?? null;

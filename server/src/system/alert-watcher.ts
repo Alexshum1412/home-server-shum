@@ -29,14 +29,32 @@ export function createAlertWatcher(options: {
   admins: () => Promise<StoredUser[]>;
   notify: NotificationCenter['notify'];
   now: () => number;
+  /** Remembers when each problem was announced, so a restart of the portal does not announce it again. */
+  memory?: {
+    load: () => Promise<Record<string, number>>;
+    save: (announced: Record<string, number>) => Promise<void>;
+  };
 }): AlertWatcher {
   /** id → how many checks in a row it was there, and when it was announced last (null = not yet). */
   const seen = new Map<string, { ticks: number; announcedAt: number | null }>();
 
+  let loaded = false;
+  const announced = (): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const [id, state] of seen) if (state.announcedAt !== null) out[id] = state.announcedAt;
+    return out;
+  };
+
   return {
     async tick() {
+      if (!loaded) {
+        loaded = true;
+        const before = await options.memory?.load().catch(() => ({}) as Record<string, number>);
+        for (const [id, at] of Object.entries(before ?? {})) seen.set(id, { ticks: 0, announcedAt: at });
+      }
       const current = options.alerts().filter((alert) => alert.level !== 'info');
       const ids = new Set(current.map((alert) => alert.id));
+      // A problem that is not seen any more is forgotten — but only after the first look, when the memory is filled.
       for (const id of seen.keys()) if (!ids.has(id)) seen.delete(id);
       const due: Alert[] = [];
       for (const alert of current) {
@@ -52,6 +70,7 @@ export function createAlertWatcher(options: {
         }
         seen.set(alert.id, state);
       }
+      if (due.length > 0) await options.memory?.save(announced()).catch(() => undefined);
       if (due.length === 0) return;
       const admins = (await options.admins()).filter((user) => user.role === 'admin' && !isDisabled(user));
       if (admins.length === 0) return;

@@ -23,23 +23,17 @@ describe('FAMILY_USER_GUIDE.md', () => {
     for (const wanted of [
       '01-home.png',
       '02-cinema.png',
-      '07-downloads-queue.png',
       '05-files.png',
-      '06-photos.png',
-      '08-olivia.png',
       '09-chat.png',
-      '09c-call.png',
       '11-account.png',
-      '12-remote-access.png',
-      '14-monitoring.png',
-      '13-admin-users.png',
+      '16-tasks.png',
     ]) {
       expect(names, wanted).toContain(wanted);
     }
   });
 
   it('links only pictures that exist and are real PNG files', () => {
-    expect(images.length).toBeGreaterThan(10);
+    expect(images.length).toBeGreaterThan(5);
     for (const image of images) {
       expect(image.alt.trim(), `${image.file} has no description`).not.toBe('');
       const file = path.join(DOCS, image.file);

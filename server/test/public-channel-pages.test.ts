@@ -15,6 +15,14 @@ const CLOSED_ON_PURPOSE = [
   '/api/system/history',
   '/api/catalog/stream',
   '/api/media/file',
+  // the family's memories, the emergency card, the offline library, the TV and the comics stay at home
+  '/api/family',
+  '/api/archive',
+  '/api/emergency',
+  '/api/library',
+  '/api/plex',
+  '/api/comics',
+  '/api/profile/telegram',
 ];
 
 const WEB = path.join(import.meta.dirname, '..', '..', 'web', 'src');

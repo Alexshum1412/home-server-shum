@@ -17,7 +17,9 @@ describe('loadConfig', () => {
     expect(config.logLevel).toBe('info');
     expect(config.serviceCheckIntervalSec).toBe(60);
     expect(config.serviceCheckTimeoutMs).toBe(3000);
-    expect(config.volumes).toEqual(['C:\\']);
+    // every real disk of the machine, the system one first (a boot stick is not among them)
+    expect(config.volumes[0]).toBe('C:\\');
+    expect(config.volumes).not.toContain('F:\\');
     expect(config.lowSpacePercent).toBe(10);
     expect(config.printerName).toBeNull();
     expect(config.tailscaleExe).toBe(DEFAULT_TAILSCALE_EXE);

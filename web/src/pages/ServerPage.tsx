@@ -233,7 +233,7 @@ function Disks(props: { page: ServerPageResponse; onDone: () => void; toast: Toa
 }
 
 function ModelAndDownloads(props: { page: ServerPageResponse }) {
-  const { model, downloads, docker } = props.page;
+  const { model, downloads } = props.page;
   return (
     <section class="page-section" aria-labelledby="model-title">
       <h2 id="model-title" class="section-title">
@@ -251,16 +251,6 @@ function ModelAndDownloads(props: { page: ServerPageResponse }) {
           }
         />
         <span>{model.message}</span>
-      </div>
-      <div class="server-list__row server-list__row--wide">
-        <StatusBadge
-          status={
-            docker.installed
-              ? { label: 'Docker есть', tone: 'ok', icon: 'ok' }
-              : { label: 'Docker не установлен', tone: 'neutral', icon: 'minus' }
-          }
-        />
-        <span>{docker.message}</span>
       </div>
       <p class="meta">
         {downloads

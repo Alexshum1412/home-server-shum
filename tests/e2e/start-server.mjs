@@ -89,6 +89,8 @@ const env = {
   // Nothing of this PC is copied by the backup of the screenshot server: its own empty folders only.
   JELLYFIN_DATA_DIR: join(dataDir, 'jellyfin-data'),
   BACKUP_EXTRA_FILES: 'none',
+  // The folder of the comics reader is a throwaway one as well (a two-page .cbz is made below).
+  COMICS_DIR: join(dataDir, 'comics'),
 };
 
 // A tiny media library: one valid one-second WAV (every browser plays it) as an audiobook chapter,
@@ -113,6 +115,45 @@ function silentWav(seconds) {
 }
 mkdirSync(join(dataDir, 'media', 'Аудиокниги', 'Тестовая книга'), { recursive: true });
 writeFileSync(join(dataDir, 'media', 'Аудиокниги', 'Тестовая книга', 'Глава 01.wav'), silentWav(1));
+// A comic of two pages (the test photo twice) for the reader: a .cbz is a zip of pictures, stored without compression.
+function storedZip(files) {
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const [name, data] of files) {
+    const nameBytes = Buffer.from(name);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    parts.push(local, nameBytes, data);
+    const head = Buffer.alloc(46);
+    head.writeUInt32LE(0x02014b50, 0);
+    head.writeUInt32LE(data.length, 20);
+    head.writeUInt32LE(data.length, 24);
+    head.writeUInt16LE(nameBytes.length, 28);
+    head.writeUInt32LE(offset, 42);
+    central.push(head, nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const dir = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(dir.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...parts, dir, end]);
+}
+const photo = readFileSync(join(root, 'tests', 'e2e', 'fixture-photo.jpg'));
+mkdirSync(join(dataDir, 'comics', 'Серия'), { recursive: true });
+writeFileSync(
+  join(dataDir, 'comics', 'Серия', 'Тестовый том.cbz'),
+  storedZip([
+    ['01.jpg', photo],
+    ['02.jpg', photo],
+  ]),
+);
 mkdirSync(join(dataDir, 'media', 'Фильмы'), { recursive: true });
 writeFileSync(join(dataDir, 'media', 'Фильмы', 'сломанный.mp4'), 'not really a video');
 

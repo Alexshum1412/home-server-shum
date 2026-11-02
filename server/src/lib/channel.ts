@@ -67,6 +67,12 @@ const READ = [
   '/api/search',
   '/api/tasks',
   '/api/olivia/status',
+  '/api/olivia/chat',
+  '/api/features',
+  '/api/profile',
+  '/api/deadlines',
+  '/api/digest',
+  '/api/status',
   '/api/downloads',
   '/api/services',
   '/api/system',
@@ -92,7 +98,14 @@ const WRITE = [
   '/api/notes',
   '/api/tasks',
   '/api/olivia/ask',
+  '/api/olivia/chat',
+  '/api/profile',
+  '/api/deadlines',
+  '/api/digest',
 ];
+
+/** Linking a Telegram chat gives a code that grants access to the account's bot: only from the private way. */
+const NEVER_PUBLIC = ['/api/profile/telegram-link', '/api/profile/telegram-unlink'];
 
 /** Films are large: a tunnel of a free plan is not meant for video, so streaming is off unless the owner turns it on. */
 const STREAM = ['/api/catalog/stream', '/api/media/file'];
@@ -110,6 +123,7 @@ export function publicRouteAllowed(
   config: Pick<Config, 'publicAllowMediaStream'>,
 ): boolean {
   if (!route.startsWith('/api')) return true;
+  if (NEVER_PUBLIC.some((prefix) => covers(prefix, route))) return false;
   if (STREAM.some((prefix) => covers(prefix, route)))
     return config.publicAllowMediaStream && (method === 'GET' || method === 'HEAD');
   const list = method === 'GET' || method === 'HEAD' ? READ : WRITE;

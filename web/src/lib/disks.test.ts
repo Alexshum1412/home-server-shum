@@ -72,14 +72,15 @@ describe('summarizeVolumes', () => {
     expect(summary).toEqual({ status: UNKNOWN, detail: 'Ещё не измерено' });
   });
 
-  it('several healthy disks: says all are fine and names the fullest', () => {
+  it('several healthy disks: says all are fine and gives the numbers of every disk', () => {
     const summary = summarizeVolumes([
       volume({ path: 'C:\\', freeBytes: 70 * GB }),
       volume({ path: 'D:\\', freeBytes: 30 * GB }),
     ]);
     expect(summary.status).toBe(SPACE_OK);
-    expect(summary.detail).toBe(
-      `На всех дисках достаточно места. Меньше всего свободно на D:\\: ${gb(30)} из ${gb(100)}`,
-    );
+    expect(summary.detail).toContain('На всех дисках достаточно места.');
+    expect(summary.detail).toContain('(C:\\)');
+    expect(summary.detail).toContain('(D:\\)');
+    expect(summary.detail).toContain(gb(30));
   });
 });

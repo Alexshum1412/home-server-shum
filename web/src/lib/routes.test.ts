@@ -23,8 +23,18 @@ const EXPECTED: Array<[string, RouteId]> = [
   ['/calendar', 'calendar'],
   ['/notes', 'notes'],
   ['/tasks', 'tasks'],
+  ['/deadlines', 'deadlines'],
+  ['/digest', 'digest'],
+  ['/status', 'status'],
+  ['/safety', 'safety'],
   ['/notifications', 'notifications'],
   ['/olivia', 'olivia'],
+  ['/family', 'family'],
+  ['/archive', 'archive'],
+  ['/comics', 'comics'],
+  ['/plex', 'plex'],
+  ['/library', 'library'],
+  ['/emergency', 'emergency'],
   ['/print', 'print'],
   ['/system', 'system'],
   ['/server', 'server'],
@@ -58,10 +68,11 @@ describe('matchRoute', () => {
 });
 
 describe('route helpers', () => {
-  it('marks only the administration and the server sections as admin-only', () => {
+  it('marks only the administration, the server and the safety sections as admin-only', () => {
     expect(isAdminOnly('admin')).toBe(true);
     expect(isAdminOnly('server')).toBe(true);
-    for (const route of ROUTES.filter((r) => r.id !== 'admin' && r.id !== 'server')) {
+    expect(isAdminOnly('safety')).toBe(true);
+    for (const route of ROUTES.filter((r) => !['admin', 'server', 'safety'].includes(r.id))) {
       expect(isAdminOnly(route.id)).toBe(false);
     }
     expect(isAdminOnly('notFound')).toBe(false);
@@ -108,6 +119,9 @@ describe('internalNavigationTarget', () => {
     expect(internalNavigationTarget({ ...base, hasDownload: true })).toBeNull();
     expect(internalNavigationTarget({ ...base, defaultPrevented: true })).toBeNull();
     expect(internalNavigationTarget({ ...base, href: '/api/admin/diagnostics' })).toBeNull();
+    // the offline library is a program behind the portal, not a page of the app
+    expect(internalNavigationTarget({ ...base, href: '/offline/' })).toBeNull();
+    expect(internalNavigationTarget({ ...base, href: '/offline/search?pattern=x' })).toBeNull();
     expect(internalNavigationTarget({ ...base, href: '/manifest.webmanifest' })).toBeNull();
     expect(internalNavigationTarget({ ...base, href: '#main' })).toBeNull();
   });

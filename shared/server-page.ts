@@ -75,8 +75,6 @@ export interface ServerPageResponse {
   backupRunning: boolean;
   model: ModelView;
   downloads: DownloadCounts | null;
-  /** Docker (ArchiveBox, Home Assistant) is optional: installed by the owner, see docs/runbooks/docker.md. */
-  docker: { installed: boolean; message: string };
 }
 
 export type ServerAction = 'start' | 'stop' | 'restart' | 'backup' | 'recheck';

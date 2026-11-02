@@ -1,5 +1,5 @@
 /**
- * Look of the portal: light (default), dark, or «as the device». The choice is kept on the device
+ * Look of the portal: dark (default), light, or «as the device». The choice is kept on the device
  * (localStorage) and applied as <html data-theme>; tokens.css does the rest.
  */
 export type Theme = 'light' | 'dark' | 'system';
@@ -11,14 +11,14 @@ export const THEME_LABEL: Record<Theme, string> = {
 };
 
 const KEY = 'family-theme';
-const BAR_COLOR = { light: '#f7f9fc', dark: '#0f1620' } as const;
+const BAR_COLOR = { light: '#f7f9fc', dark: '#0a0f17' } as const;
 
 export function readTheme(): Theme {
   try {
     const value = localStorage.getItem(KEY);
-    return value === 'dark' || value === 'system' ? value : 'light';
+    return value === 'light' || value === 'system' ? value : 'dark';
   } catch {
-    return 'light';
+    return 'dark';
   }
 }
 

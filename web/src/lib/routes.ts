@@ -145,6 +145,8 @@ export function internalNavigationTarget(click: LinkClickInfo): string | null {
   if (url.hash && url.pathname === page.pathname && url.search === page.search) return null;
   // API endpoints and static files (anything with an extension) are real server resources.
   if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return null;
+  // The offline library (Kiwix) is a program of its own behind the portal, not a page of the app.
+  if (url.pathname === '/offline' || url.pathname.startsWith('/offline/')) return null;
   if (/\.[a-z0-9]+$/i.test(url.pathname)) return null;
   return url.pathname + url.search + url.hash;
 }

@@ -88,6 +88,14 @@ test.describe('the new menu, the first sign-in and the tour', () => {
     await page.getByRole('button', { name: 'Дальше' }).click();
     await expect(page.getByRole('dialog', { name: 'Кинотеатр' })).toBeVisible();
     await page.keyboard.press('Escape');
+    // the bottom bar spreads its buttons over the whole width: no empty column («щель») at the right edge
+    await page.goto('/');
+    const bar = await page
+      .locator('.tabbar__list > li')
+      .evaluateAll((items) => items.map((item) => item.getBoundingClientRect()));
+    expect(bar.length).toBeGreaterThan(1);
+    expect(bar[0]?.left ?? 99).toBeLessThanOrEqual(8);
+    expect((bar.at(-1)?.right ?? 0) + 8).toBeGreaterThanOrEqual(390);
     for (const path of ['/', '/olivia', '/account', '/server']) {
       await page.goto(path);
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible();

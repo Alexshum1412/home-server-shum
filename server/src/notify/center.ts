@@ -165,7 +165,12 @@ export function createNotificationCenter(options: NotificationCenterOptions): No
   const fetchLike: PushFetch =
     options.fetch ??
     ((url, init) =>
-      fetch(url, { method: init.method, headers: init.headers, body: init.body, signal: init.signal }));
+      fetch(url, {
+        method: init.method,
+        headers: init.headers,
+        body: init.body ? new Uint8Array(init.body) : undefined,
+        signal: init.signal,
+      }));
 
   function save(): void {
     if (saveTimer) return;

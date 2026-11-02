@@ -3,7 +3,7 @@
  * Caches only the app shell and hashed build assets. API responses are never
  * cached: everything under /api/ always goes to the network.
  */
-const CACHE = 'family-shell-v4';
+const CACHE = 'family-shell-v5';
 const SHELL = [
   '/',
   '/manifest.webmanifest',
@@ -218,6 +218,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return;
+  // The offline library (Kiwix) and the comics pages come from their own programs: never the app shell, never cached.
+  if (url.pathname === '/offline' || url.pathname.startsWith('/offline/')) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(navigation(request, (promise) => event.waitUntil(promise)));

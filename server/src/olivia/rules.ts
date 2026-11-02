@@ -144,8 +144,7 @@ export function diagnose(input: DiagnoseInput): OliviaFinding[] {
       level: 'warning',
       title: `Диск «${disk.model}» требует внимания`,
       explanation: disk.note ?? `Windows сообщает: ${disk.rawHealth || 'неизвестное состояние'}.`,
-      suggestion:
-        'Не инициализируйте и не форматируйте этот диск. Убедитесь, что копии свежие (docs/runbooks/second-disk.md).',
+      suggestion: 'Не инициализируйте и не форматируйте этот диск. Убедитесь, что копии свежие.',
       action: null,
     });
   }

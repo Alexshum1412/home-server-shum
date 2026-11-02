@@ -457,7 +457,7 @@ describe('adding, watching and ending a torrent', () => {
     expect(options['select-file']).toBe('1,2,4'); // the setup.exe (3) is left out
     expect(options).toMatchObject({
       'seed-ratio': '1',
-      'max-upload-limit': '500K',
+      'max-upload-limit': '0K',
       'allow-overwrite': 'false',
     });
     const sent = Buffer.from(b64, 'base64');
@@ -631,10 +631,10 @@ describe('adding, watching and ending a torrent', () => {
   });
 
   it('refuses when the disk is nearly full, and a torrent that is too big', async () => {
-    const sample = makeTorrent({ name: 'Огромный', length: 80 * 1024 ** 3 });
+    const sample = makeTorrent({ name: 'Огромный', length: 80 * 1024 ** 4 });
     const check = await putFile(mama, sample.bytes);
     const big = await post(mama, '/api/downloads', { checkId: check.body.checkId });
-    expect(big.status).toBe(413);
+    expect(big.status).toBe(507);
     await t.app.close();
     await boot();
     const small = makeTorrent({ name: 'Нормальный', length: 5 * 1024 ** 3 });

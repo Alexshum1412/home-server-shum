@@ -15,7 +15,13 @@ function detectWindowsVolumes(): string {
     const root = `${letter}:\\`;
     try {
       if (!existsSync(root)) continue;
-      if (Number(statfsSync(root).blocks) > 0) found.push(root);
+      const info = statfsSync(root);
+      if (Number(info.blocks) <= 0) continue;
+      // A boot or installer stick (Rufus and the like) is always full and not ours: it is not watched.
+      const size = Number(info.blocks) * Number(info.bsize);
+      const free = Number(info.bavail) * Number(info.bsize);
+      if (size < 64 * 1024 ** 3 && free < 64 * 1024 ** 2) continue;
+      found.push(root);
     } catch {
       // not ready: skipped
     }

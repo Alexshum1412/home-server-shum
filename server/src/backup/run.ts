@@ -60,7 +60,7 @@ export interface BackupRunResult {
   warnings: string[];
 }
 
-/** The owner's private instructions (docs/private, never in Git) travel with every backup next to .env. */
+/** The owner's private instructions (a private folder, never in Git) travel with every backup next to .env. */
 export function privateDocFiles(repoDir: string): string[] {
   const dir = path.join(repoDir, 'docs', 'private');
   try {

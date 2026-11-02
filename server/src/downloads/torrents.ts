@@ -214,7 +214,7 @@ export function createTorrentManager(options: TorrentManagerOptions): TorrentMan
         return {
           state: 'not_installed',
           message: 'Торрент-клиент не установлен на домашнем компьютере.',
-          hint: 'Администратору: выполните scripts\\torrent-setup.cmd (он скачает официальный aria2 и проверит его) — подробности в docs/runbooks/torrents.md. Обычные загрузки по ссылке работают и без него.',
+          hint: 'Администратору: выполните scripts\\torrent-setup.cmd (он скачает официальный aria2 и проверит его). Обычные загрузки по ссылке работают и без него.',
         };
       }
       return {

@@ -1170,40 +1170,40 @@ fieldset.chips--set {
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --tg-wall: #0e1621;
+    --tg-wall: #0a0f17;
     --tg-wall-a: rgba(255, 255, 255, 0.03);
-    --tg-in: #182533;
+    --tg-in: #182231;
     --tg-in-text: #f2f6fa;
-    --tg-out: #2b5278;
+    --tg-out: #25497a;
     --tg-out-text: #ffffff;
     --tg-meta: #7f93a6;
     --tg-meta-out: #a5c8ea;
-    --tg-bar: #17212b;
-    --tg-head: #17212b;
+    --tg-bar: #111925;
+    --tg-head: #111925;
     --tg-link: #6ab3f3;
     --tg-send: #3a8fd9;
     --tg-day: rgba(10, 20, 30, 0.6);
     --tg-row-hover: rgba(255, 255, 255, 0.05);
-    --tg-row-active: #2b5278;
+    --tg-row-active: #25497a;
   }
 }
 
 :root[data-theme="dark"] {
-  --tg-wall: #0e1621;
+  --tg-wall: #0a0f17;
   --tg-wall-a: rgba(255, 255, 255, 0.03);
-  --tg-in: #182533;
+  --tg-in: #182231;
   --tg-in-text: #f2f6fa;
-  --tg-out: #2b5278;
+  --tg-out: #25497a;
   --tg-out-text: #ffffff;
   --tg-meta: #7f93a6;
   --tg-meta-out: #a5c8ea;
-  --tg-bar: #17212b;
-  --tg-head: #17212b;
+  --tg-bar: #111925;
+  --tg-head: #111925;
   --tg-link: #6ab3f3;
   --tg-send: #3a8fd9;
   --tg-day: rgba(10, 20, 30, 0.6);
   --tg-row-hover: rgba(255, 255, 255, 0.05);
-  --tg-row-active: #2b5278;
+  --tg-row-active: #25497a;
 }
 
 /* the list of chats */

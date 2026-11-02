@@ -203,7 +203,8 @@ describe('uploads that survive a broken connection', { timeout: 60_000 }, () => 
     expect((await start(c, c.mama, { name: 'setup.exe', size: 10 })).statusCode).toBe(422);
     expect((await start(c, c.mama, { name: '.hidden', size: 10 })).statusCode).toBe(400);
     expect((await start(c, c.mama, { name: 'a.txt', size: -1 })).statusCode).toBe(400);
-    expect((await start(c, c.mama, { name: 'a.txt', size: 1e15 })).statusCode).toBe(413);
+    // no limit on the size of one file any more: it is the free space that says no
+    expect((await start(c, c.mama, { name: 'a.txt', size: 1e15 })).statusCode).toBe(507);
     // A program under another name is found by what it is made of.
     const exe = (await start(c, c.mama, { name: 'doc.txt', size: 100 })).json() as UploadSessionState;
     await piece(c, c.mama, 'files', exe.id, 0, Buffer.concat([Buffer.from('MZ'), Buffer.alloc(98)]));

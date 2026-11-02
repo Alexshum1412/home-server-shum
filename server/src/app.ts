@@ -29,6 +29,7 @@ import { registerCallRoutes } from './calls/routes.ts';
 import { registerChatRoutes } from './chat/routes.ts';
 import { type ChatService, createChatService } from './chat/service.ts';
 import { createChatStore } from './chat/store.ts';
+import { comicsDir, registerComicsRoutes } from './comics/routes.ts';
 import type { Config } from './config.ts';
 import { geocode } from './digest/external.ts';
 import { createAria2, ensureAria2Secret } from './downloads/aria2.ts';
@@ -757,7 +758,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   const profiles = createProfileStore(config.dataDir);
   const llama = llamaPaths(process.env, config);
   // The bigger local model (about 4 GB): started when a deeper talk or the night digest needs it, stopped when idle.
-  // A Vulkan build of the same llama.cpp lets the video card help the processor (see docs/runbooks/local-ai.md).
+  // A Vulkan build of the same llama.cpp lets the video card help the processor.
   const gpuExe = path.join(
     process.env.LLAMA_GPU_HOME?.trim() || 'C:\\FamilyServer\\apps\\llama-vulkan',
     'llama-server.exe',
@@ -1039,6 +1040,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   registerGuestRoutes(app, { guests, guards });
   registerEmergencyRoutes(app, { guards, dataDir: config.dataDir, clock });
   registerPlexRoutes(app, { guards, plex: createPlex() });
+  registerComicsRoutes(app, { guards, dir: comicsDir(process.env) });
   registerLibraryRoutes(app, {
     guards,
     dir: libraryDir(process.env),
@@ -1246,6 +1248,13 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
         admins: () => users.list(),
         notify: (input) => notify.notify(input),
         now: () => clock().getTime(),
+        memory: {
+          load: async () =>
+            ((await readJsonFile(path.join(config.dataDir, 'alert-announced.json'))) as
+              | Record<string, number>
+              | undefined) ?? {},
+          save: (announced) => writeJsonAtomic(path.join(config.dataDir, 'alert-announced.json'), announced),
+        },
       });
       watchTimer = setInterval(() => {
         watcher

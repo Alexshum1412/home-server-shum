@@ -120,11 +120,11 @@
 /* Dark: chosen by the person in «Мой профиль». */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --c-bg: #0f1620;
-  --c-surface: #161f2b;
-  --c-surface-2: #1e2937;
-  --c-border: #2b3747;
-  --c-border-strong: #3d4b5f;
+  --c-bg: #0a0f17;
+  --c-surface: #111925;
+  --c-surface-2: #182231;
+  --c-border: #233044;
+  --c-border-strong: #34455f;
   --c-input-border: #6f7e93;
   --c-text: #e8eef6;
   --c-text-muted: #a6b3c4;
@@ -159,11 +159,11 @@
 @media (prefers-color-scheme: dark) {
   :root[data-theme="system"] {
     color-scheme: dark;
-    --c-bg: #0f1620;
-    --c-surface: #161f2b;
-    --c-surface-2: #1e2937;
-    --c-border: #2b3747;
-    --c-border-strong: #3d4b5f;
+    --c-bg: #0a0f17;
+    --c-surface: #111925;
+    --c-surface-2: #182231;
+    --c-border: #233044;
+    --c-border-strong: #34455f;
     --c-input-border: #6f7e93;
     --c-text: #e8eef6;
     --c-text-muted: #a6b3c4;
