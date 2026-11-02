@@ -46,6 +46,7 @@ const PROGRAM_TITLE: Record<ProgramId, string> = {
   searxng: 'Поиск в интернете (SearXNG)',
   kavita: 'Читалка комиксов и манги (Kavita)',
   kiwix: 'Офлайн-библиотека (Kiwix)',
+  freellm: 'Бесплатные модели (роутер FreeLLMAPI)',
 };
 
 const STATE_TEXT: Record<ProgramState, string> = {

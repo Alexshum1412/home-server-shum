@@ -37,7 +37,7 @@ const TITLES: Array<[RegExp, string]> = [
 
 export const libraryDir = (env: NodeJS.ProcessEnv): string =>
   env.LIBRARY_DIR?.trim() ||
-  `${/^[A-Za-z]:$/.test(env.LIBRARY_DRIVE ?? '') ? env.LIBRARY_DRIVE : 'D:'}\\FamilyData\\Офлайн-библиотека`;
+  `${/^[A-Za-z]:$/.test(env.LIBRARY_DRIVE ?? '') ? env.LIBRARY_DRIVE : 'D:'}\\FamilyData\\OfflineLibrary`;
 
 export async function listBooks(dir: string): Promise<LibraryBook[]> {
   const names = await readdir(dir).catch(() => [] as string[]);
@@ -45,11 +45,13 @@ export async function listBooks(dir: string): Promise<LibraryBook[]> {
   for (const file of names.filter((item) => item.toLowerCase().endsWith('.zim'))) {
     const info = await stat(path.join(dir, file)).catch(() => null);
     if (!info) continue;
-    const name = file.replace(/\.zim$/i, '').replace(/_\d{4}-\d{2}$/, '');
+    // Kiwix addresses a book by the name of its file (without .zim), date included.
+    const name = file.replace(/\.zim$/i, '');
+    const base = name.replace(/_\d{4}-\d{2}$/, '');
     books.push({
       name,
       file,
-      title: TITLES.find(([re]) => re.test(name))?.[1] ?? name,
+      title: TITLES.find(([re]) => re.test(base))?.[1] ?? base,
       sizeBytes: info.size,
       downloading: names.includes(`${file}.aria2`),
     });

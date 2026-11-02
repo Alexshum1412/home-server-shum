@@ -10,6 +10,7 @@ import { createFeatureStore } from '../src/features/features.ts';
 import { createGuests, GUEST_DAILY_MESSAGES } from '../src/guests/guests.ts';
 import { createDiskHistory } from '../src/health/disk-history.ts';
 import { listBooks } from '../src/library/routes.ts';
+import { externalHeaders } from '../src/olivia/chat.ts';
 import { serverReport } from '../src/reports/build.ts';
 import { reportIntent } from '../src/reports/service.ts';
 import { digestHtml } from '../src/telegram/bot.ts';
@@ -271,9 +272,50 @@ describe('the offline library', () => {
     await writeFile(path.join(dir, 'wikipedia_be_all_nopic_2026-09.zim.aria2'), '');
     await writeFile(path.join(dir, 'notes.txt'), 'not a book');
     const books = await listBooks(dir);
-    expect(books.map((b) => b.name).sort()).toEqual(['wikipedia_be_all_nopic', 'wikipedia_ru_all_maxi']);
-    expect(books.find((b) => b.name === 'wikipedia_be_all_nopic')?.downloading).toBe(true);
-    expect(books.find((b) => b.name === 'wikipedia_ru_all_maxi')?.title).toContain('Википедия на русском');
+    expect(books.map((b) => b.name).sort()).toEqual([
+      'wikipedia_be_all_nopic_2026-09',
+      'wikipedia_ru_all_maxi_2026-10',
+    ]);
+    expect(books.find((b) => b.name === 'wikipedia_be_all_nopic_2026-09')?.downloading).toBe(true);
+    expect(books.find((b) => b.name === 'wikipedia_ru_all_maxi_2026-10')?.title).toContain(
+      'Википедия на русском',
+    );
     expect(await listBooks(path.join(dir, 'missing'))).toEqual([]);
+  });
+});
+
+describe('what a stranger may do and the free models', () => {
+  it('starts as digest-only, keeps the rights the administrator gives and finds people by words', async () => {
+    const dir = await temp();
+    const guests = createGuests({ dataDir: dir, clock: () => new Date('2026-11-02T08:00:00Z') });
+    const guest = await guests.open('2002', 'Анна', 'anna_x');
+    expect(guest).toMatchObject({ chat: false, username: 'anna_x', note: '' });
+    await guests.update('2002', { chat: true, note: 'подруга Ольги' });
+    expect(await guests.get('2002')).toMatchObject({ chat: true, note: 'подруга Ольги' });
+    expect((await guests.list()).some((g) => g.note.includes('Ольги'))).toBe(true);
+  });
+
+  it('reads the key of the router of free models from its file and sends it as a bearer token', async () => {
+    const dir = await temp();
+    const { writeFile } = await import('node:fs/promises');
+    const keyFile = path.join(dir, 'freellm.key');
+    await writeFile(keyFile, 'freellmapi-test-key\n');
+    const headers = await externalHeaders({
+      url: 'http://127.0.0.1:3101/v1',
+      keyFile,
+      model: 'auto',
+      enabled: () => true,
+    });
+    expect(headers.authorization).toBe('Bearer freellmapi-test-key');
+    expect(
+      (
+        await externalHeaders({
+          url: 'x',
+          keyFile: path.join(dir, 'none'),
+          model: 'auto',
+          enabled: () => true,
+        })
+      ).authorization,
+    ).toBeUndefined();
   });
 });

@@ -23,6 +23,7 @@ type Fetch = typeof fetch;
 interface TgUser {
   id: number;
   first_name?: string;
+  username?: string;
 }
 interface TgChat {
   id: number;
@@ -992,12 +993,16 @@ export function createTelegramBot(deps: BotDeps) {
       { text: '👀 Пример дайджеста', callback_data: 'g:preview' },
       { text: '❓ Что я умею', callback_data: 'g:help' },
     ],
+    [{ text: '🏠 Я из семьи: как войти', callback_data: 'g:join' }],
   ];
 
   const GUEST_HELP =
-    'Я Оливия, помощница семейного сервера. Здесь, в чате, я могу поговорить: подсказать рецепт, объяснить тему, помочь с уроками, рассказать новости и поискать в интернете. ' +
-    `В день — до ${GUEST_DAILY_MESSAGES} сообщений. А ещё можно подписаться на утренний дайджест: новости, слово дня на языке по вашему уровню, факты и идеи — темы вы выбираете сами. ` +
-    'Я не знаю ничего о семье, которая меня держит, и не храню вашу переписку, кроме выбора тем.';
+    'Я Оливия. Каждое утро могу присылать короткий дайджест: новости, слово дня на языке по вашему уровню, интересные факты и идеи. ' +
+    'Темы и город для погоды вы выбираете сами — нажмите «Выбрать темы» и «Подписаться на дайджест». Отписаться можно в любой момент: /stop.';
+
+  const GUEST_JOIN =
+    'Если вы из семьи и у вас уже есть учётная запись: откройте сайт → «Мой профиль» → «Привязать Telegram», получите шестизначный код и пришлите его мне сюда одним сообщением — я вас узнаю. ' +
+    'Если учётной записи нет, попросите администратора её создать.';
 
   const topicTitle = (id: string) => INTERESTS.find((item) => item.id === id)?.title ?? id;
 
@@ -1032,7 +1037,11 @@ export function createTelegramBot(deps: BotDeps) {
       return;
     }
     const known = await deps.guests.get(String(chatId));
-    const guest = await deps.guests.open(String(chatId), message.from?.first_name ?? '');
+    const guest = await deps.guests.open(
+      String(chatId),
+      message.from?.first_name ?? '',
+      message.from?.username ?? '',
+    );
     if (!guest) {
       await send(chatId, 'Сейчас я не могу принять новых собеседников. Попробуйте позже.');
       return;
@@ -1074,10 +1083,19 @@ export function createTelegramBot(deps: BotDeps) {
       await send(chatId, `Запомнила: ${place.name}. Погода будет в вашем дайджесте.`, guestRows(guest));
       return;
     }
+    // A stranger gets the digest only; talking to Olivia is a right that the administrator gives after getting to know them.
+    if (!guest.chat) {
+      await send(
+        chatId,
+        'Я присылаю утренний дайджест. Выберите темы и подпишитесь кнопками ниже — это всё, что я могу предложить в этом чате.',
+        guestRows(guest),
+      );
+      return;
+    }
     if (!(await deps.guests.count(guest.chatId))) {
       await send(
         chatId,
-        `На сегодня мой лимит разговоров с вами исчерпан (${GUEST_DAILY_MESSAGES} сообщений). Утренний дайджест это не затрагивает. До завтра!`,
+        `На сегодня мой лимит разговоров исчерпан (${GUEST_DAILY_MESSAGES} сообщений). Утренний дайджест это не затрагивает. До завтра!`,
       );
       return;
     }
@@ -1111,6 +1129,7 @@ export function createTelegramBot(deps: BotDeps) {
     };
     if (action === 'menu') return edit('Что сделать?', guestRows(guest));
     if (action === 'help') return void (await send(chatId, GUEST_HELP, guestRows(guest)));
+    if (action === 'join') return void (await send(chatId, GUEST_JOIN, guestRows(guest)));
     if (action === 'sub' || action === 'unsub') {
       const updated = await deps.guests.update(guest.chatId, { subscribed: action === 'sub' });
       if (updated && action === 'sub')

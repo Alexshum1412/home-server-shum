@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { OliviaAnswer } from '../../../shared/api.ts';
 import type { StoredUser } from '../auth/users.ts';
@@ -14,12 +15,12 @@ export interface ChatTurn {
   role: 'user' | 'assistant';
   text: string;
   at: string;
-  model?: 'quick' | 'big' | 'rules';
+  model?: 'quick' | 'big' | 'free' | 'rules';
 }
 
 export type ConverseResult =
   | { kind: 'tool'; answer: OliviaAnswer }
-  | { kind: 'chat'; text: string; model: 'quick' | 'big'; sources: string[] };
+  | { kind: 'chat'; text: string; model: 'quick' | 'big' | 'free'; sources: string[] };
 
 const KEEP = 40;
 
@@ -57,9 +58,26 @@ function within(turns: ChatTurn[], budget: number): ChatTurn[] {
   return out.reverse();
 }
 
+export interface ExternalLlm {
+  /** Base address, e.g. http://127.0.0.1:3101/v1 */
+  url: string;
+  keyFile: string;
+  /** «auto» lets the router choose the best free model that is available. */
+  model: string;
+  /** The administrator's switch (and «the key is there»). */
+  enabled: () => boolean;
+}
+
+/** The unified key of the router is read from its file at every call (never kept in a log or sent to a page). */
+export async function externalHeaders(external: ExternalLlm | undefined): Promise<Record<string, string>> {
+  const key = external ? (await readFile(external.keyFile, 'utf8').catch(() => '')).trim() : '';
+  return { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) };
+}
+
 async function* streamChat(
   url: string,
-  keyFile: string | undefined,
+  headers: Record<string, string>,
+  modelName: string,
   messages: Array<{ role: string; content: string }>,
   maxTokens: number,
   signal: AbortSignal,
@@ -67,8 +85,14 @@ async function* streamChat(
 ): AsyncGenerator<string> {
   const response = await fetchImpl(`${url.replace(/\/+$/, '')}/chat/completions`, {
     method: 'POST',
-    headers: llamaHeaders(keyFile),
-    body: JSON.stringify({ model: 'local', stream: true, temperature: 0.6, max_tokens: maxTokens, messages }),
+    headers,
+    body: JSON.stringify({
+      model: modelName,
+      stream: true,
+      temperature: 0.6,
+      max_tokens: maxTokens,
+      messages,
+    }),
     signal,
   });
   if (!response.ok || !response.body) throw new Error(`model answered ${response.status}`);
@@ -108,6 +132,10 @@ export function createOliviaChat(options: {
   big: BigModel;
   /** Address of the own search engine (SearXNG on this PC); null — the public fallbacks only. */
   searxUrl?: string | null;
+  /** Search in the Wikipedia that lies on this PC (used when the internet gives nothing). */
+  offline?: (query: string) => Promise<Array<{ title: string; snippet: string; url: string }>>;
+  /** A router of free models on the internet (freellmapi, on this PC): used first, the local models are the reserve. */
+  external?: ExternalLlm;
   /** Reports as a picture and a document (state of the server, the week ahead). */
   reports?: {
     available: () => boolean;
@@ -326,7 +354,12 @@ export function createOliviaChat(options: {
             context = hits.map((hit, i) => `${i + 1}. ${hit.title} — ${hit.snippet} (${hit.url})`).join('\n');
             for (const hit of hits.slice(0, 3)) sources.push(hit.url);
           } else {
-            context = 'По запросу ничего не нашлось или поиск недоступен.';
+            // No internet, or nothing found: the Wikipedia on this PC is asked.
+            const local = options.offline ? await options.offline(intent.query) : [];
+            if (local.length > 0) {
+              context = `Из офлайн-Википедии на этом компьютере (без интернета):\n${local.map((hit, i) => `${i + 1}. ${hit.title}: ${hit.snippet}`).join('\n')}`;
+              for (const hit of local.slice(0, 2)) sources.push(hit.url);
+            } else context = 'По запросу ничего не нашлось или поиск недоступен.';
           }
         }
         const history = within(
@@ -343,17 +376,23 @@ export function createOliviaChat(options: {
           ...history.map((turn) => ({ role: turn.role, content: turn.text })),
           { role: 'user', content: asked },
         ];
-        const run = async (url: string, model: 'quick' | 'big') => {
+        const run = async (url: string, model: 'quick' | 'big' | 'free') => {
           let out = '';
           const controller = new AbortController();
           opts.signal?.addEventListener('abort', () => controller.abort(), { once: true });
-          const timer = setTimeout(() => controller.abort(), model === 'big' ? 600_000 : 180_000);
+          const timer = setTimeout(
+            () => controller.abort(),
+            model === 'big' ? 600_000 : model === 'free' ? 70_000 : 180_000,
+          );
           try {
+            const headers =
+              model === 'free' ? await externalHeaders(options.external) : llamaHeaders(options.keyFile);
             for await (const piece of streamChat(
               url,
-              options.keyFile,
+              headers,
+              model === 'free' ? (options.external?.model ?? 'auto') : 'local',
               messages,
-              model === 'big' ? 700 : 450,
+              model === 'big' ? 700 : model === 'free' ? 900 : 450,
               controller.signal,
               fetchImpl,
             )) {
@@ -365,8 +404,19 @@ export function createOliviaChat(options: {
           }
           return { out: out.trim(), model };
         };
-        let result: { out: string; model: 'quick' | 'big' } | null = null;
-        if (opts.smart && options.big.available()) {
+        let result: { out: string; model: 'quick' | 'big' | 'free' } | null = null;
+        // A free model from the open internet answers first (it is quick and clever); the local models stay for the day
+        // when the tokens run out, the internet is gone or the switch is off.
+        if (options.external && options.external.enabled() && !opts.signal?.aborted) {
+          opts.onStatus?.('Думаю…');
+          try {
+            const answer = await run(options.external.url, 'free');
+            if (answer.out !== '') result = answer;
+          } catch {
+            result = null;
+          }
+        }
+        if (!result && opts.smart && options.big.available()) {
           opts.onStatus?.(
             options.big.isRunning() ? 'Думаю (большая модель)…' : 'Включаю большую модель, это до минуты…',
           );

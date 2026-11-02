@@ -2,7 +2,8 @@
  * The fixed list of programs the supervisor runs. Paths come from the code and from .env set by the
  * owner on this PC — never from the portal or any request.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Config, Env } from '../config.ts';
 import { ensureAria2SecretSync } from '../downloads/aria2.ts';
@@ -355,15 +356,56 @@ export function buildAppSpecs(options: AppListOptions): AppSpec[] {
       stderrLog: path.join(logDir, 'kavita.err.log'),
     });
   }
+  // The router of free models from the internet (freellmapi): on this PC only; its dashboard is http://127.0.0.1:3101.
+  const freeHome = env.FREELLM_HOME?.trim() || `${root}\\apps\\freellmapi`;
+  const freeEntry = path.join(freeHome, 'server', 'dist', 'index.js');
+  if (
+    env.SUPERVISE_FREELLM?.trim() !== '0' &&
+    existsSync(freeEntry) &&
+    existsSync(path.join(freeHome, '.env'))
+  ) {
+    specs.push({
+      name: 'freellm',
+      title: 'Бесплатные модели (роутер FreeLLMAPI)',
+      command: options.nodeExe,
+      args: [freeEntry],
+      cwd: path.join(freeHome, 'server'),
+      env: { ...process.env, NODE_ENV: 'production' },
+      healthUrl: 'http://127.0.0.1:3101/',
+      startupGraceMs: 2 * 60_000,
+      stopTimeoutMs: 8000,
+      lowPriority: true,
+      stdoutLog: path.join(logDir, 'freellm.out.log'),
+      stderrLog: path.join(logDir, 'freellm.err.log'),
+    });
+  }
   // The offline library: Kiwix shows the reference books (Wikipedia and others) that were downloaded to this PC.
   const kiwixHome = env.KIWIX_HOME?.trim() || `${root}\\apps\\kiwix`;
   const kiwixExe = path.join(kiwixHome, 'kiwix-serve.exe');
-  const libDir = env.LIBRARY_DIR?.trim() || 'D:\\FamilyData\\Офлайн-библиотека';
+  const libDir = env.LIBRARY_DIR?.trim() || 'D:\\FamilyData\\OfflineLibrary';
   if (env.SUPERVISE_KIWIX?.trim() !== '0' && existsSync(kiwixExe) && existsSync(libDir)) {
-    // Only finished books (an unfinished download has an .aria2 file next to it).
+    // Only finished books (an unfinished download has an .aria2 file next to it), added to the library one by one:
+    // a book that this Kiwix cannot read is skipped instead of stopping the whole library.
     const names = readdirSync(libDir);
     const zims = names.filter((n) => n.toLowerCase().endsWith('.zim') && !names.includes(`${n}.aria2`));
-    if (zims.length > 0) {
+    const manage = path.join(kiwixHome, 'kiwix-manage.exe');
+    const libraryXml = path.join(libDir, 'library.xml');
+    let added = 0;
+    if (existsSync(manage)) {
+      rmSync(libraryXml, { force: true });
+      for (const n of zims) {
+        try {
+          execFileSync(manage, [libraryXml, 'add', path.join(libDir, n)], {
+            timeout: 60_000,
+            windowsHide: true,
+          });
+          added += 1;
+        } catch {
+          // this book is left out
+        }
+      }
+    }
+    if (added > 0) {
       specs.push({
         name: 'kiwix',
         title: 'Офлайн-библиотека (Kiwix)',
@@ -375,7 +417,8 @@ export function buildAppSpecs(options: AppListOptions): AppSpec[] {
           '8089',
           '--urlRootLocation',
           '/offline',
-          ...zims.map((n) => path.join(libDir, n)),
+          '--library',
+          libraryXml,
         ],
         cwd: kiwixHome,
         env: { ...process.env },

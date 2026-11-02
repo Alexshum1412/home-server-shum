@@ -20,6 +20,7 @@ import { createDiskHistory } from './health/disk-history.ts';
 import { createIncidentLog } from './health/incidents.ts';
 import { checkInternet, type InternetState } from './health/net-check.ts';
 import { buildFamilyStatus } from './health/status.ts';
+import { readJsonFile, writeJsonAtomic } from './lib/json-store.ts';
 import type { Clock } from './lib/time.ts';
 import type { NotificationCenter } from './notify/center.ts';
 import type { BigModel } from './olivia/big-model.ts';
@@ -51,6 +52,8 @@ export interface ExtrasDeps {
   profiles: ProfileStore;
   /** Sends a text to a Telegram chat (the family's bot); false when it cannot. */
   sendTelegram?: (chatId: string, text: string, html?: boolean) => Promise<boolean>;
+  /** Free models from the internet (a router on this PC), tried first. */
+  external?: import('./olivia/chat.ts').ExternalLlm;
   /** People from outside the family who subscribed to the digest in the bot. */
   guests?: { subscribers: () => Promise<import('./guests/guests.ts').Guest[]> };
   freeBytes: (dir: string) => Promise<number | null>;
@@ -82,9 +85,19 @@ export function createExtras(deps: ExtrasDeps) {
 
   const admins = async () =>
     (await users.list()).filter((user) => user.role === 'admin' && !isDisabled(user));
+  // The same notice (the same key) reaches the administrators at most once in 24 hours, also after a restart.
+  const toldFile = path.join(config.dataDir, 'admin-notice-times.json');
   const tellAdmins = async (title: string, body: string, key: string, url = '/safety') => {
     const list = await admins();
     if (list.length === 0) return;
+    const told =
+      ((await readJsonFile(toldFile).catch(() => undefined)) as { at?: Record<string, number> } | undefined)
+        ?.at ?? {};
+    const now = clock().getTime();
+    if (now - (told[key] ?? 0) < 24 * 3_600_000) return;
+    told[key] = now;
+    for (const [name, at] of Object.entries(told)) if (now - at > 7 * 86_400_000) delete told[name];
+    await writeJsonAtomic(toldFile, { version: 1, at: told });
     await notify.notify({ users: list.map((a) => a.id), kind: 'system', title, body, url, key });
   };
 
@@ -111,6 +124,7 @@ export function createExtras(deps: ExtrasDeps) {
     quickUrl: config.oliviaLlm?.url ?? null,
     keyFile: config.oliviaLlm?.keyFile,
     big: deps.bigModel,
+    ...(deps.external ? { external: deps.external } : {}),
   });
 
   /** The tasks of the person for today and overdue ones (own, or given to them), as short lines. */

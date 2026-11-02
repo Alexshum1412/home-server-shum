@@ -2,7 +2,15 @@
 import type { BackupInfo, ProgramState, VolumeInfo } from './api.ts';
 
 /** The programs the supervisor runs; the only names the page may ask to start, stop or restart. */
-export type ProgramId = 'dashboard' | 'jellyfin' | 'aria2' | 'llama' | 'searxng' | 'kavita' | 'kiwix';
+export type ProgramId =
+  | 'dashboard'
+  | 'jellyfin'
+  | 'aria2'
+  | 'llama'
+  | 'searxng'
+  | 'kavita'
+  | 'kiwix'
+  | 'freellm';
 
 export const PROGRAM_IDS: readonly ProgramId[] = [
   'dashboard',
@@ -12,6 +20,7 @@ export const PROGRAM_IDS: readonly ProgramId[] = [
   'searxng',
   'kavita',
   'kiwix',
+  'freellm',
 ];
 
 export interface ProgramView {

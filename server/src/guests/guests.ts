@@ -18,6 +18,13 @@ export interface Guest {
   latitude: number | null;
   longitude: number | null;
   blocked: boolean;
+  /** The name in Telegram (@name), only to recognise the person. */
+  username: string;
+  /** The administrator allowed this person to talk to Olivia (by default a stranger gets the digest only). */
+  chat: boolean;
+  /** A note of the administrator («друг Алексея»). */
+  note: string;
+  lastAt: string;
   /** Messages to Olivia today (the day is kept to reset the count). */
   day: string;
   today: number;
@@ -68,7 +75,7 @@ export function createGuests(options: { dataDir: string; clock: Clock }) {
 
   return {
     /** The guest of this chat (created at the first message, up to GUEST_MAX), or null when there is no room or they are blocked. */
-    open(chatId: string, name: string): Promise<Guest | null> {
+    open(chatId: string, name: string, username = ''): Promise<Guest | null> {
       return queue.run(async () => {
         const all = await load();
         let guest = all[chatId];
@@ -85,11 +92,20 @@ export function createGuests(options: { dataDir: string; clock: Clock }) {
             latitude: null,
             longitude: null,
             blocked: false,
+            username: username.slice(0, 40),
+            chat: false,
+            note: '',
+            lastAt: options.clock().toISOString(),
             day: today(),
             today: 0,
             total: 0,
           };
           all[chatId] = guest;
+          await save(all);
+        }
+        if (!guest.blocked) {
+          guest.lastAt = options.clock().toISOString();
+          if (username && guest.username !== username.slice(0, 40)) guest.username = username.slice(0, 40);
           await save(all);
         }
         return guest.blocked ? null : guest;
@@ -115,7 +131,9 @@ export function createGuests(options: { dataDir: string; clock: Clock }) {
     },
     update(
       chatId: string,
-      patch: Partial<Pick<Guest, 'subscribed' | 'topics' | 'levels' | 'city' | 'latitude' | 'longitude'>>,
+      patch: Partial<
+        Pick<Guest, 'subscribed' | 'topics' | 'levels' | 'city' | 'latitude' | 'longitude' | 'chat' | 'note'>
+      >,
     ): Promise<Guest | null> {
       return queue.run(async () => {
         const all = await load();
@@ -124,6 +142,8 @@ export function createGuests(options: { dataDir: string; clock: Clock }) {
         if (patch.topics)
           guest.topics = [...new Set(patch.topics.filter((id) => GUEST_TOPICS.includes(id)))].slice(0, 8);
         if (patch.subscribed !== undefined) guest.subscribed = patch.subscribed;
+        if (patch.chat !== undefined) guest.chat = patch.chat;
+        if (patch.note !== undefined) guest.note = patch.note.slice(0, 200);
         if (patch.levels) guest.levels = { ...guest.levels, ...patch.levels };
         if (patch.city !== undefined) {
           guest.city = patch.city.slice(0, 80);

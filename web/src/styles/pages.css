@@ -1339,3 +1339,17 @@ fieldset.segmented {
     break-inside: avoid;
   }
 }
+
+.guests {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.guests__item {
+  border: 1px solid var(--c-border);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  display: grid;
+  gap: 0.4rem;
+}

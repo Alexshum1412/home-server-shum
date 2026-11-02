@@ -39,21 +39,29 @@ function DigestView(props: { text: string }) {
 interface GuestRow {
   chatId: string;
   name: string;
+  username: string;
+  note: string;
   joinedAt: string;
+  lastAt: string;
   subscribed: boolean;
   topics: string[];
   city: string;
   blocked: boolean;
+  chat: boolean;
   total: number;
 }
 
-/** For the administrator: the people from outside the family who talk to the bot and get the shared digest. */
+/** For the administrator: people from outside the family in the bot. A stranger gets the digest only; the rest is given here. */
 function GuestsSection(props: {
   run: <T>(job: () => Promise<T>, ok: string) => Promise<void>;
   busy: boolean;
 }) {
   const ids = useId();
-  const data = useResource<{ guests: GuestRow[] }>('/api/admin/guests');
+  const [q, setQ] = useState('');
+  const [asked, setAsked] = useState('');
+  const data = useResource<{ guests: GuestRow[] }>(
+    `/api/admin/guests${asked ? `?q=${encodeURIComponent(asked)}` : ''}`,
+  );
   const list = data.data?.guests ?? [];
   const act = async (path: string, body: object, ok: string) => {
     await props.run(() => apiPost(path, body), ok);
@@ -62,56 +70,122 @@ function GuestsSection(props: {
   return (
     <section class="page-section" aria-labelledby={`${ids}-g`}>
       <h2 id={`${ids}-g`} class="section-title">
-        Люди не из семьи в Telegram-боте
+        Люди не из семьи (Telegram-бот)
       </h2>
       <p class="meta">
-        Любой, кто напишет боту, может поговорить с Оливией (до 15 сообщений в день, без доступа к чему-либо
-        семейному) и подписаться на общий утренний дайджест. Выключить совсем — «Администрирование» →
-        «Функции» → «Бот для людей не из семьи». Подписчиков: {list.filter((g) => g.subscribed).length},
-        всего: {list.length}.
+        Любой, кто напишет боту, получает только утренний дайджест: подписка, выбор тем и города. Всё
+        остальное — разговор с Оливией — вы разрешаете сами, когда узнаете человека. Подписчиков:{' '}
+        {list.filter((g) => g.subscribed).length}, всего: {list.length}. Выключить совсем: «Администрирование»
+        → «Функции» → «Бот для людей не из семьи».
       </p>
-      {list.length === 0 ? <p class="section-lead">Пока никто не писал.</p> : null}
-      <ul class="family__people">
+      <form
+        class="action-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setAsked(q.trim());
+        }}
+      >
+        <label class="visually-hidden" htmlFor={`${ids}-q`}>
+          Поиск по людям: имя, @имя, город, заметка
+        </label>
+        <input
+          id={`${ids}-q`}
+          class="field__input"
+          placeholder="Найти: имя, @имя в Telegram, город, заметка"
+          value={q}
+          onInput={(e) => setQ(e.currentTarget.value)}
+        />
+        <button type="submit" class="button button--secondary">
+          Найти
+        </button>
+      </form>
+      {list.length === 0 ? (
+        <p class="section-lead">{asked ? 'Никого не нашлось.' : 'Пока никто не писал.'}</p>
+      ) : null}
+      <ul class="guests">
         {list.map((g) => (
-          <li key={g.chatId}>
-            <strong>{g.name || 'без имени'}</strong>{' '}
-            <span class="meta">
-              {g.subscribed ? 'подписан' : 'не подписан'}
-              {g.city ? `, ${g.city}` : ''}, сообщений: {g.total}
-              {g.blocked ? ', остановлен' : ''}
-            </span>{' '}
-            <button
-              type="button"
-              class="button button--quiet"
-              disabled={props.busy}
-              onClick={() =>
+          <li key={g.chatId} class="guests__item">
+            <p>
+              <strong>{g.name || 'без имени'}</strong>
+              {g.username ? <span class="meta"> @{g.username}</span> : null}{' '}
+              <span class="meta">
+                · {g.subscribed ? 'подписан на дайджест' : 'не подписан'}
+                {g.city ? ` · ${g.city}` : ''}
+                {g.topics.length > 0 ? ` · темы: ${g.topics.join(', ')}` : ''}
+                {g.blocked ? ' · остановлен' : ''}
+              </span>
+            </p>
+            <p class="meta">
+              Первое сообщение: {formatDateTime(g.joinedAt)}; последнее: {formatDateTime(g.lastAt)}; сообщений
+              Оливии: {g.total}
+            </p>
+            <label class="check">
+              <input
+                type="checkbox"
+                checked={g.chat}
+                disabled={props.busy}
+                onChange={(e) =>
+                  void act(
+                    '/api/admin/guests/update',
+                    { chatId: g.chatId, chat: e.currentTarget.checked },
+                    e.currentTarget.checked
+                      ? 'Разговор с Оливией разрешён.'
+                      : 'Разговор закрыт: только дайджест.',
+                  )
+                }
+              />
+              Разрешить разговор с Оливией (иначе — только дайджест)
+            </label>
+            <label class="visually-hidden" htmlFor={`${ids}-n-${g.chatId}`}>
+              Заметка о человеке
+            </label>
+            <input
+              id={`${ids}-n-${g.chatId}`}
+              class="field__input"
+              placeholder="Заметка: кто это (видите только вы)"
+              defaultValue={g.note}
+              maxLength={200}
+              onChange={(e) =>
                 void act(
-                  '/api/admin/guests/block',
-                  { chatId: g.chatId, blocked: !g.blocked },
-                  g.blocked ? 'Снова можно писать.' : 'Остановлен.',
+                  '/api/admin/guests/update',
+                  { chatId: g.chatId, note: e.currentTarget.value },
+                  'Заметка сохранена.',
                 )
               }
-            >
-              {g.blocked ? 'Вернуть' : 'Остановить'}
-            </button>{' '}
-            <button
-              type="button"
-              class="button button--quiet"
-              disabled={props.busy}
-              onClick={() => {
-                if (confirm('Убрать этого человека совсем? Он сможет написать заново.'))
-                  void act('/api/admin/guests/remove', { chatId: g.chatId }, 'Убран.');
-              }}
-            >
-              Убрать
-            </button>
+            />
+            <div class="action-row">
+              <button
+                type="button"
+                class="button button--quiet"
+                disabled={props.busy}
+                onClick={() =>
+                  void act(
+                    '/api/admin/guests/block',
+                    { chatId: g.chatId, blocked: !g.blocked },
+                    g.blocked ? 'Снова можно писать.' : 'Остановлен.',
+                  )
+                }
+              >
+                {g.blocked ? 'Вернуть' : 'Остановить'}
+              </button>
+              <button
+                type="button"
+                class="button button--quiet"
+                disabled={props.busy}
+                onClick={() => {
+                  if (confirm('Убрать этого человека совсем? Он сможет написать заново.'))
+                    void act('/api/admin/guests/remove', { chatId: g.chatId }, 'Убран.');
+                }}
+              >
+                Убрать
+              </button>
+            </div>
           </li>
         ))}
       </ul>
     </section>
   );
 }
-
 /** «Утренний дайджест»: a short personal message every morning (portal, and Telegram if it is set up). */
 export function DigestPage() {
   const ids = useId();

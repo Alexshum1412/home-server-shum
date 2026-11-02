@@ -139,6 +139,13 @@ export const FEATURES: readonly FeatureDef[] = [
     prefixes: ['/api/emergency'],
   },
   {
+    id: 'external_llm',
+    title: 'Бесплатные модели из интернета для Оливии',
+    lead: 'Оливия сначала спрашивает быстрые бесплатные модели через роутер на этом ПК; своя модель остаётся запасной. Тексты разговора уходят провайдерам.',
+    page: '',
+    prefixes: ['/api/external-llm'],
+  },
+  {
     id: 'plex',
     title: 'Plex (кино на телевизоре)',
     lead: 'Страница и подсказки по Plex рядом с Jellyfin.',

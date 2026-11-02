@@ -60,6 +60,7 @@ import { isApiPath, sendError, urlPath } from './lib/http.ts';
 import { readJsonFile, removeStaleTempFiles, writeJsonAtomic } from './lib/json-store.ts';
 import { type Clock, isoNow, systemClock } from './lib/time.ts';
 import { readAppVersion } from './lib/version.ts';
+import { offlineSearch } from './library/offline.ts';
 import { libraryDir, registerLibraryRoutes } from './library/routes.ts';
 import { createMediaLibrary } from './media/library.ts';
 import { registerMediaRoutes } from './media/routes.ts';
@@ -71,7 +72,7 @@ import { startBackupProcess } from './olivia/actions.ts';
 import { createAssistant } from './olivia/assistant/assistant.ts';
 import { registerAssistantRoutes } from './olivia/assistant/routes.ts';
 import { createBigModel } from './olivia/big-model.ts';
-import { createOliviaChat } from './olivia/chat.ts';
+import { createOliviaChat, type ExternalLlm } from './olivia/chat.ts';
 import { registerOliviaChatRoutes } from './olivia/chat-routes.ts';
 import type { LlmFetch } from './olivia/llm.ts';
 import { registerOliviaRoutes } from './olivia/routes.ts';
@@ -773,6 +774,16 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     threads: Math.max(1, Math.min(8, Number(process.env.OLIVIA_LLM_THREADS) || 3)),
     idleMs: 600_000,
   });
+  // Free models from the internet through a router on this PC (freellmapi); its key lives in a file outside Git.
+  const freeKeyFile = process.env.FREELLM_KEY_FILE?.trim() || 'C:\\FamilyServer\\secrets\\freellm.key';
+  const external: ExternalLlm | undefined = process.env.FREELLM_URL?.trim()
+    ? {
+        url: process.env.FREELLM_URL.trim(),
+        keyFile: freeKeyFile,
+        model: process.env.FREELLM_MODEL?.trim() || 'auto',
+        enabled: () => features.isOn('external_llm') && existsSync(freeKeyFile),
+      }
+    : undefined;
   let telegramBot: TelegramBot | undefined;
   const guests = createGuests({ dataDir: config.dataDir, clock });
   const notesStore = createNotes(storage);
@@ -794,6 +805,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     bigModel,
     profiles,
     guests,
+    ...(external ? { external } : {}),
     sendTelegram: async (chatId, text, html) =>
       telegramBot ? telegramBot.sendToChat(chatId, text, html === true) : false,
     freeBytes,
@@ -971,6 +983,8 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   });
   registerReportRoutes(app, { reports, guards });
   const oliviaChat = createOliviaChat({
+    ...(external ? { external } : {}),
+    offline: (query) => offlineSearch(query),
     reports,
     dataDir: config.dataDir,
     clock,

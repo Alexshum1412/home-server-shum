@@ -162,6 +162,7 @@ describe('the «Сервер» page: what it shows', () => {
       'searxng',
       'kavita',
       'kiwix',
+      'freellm',
     ]);
     expect(byId.jellyfin).toMatchObject({
       state: 'running',
