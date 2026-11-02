@@ -12,6 +12,8 @@ import type { ConnectionResponse, HealthResponse } from '../../shared/api.ts';
 import { registerAdminRoutes } from './admin/routes.ts';
 import { createServerPage, type ServerPageDeps } from './admin/server-page.ts';
 import { registerServerPageRoutes } from './admin/server-routes.ts';
+import { createArchive } from './archive/archive.ts';
+import { registerArchiveRoutes } from './archive/routes.ts';
 import { type AuditLog, createAuditLog } from './audit/log.ts';
 import { createGuards, currentUser, type Guards } from './auth/guards.ts';
 import { createLoginTimes, type LoginTimes } from './auth/logins.ts';
@@ -32,6 +34,8 @@ import { createDownloadManager, type DownloadManager, statfsFree } from './downl
 import { registerDownloadRoutes } from './downloads/routes.ts';
 import { createTorrentManager, type TorrentManager } from './downloads/torrents.ts';
 import { createExtras } from './extras.ts';
+import { createDossier } from './family/dossier.ts';
+import { registerFamilyRoutes } from './family/routes.ts';
 import { createFeatureStore, type FeatureStore } from './features/features.ts';
 import { registerFeatureRoutes } from './features/routes.ts';
 import { createHashIndex } from './files/hashes.ts';
@@ -752,6 +756,9 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     idleMs: 600_000,
   });
   let telegramBot: TelegramBot | undefined;
+  const notesStore = createNotes(storage);
+  // Pages saved for later and the search over everything the family keeps (pages, notes).
+  const archive = createArchive({ dataDir: config.dataDir, clock, notes: notesStore });
   // Deadlines, the journal of incidents, the forecast of the disk, decoys, devices of the network, the status and the morning digest.
   const extras = createExtras({
     config,
@@ -846,9 +853,10 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     notify,
     audit,
   });
+  registerArchiveRoutes(app, { archive, guards });
   registerPlannerRoutes(app, {
     calendar,
-    notes: createNotes(storage),
+    notes: notesStore,
     guards,
     audit,
     clock,
@@ -931,10 +939,42 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     keyFile: config.oliviaLlm?.keyFile,
     big: bigModel,
     searxUrl: searxngUrl(process.env),
+    knowledge: {
+      search: (user, query) => archive.search(user.username, query, 5),
+      save: (user, url) => archive.save(user.username, url),
+    },
   });
   registerOliviaChatRoutes(app, { chat: oliviaChat, users, guards, config });
   registerProfileRoutes(app, { profiles, guards, bot: () => telegramBot });
+  // The family archive: a question every few days, answers kept on this disk and copied to the others.
+  const dossier = createDossier({
+    dataDir: config.dataDir,
+    clock,
+    copies: (
+      process.env.DOSSIER_COPIES?.trim() ||
+      'D:\\FamilyServerBackups\\dossier;E:\\FamilyServerBackups\\dossier'
+    )
+      .split(';')
+      .map((item) => item.trim())
+      .filter((item) => item !== ''),
+    users: () => users.list(),
+    onAsk: async (user, question, reminder) => {
+      await notify.notify({
+        users: [user.id],
+        kind: 'reminder',
+        title: reminder ? 'Вопрос ждёт вас' : 'Вопрос от Оливии',
+        body: question.text,
+        url: '/family',
+        key: `family:${question.id}:${reminder ? 'r' : 'q'}`,
+      });
+      const profile = await profiles.get(user.username);
+      if (profile.telegramChatId !== '')
+        await telegramBot?.askFamily(profile.telegramChatId, question, reminder);
+    },
+  });
+  registerFamilyRoutes(app, { dossier, guards });
   telegramBot = createTelegramBot({
+    family: dossier,
     tokenFile: process.env.DIGEST_TELEGRAM_TOKEN_FILE?.trim() || `\\FamilyServer\\secrets\\telegram.token`,
     clock,
     publicUrl: config.publicUrl ?? '',
@@ -950,6 +990,41 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
           : downloads.add(owner, checkId),
     },
     storage,
+    knowledge: {
+      search: async (user, query) => {
+        const hits = await archive.search(user.username, query, 5);
+        return hits.length > 0
+          ? `Нашла у вас:\n\n${hits
+              .map(
+                (hit) =>
+                  `${hit.kind === 'page' ? '🌐' : '📝'} ${hit.title}\n${hit.snippet}\n${config.publicUrl ?? ''}${hit.href}`,
+              )
+              .join('\n\n')}`
+          : 'В ваших заметках и сохранённых страницах ничего не нашлось. Попробуйте другие слова.';
+      },
+      note: async (user, text) => `Сохранила заметку «${await archive.addNote(user.username, text)}».`,
+      save: async (user, url) => {
+        const page = /^https?:\/\/\S+$/i.test(url.trim())
+          ? await archive.save(user.username, url.trim())
+          : null;
+        return page
+          ? `Сохранила страницу «${page.title}» в архив. Теперь её можно найти по словам.`
+          : 'Не получилось сохранить: пришлите ссылку на открытую текстовую страницу.';
+      },
+      saved: async (user) => {
+        const pages = (await archive.list(user.username)).slice(0, 10);
+        return pages.length > 0
+          ? `Сохранённые страницы:\n${pages.map((p) => `• ${p.title}`).join('\n')}`
+          : 'Сохранённых страниц пока нет.';
+      },
+    },
+    deadlinesText: (user) => extras.deadlinesText(user),
+    resetChat: (user) => oliviaChat.clear(user.username),
+    digestToggle: async (user) => {
+      const state = await extras.digest.state(user.username);
+      await extras.digest.setMine(user.username, { enabled: !state.mine.enabled });
+      return !state.mine.enabled;
+    },
     digest: (user) => extras.digestText(user),
     tasksToday: (user) => extras.tasksText(user),
     statusText: () => extras.statusText(),
@@ -995,6 +1070,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   let heartbeatTimer: NodeJS.Timeout | undefined;
   let sweepTimer: NodeJS.Timeout | undefined;
   let reminderTimer: NodeJS.Timeout | undefined;
+  let dossierTimer: NodeJS.Timeout | undefined;
   let reminderRun: Promise<unknown> = Promise.resolve();
   app.addHook('onClose', async () => {
     if (watchTimer) clearInterval(watchTimer);
@@ -1002,6 +1078,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     if (sweepTimer) clearInterval(sweepTimer);
     if (reminderTimer) clearInterval(reminderTimer);
     extras.stop();
+    if (dossierTimer) clearInterval(dossierTimer);
     telegramBot?.stop();
     bigModel.stop();
     await reminderRun;
@@ -1029,6 +1106,9 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
       collector.start();
       extras.start();
       void telegramBot?.start();
+      void dossier.tick().catch(() => undefined);
+      dossierTimer = setInterval(() => void dossier.tick().catch(() => undefined), 3_600_000);
+      dossierTimer.unref();
       await downloads.load();
       torrents.start();
       // Pieces of uploads that nobody finished are removed after a day (once now, then every hour).

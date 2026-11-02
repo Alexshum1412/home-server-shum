@@ -68,29 +68,38 @@ async function safeGet(raw: string, fetchImpl: Fetch, ms: number, hops = 3): Pro
   return null;
 }
 
-/** A page as readable text (title and the first part of the body), or null. */
-export async function readPage(
+/** A page: the title, the readable text (up to `limit` characters) and, when asked, the original HTML. */
+export async function fetchPage(
   raw: string,
   fetchImpl: Fetch = fetch,
-): Promise<{ title: string; text: string; url: string } | null> {
+  limit = 6000,
+): Promise<{ title: string; text: string; url: string; html: string } | null> {
   try {
-    const response = await safeGet(raw, fetchImpl, 10_000);
+    const response = await safeGet(raw, fetchImpl, 15_000);
     if (!response || !response.ok) return null;
     const type = response.headers.get('content-type') ?? '';
     if (!/text\/html|text\/plain|application\/xhtml/i.test(type)) return null;
-    const bytes = new Uint8Array(await response.arrayBuffer()).subarray(0, 1_500_000);
+    const bytes = new Uint8Array(await response.arrayBuffer()).subarray(0, 3_000_000);
     const html = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
     const title = plain(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '');
     const body = html
       .replace(/<(script|style|noscript|svg|nav|footer|header|form)[\s\S]*?<\/\1>/gi, ' ')
       .replace(/<!--[\s\S]*?-->/g, ' ');
-    const text = plain(body).slice(0, 6000);
-    return text.length < 80 ? null : { title: title.slice(0, 200), text, url: raw };
+    const text = plain(body).slice(0, limit);
+    return text.length < 80 ? null : { title: title.slice(0, 200), text, url: raw, html };
   } catch {
     return null;
   }
 }
 
+/** A page as readable text (title and the first part of the body), or null. */
+export async function readPage(
+  raw: string,
+  fetchImpl: Fetch = fetch,
+): Promise<{ title: string; text: string; url: string } | null> {
+  const page = await fetchPage(raw, fetchImpl, 6000);
+  return page ? { title: page.title, text: page.text, url: page.url } : null;
+}
 async function duckDuckGo(query: string, fetchImpl: Fetch): Promise<SearchHit[]> {
   try {
     const response = await fetchImpl('https://html.duckduckgo.com/html/', {

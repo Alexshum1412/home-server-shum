@@ -85,7 +85,9 @@ describe('morning digest', () => {
     const { digest } = await setup({ quick: async (name) => `Привет, ${name}! Хорошего дня.` });
     const admin = await digest.runNow(person('papa', 'admin'));
     expect(admin).toMatchObject({ how: 'model' });
-    expect(typeof admin === 'object' ? admin.text : '').toMatch(/^Привет, Папа! Хорошего дня\.\n\n🖥 Сервер\n• Сервер: /);
+    expect(typeof admin === 'object' ? admin.text : '').toMatch(
+      /^Привет, Папа! Хорошего дня\.\n\n🖥 Сервер\n• Сервер: /,
+    );
   });
 
   it('goes out once a day at the set time, for those who want it, and a person can switch it off', async () => {

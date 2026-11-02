@@ -1,5 +1,5 @@
 /**
- * The sections of the portal as the family sees them: ten entries instead of sixteen pages. A section opens its first
+ * The sections of the portal as the family sees them: ten entries instead of eighteen pages. A section opens its first
  * page; inside it the pages are tabs. Addresses of the pages did not change (old bookmarks and links still work).
  */
 export interface NavTab {
@@ -22,8 +22,15 @@ export interface NavGroup {
 
 export const NAV_GROUPS: readonly NavGroup[] = [
   { id: 'home', label: 'Главная', to: '/', tabs: [{ path: '/', label: 'Главная' }] },
-  { id: 'olivia', label: 'Оливия', to: '/olivia', tabs: [{ path: '/olivia', label: 'Оливия' }] },
-  { id: 'chat', label: 'Чат', to: '/chat', tabs: [{ path: '/chat', label: 'Чат' }] },
+  {
+    id: 'chat',
+    label: 'Чат',
+    to: '/chat',
+    tabs: [
+      { path: '/chat', label: 'Люди' },
+      { path: '/olivia', label: 'Оливия' },
+    ],
+  },
   {
     id: 'notifications',
     label: 'Уведомления',
@@ -50,6 +57,15 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { path: '/cinema', label: 'Кинотеатр' },
       { path: '/photos', label: 'Фото' },
       { path: '/files', label: 'Файлы' },
+    ],
+  },
+  {
+    id: 'memory',
+    label: 'Память',
+    to: '/family',
+    tabs: [
+      { path: '/family', label: 'Семейный архив' },
+      { path: '/archive', label: 'Знания и страницы' },
     ],
   },
   { id: 'downloads', label: 'Загрузки', to: '/downloads', tabs: [{ path: '/downloads', label: 'Загрузки' }] },

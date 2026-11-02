@@ -79,6 +79,20 @@ export const FEATURES: readonly FeatureDef[] = [
     prefixes: ['/api/digest'],
   },
   {
+    id: 'family',
+    title: 'Семейный архив',
+    lead: 'Вопросы Оливии о жизни и ответы, голос и фото для памяти.',
+    page: '/family',
+    prefixes: ['/api/family'],
+  },
+  {
+    id: 'archive',
+    title: 'Архив страниц и знания',
+    lead: 'Сохранённые страницы и поиск по ним, заметкам и документам.',
+    page: '/archive',
+    prefixes: ['/api/archive'],
+  },
+  {
     id: 'print',
     title: 'Печать',
     lead: 'Печать документов на принтере.',

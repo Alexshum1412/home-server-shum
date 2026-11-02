@@ -3,13 +3,13 @@ import {
   Clapperboard,
   Download,
   Ellipsis,
+  Heart,
   House,
   ListChecks,
   LogOut,
   MessagesSquare,
   Printer,
   Server,
-  Sparkles,
   UserRound,
 } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
@@ -40,7 +40,7 @@ interface NavItem {
 
 const ICONS: Record<string, IconComponent> = {
   home: House,
-  olivia: Sparkles,
+  memory: Heart,
   chat: MessagesSquare,
   notifications: Bell,
   planner: ListChecks,
@@ -52,7 +52,7 @@ const ICONS: Record<string, IconComponent> = {
 };
 
 /** In the bottom tab bar on phones; everything else is under «Ещё». */
-const PRIMARY_IDS = ['home', 'media', 'chat', 'olivia'];
+const PRIMARY_IDS = ['home', 'chat', 'media', 'memory'];
 
 /** The sections this person may see: a section whose pages are all off (or all for administrators) is hidden. */
 function visibleItems(

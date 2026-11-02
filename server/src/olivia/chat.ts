@@ -35,6 +35,11 @@ const SYSTEM = (name: string, now: string) =>
   'За свежими сведениями человек может написать «найди в интернете …». Медицинские и юридические вопросы — только общая информация и совет обратиться к специалисту.' +
   MANNERS;
 
+const SAVE_RE =
+  /(?:сохрани|добавь в архив|занеси в архив|в архив)\s+(?:страницу\s+|эту страницу\s+|ссылку\s+)?(https?:\/\/\S+)/i;
+const KB_RE =
+  /(?:в|по)\s+(?:моих|наших|нашей|моей)\s+(?:заметк\w*|сохранённ\w*|сохраненн\w*|архив\w*|страниц\w*|знани\w*)|что\s+я\s+(?:сохранял\w*|записывал\w*)|найди\s+в\s+(?:заметках|архиве|сохранённых|сохраненных)|в\s+сохранённых\s+страницах|в\s+сохраненных\s+страницах/i;
+
 /** Verbs of an open request: the talk with the model, whatever the topic words look like. */
 const GENERAL_RE =
   /(?:^|\s)(?:напиши|сочини|составь|придумай|расскажи|объясни|реши|переведи|посоветуй|подскажи|помоги|распиши)(?![\p{L}\p{N}])|рецепт|стих|сочинени|домашн/iu;
@@ -102,6 +107,14 @@ export function createOliviaChat(options: {
   big: BigModel;
   /** Address of the own search engine (SearXNG on this PC); null — the public fallbacks only. */
   searxUrl?: string | null;
+  /** The family's own knowledge: saved pages and notes (search) and saving a page. */
+  knowledge?: {
+    search: (
+      user: StoredUser,
+      query: string,
+    ) => Promise<Array<{ kind: string; title: string; snippet: string; href: string }>>;
+    save: (user: StoredUser, url: string) => Promise<{ title: string } | null>;
+  };
   fetch?: typeof fetch;
 }) {
   const fetchImpl = options.fetch ?? fetch;
@@ -190,7 +203,35 @@ export function createOliviaChat(options: {
         );
         return { kind: 'tool', answer };
       }
-      const intent = opts.web === false ? null : webIntent(text);
+      // «Сохрани страницу …», «что я сохранял про …»: the family's own archive, before the internet.
+      const saveUrl = options.knowledge ? SAVE_RE.exec(text)?.[1] : undefined;
+      let own = '';
+      let ownSources: string[] = [];
+      if (options.knowledge && saveUrl) {
+        opts.onStatus?.('Сохраняю страницу…');
+        const page = await options.knowledge.save(user, saveUrl);
+        const reply = page
+          ? `Сохранила страницу «${page.title}» в «Память → Знания и страницы». Теперь можно спросить: «что я сохранял про …».`
+          : 'Не получилось сохранить: страница закрыта, не текстовая или недоступна.';
+        await append(
+          user.username,
+          { role: 'user', text, at: options.clock().toISOString() },
+          { role: 'assistant', text: reply, at: options.clock().toISOString(), model: 'rules' },
+        );
+        opts.onToken?.(reply);
+        return { kind: 'chat', text: reply, model: 'quick', sources: [] };
+      }
+      if (options.knowledge && KB_RE.test(text)) {
+        opts.onStatus?.('Ищу в ваших заметках и сохранённых страницах…');
+        const query = text.replace(KB_RE, ' ').replace(/\s+/g, ' ').trim() || text;
+        const hits = await options.knowledge.search(user, query);
+        own =
+          hits.length > 0
+            ? `Найдено в заметках и сохранённых страницах семьи:\n${hits.map((h, i) => `${i + 1}. ${h.title} — ${h.snippet}`).join('\n')}`
+            : 'В заметках и сохранённых страницах семьи по этому запросу ничего не нашлось (так и скажи, не придумывай).';
+        ownSources = hits.slice(0, 3).map((h) => h.href);
+      }
+      const intent = opts.web === false || own !== '' ? null : webIntent(text);
       if (!intent) {
         const plan = routeByRules(text);
         // «Напиши…», «объясни…», «реши…» is a talk, not a search of the film library or of the files.
@@ -209,8 +250,8 @@ export function createOliviaChat(options: {
       }
       busy.add(user.username);
       try {
-        const sources: string[] = [];
-        let context = '';
+        const sources: string[] = [...ownSources];
+        let context = own;
         if (intent?.kind === 'news') {
           opts.onStatus?.('Смотрю свежие новости…');
           const items = await newsHeadlines(fetchImpl, 8);

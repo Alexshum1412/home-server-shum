@@ -226,6 +226,7 @@ export function createExtras(deps: ExtrasDeps) {
   };
 
   return {
+    digest,
     incidents,
     /** Called by the file routes when somebody opens a file. */
     onFileOpened(loc: { root: string; space: string; path: string }, username: string): void {
@@ -360,6 +361,17 @@ export function createExtras(deps: ExtrasDeps) {
       return lines.length > 0
         ? `Дела на сегодня:\n${lines.map((line) => `• ${line}`).join('\n')}`
         : 'На сегодня дел нет.';
+    },
+    async deadlinesText(user: StoredUser): Promise<string> {
+      const list = (await deadlines.soon(user.username, 30)).slice(0, 10);
+      return list.length > 0
+        ? `Ближайшие сроки:\n${list
+            .map(
+              (d) =>
+                `• ${d.title}: ${d.daysLeft < 0 ? `просрочен на ${-d.daysLeft} дн.` : d.daysLeft === 0 ? 'сегодня' : `через ${d.daysLeft} дн.`}`,
+            )
+            .join('\n')}`
+        : 'Ближайших сроков нет.';
     },
     async statusText(): Promise<string> {
       const status = buildFamilyStatus({

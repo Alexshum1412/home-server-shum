@@ -10,6 +10,8 @@ import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import type { DownloadCheckResponse, DownloadDestination, OliviaCard } from '../../../shared/api.ts';
 import { hasPermission, type StoredUser, type UserStore } from '../auth/users.ts';
+import type { Dossier } from '../family/dossier.ts';
+import type { FamilyQuestion } from '../family/questions.ts';
 import type { Clock } from '../lib/time.ts';
 import type { OliviaChat } from '../olivia/chat.ts';
 import type { ProfileStore } from '../profile/profiles.ts';
@@ -77,6 +79,20 @@ export interface BotDeps {
       options?: { strip?: boolean },
     ) => Promise<{ name: string }>;
   };
+  /** The family archive: questions and answers by voice, text and photos. */
+  family: Dossier;
+  /** Search and saving of the person's own knowledge: notes, saved pages, files. */
+  knowledge: {
+    search: (user: StoredUser, query: string) => Promise<string>;
+    note: (user: StoredUser, text: string) => Promise<string>;
+    save: (user: StoredUser, url: string) => Promise<string>;
+    saved: (user: StoredUser) => Promise<string>;
+  };
+  deadlinesText: (user: StoredUser) => Promise<string>;
+  /** Forgets the talk with Olivia. */
+  resetChat: (user: StoredUser) => Promise<void>;
+  /** Switches the morning digest of the person; returns the new state. */
+  digestToggle: (user: StoredUser) => Promise<boolean>;
   digest: (user: StoredUser) => Promise<string>;
   tasksToday: (user: StoredUser) => Promise<string>;
   statusText: () => Promise<string>;
@@ -84,20 +100,167 @@ export interface BotDeps {
   onError?: (message: string) => void;
 }
 
-const MENU: Button[][] = [
-  [
-    { text: '📰 Дайджест', callback_data: 'menu:digest' },
-    { text: '✅ Дела на сегодня', callback_data: 'menu:tasks' },
-  ],
-  [
-    { text: '📊 Что с сервером', callback_data: 'menu:status' },
-    { text: '⬇ Мои загрузки', callback_data: 'menu:downloads' },
-  ],
-  [
-    { text: '🔔 Уведомления сюда: вкл/выкл', callback_data: 'menu:notify' },
-    { text: '❓ Что я умею', callback_data: 'menu:help' },
-  ],
-];
+type MenuId =
+  | 'main'
+  | 'today'
+  | 'olivia'
+  | 'media'
+  | 'downloads'
+  | 'knowledge'
+  | 'family'
+  | 'server'
+  | 'settings';
+
+const BACK: Button = { text: '⬅ В главное меню', callback_data: 'm:main' };
+
+/** The menus of the bot: the main one leads to the others (a button edits the same message, so the chat stays tidy). */
+const MENUS: Record<MenuId, { title: string; rows: Button[][] }> = {
+  main: {
+    title: 'Что сделать? Выберите раздел или просто напишите мне.',
+    rows: [
+      [
+        { text: '📰 Сегодня', callback_data: 'm:today' },
+        { text: '🤖 Оливия', callback_data: 'm:olivia' },
+      ],
+      [
+        { text: '🎬 Кино и музыка', callback_data: 'm:media' },
+        { text: '📥 Загрузки', callback_data: 'm:downloads' },
+      ],
+      [
+        { text: '📚 Знания и заметки', callback_data: 'm:knowledge' },
+        { text: '👪 Семейный архив', callback_data: 'm:family' },
+      ],
+      [
+        { text: '🖥 Сервер', callback_data: 'm:server' },
+        { text: '⚙ Настройки', callback_data: 'm:settings' },
+      ],
+    ],
+  },
+  today: {
+    title: '📰 Сегодня',
+    rows: [
+      [
+        { text: '☀ Дайджест', callback_data: 'a:digest' },
+        { text: '✅ Дела на сегодня', callback_data: 'a:tasks' },
+      ],
+      [
+        { text: '📅 Календарь', callback_data: 'a:calendar' },
+        { text: '🗞 Новости', callback_data: 'a:news' },
+      ],
+      [{ text: '⏳ Сроки и гарантии', callback_data: 'a:deadlines' }],
+      [BACK],
+    ],
+  },
+  olivia: {
+    title: '🤖 Оливия: спросите о чём угодно. Выберите, с чего начать:',
+    rows: [
+      [
+        { text: '🌐 Найти в интернете', callback_data: 'h:web' },
+        { text: '🍲 Рецепт', callback_data: 'h:recipe' },
+      ],
+      [
+        { text: '📖 Помощь с уроками', callback_data: 'h:homework' },
+        { text: '✉ Написать текст', callback_data: 'h:write' },
+      ],
+      [{ text: '🧹 Начать разговор заново', callback_data: 'a:reset' }],
+      [BACK],
+    ],
+  },
+  media: {
+    title: '🎬 Кино и музыка',
+    rows: [
+      [
+        { text: '🔎 Найти в медиатеке', callback_data: 'h:film' },
+        { text: '🆕 Что нового', callback_data: 'a:newmedia' },
+      ],
+      [
+        { text: '▶ Открыть кинотеатр', callback_data: 'a:cinema' },
+        { text: '📺 Как смотреть на ТВ', callback_data: 'a:tv' },
+      ],
+      [BACK],
+    ],
+  },
+  downloads: {
+    title: '📥 Загрузки',
+    rows: [
+      [
+        { text: '⬇ Мои загрузки', callback_data: 'a:downloads' },
+        { text: '🔗 Как скачать', callback_data: 'a:howdl' },
+      ],
+      [BACK],
+    ],
+  },
+  knowledge: {
+    title: '📚 Знания и заметки: найду в сохранённых страницах, заметках и файлах.',
+    rows: [
+      [
+        { text: '🔍 Найти в моих знаниях', callback_data: 'h:kb' },
+        { text: '📝 Новая заметка', callback_data: 'h:note' },
+      ],
+      [
+        { text: '💾 Сохранить страницу', callback_data: 'h:save' },
+        { text: '🗂 Что сохранено', callback_data: 'a:saved' },
+      ],
+      [BACK],
+    ],
+  },
+  family: {
+    title: '👪 Семейный архив: Оливия задаёт вопросы о жизни, а ответы остаются в памяти семьи.',
+    rows: [
+      [
+        { text: '❓ Задать мне вопрос', callback_data: 'f:ask' },
+        { text: '🔀 Другой вопрос', callback_data: 'f:another' },
+      ],
+      [
+        { text: '✍ Ответить', callback_data: 'f:answer' },
+        { text: '📜 Мои ответы', callback_data: 'f:mine' },
+      ],
+      [{ text: '🔕 Вопросы вкл/выкл', callback_data: 'f:toggle' }],
+      [BACK],
+    ],
+  },
+  server: {
+    title: '🖥 Сервер',
+    rows: [
+      [
+        { text: '📊 Что с сервером', callback_data: 'a:status' },
+        { text: '💽 Место на диске', callback_data: 'a:disk' },
+      ],
+      [{ text: '💾 Резервные копии', callback_data: 'a:backup' }],
+      [BACK],
+    ],
+  },
+  settings: {
+    title: '⚙ Настройки',
+    rows: [
+      [
+        { text: '🔔 Уведомления сюда', callback_data: 'menu:notify' },
+        { text: '☀ Дайджест вкл/выкл', callback_data: 'a:digesttoggle' },
+      ],
+      [{ text: '❓ Что я умею', callback_data: 'menu:help' }],
+      [BACK],
+    ],
+  },
+};
+const MENU: Button[][] = MENUS.main.rows;
+
+/** What a hint button asks the person to write; the next text is handled accordingly. */
+const HINTS: Record<string, { ask: string; prefix: (text: string) => string | null; once?: true }> = {
+  web: { ask: 'Что найти в интернете? Напишите вопрос.', prefix: (t) => `найди в интернете ${t}` },
+  recipe: { ask: 'Что хотите приготовить или из чего? Напишите.', prefix: (t) => `Предложи рецепт: ${t}` },
+  homework: {
+    ask: 'Пришлите задание текстом — решим по шагам и объясним.',
+    prefix: (t) => `Помоги с домашним заданием, объясни по шагам: ${t}`,
+  },
+  write: {
+    ask: 'Что написать? Например: «письмо в школу о болезни ребёнка».',
+    prefix: (t) => `Напиши: ${t}`,
+  },
+  film: { ask: 'Что искать в медиатеке? Название или тема.', prefix: (t) => `найди фильм ${t}` },
+  kb: { ask: 'Что искать в ваших заметках, сохранённых страницах и файлах?', prefix: () => null },
+  note: { ask: 'Пришлите текст заметки — я её сохраню.', prefix: () => null },
+  save: { ask: 'Пришлите ссылку на страницу — сохраню её в архив.', prefix: () => null },
+};
 
 const HELP =
   'Я Оливия, помощница семейного сервера. Что можно:\n' +
@@ -160,6 +323,9 @@ export function createTelegramBot(deps: BotDeps) {
   const pending = new Map<string, { chatId: number; url: string }>();
   const recent = new Map<number, number[]>();
   let pendingSeq = 0;
+  /** One-shot «the next text is …» (a hint button) and the family answer in progress. */
+  const modes = new Map<number, { kind: string; until: number }>();
+  const answering = new Map<number, { entryId: string | null; until: number }>();
 
   async function api<T>(method: string, body: object, signal?: AbortSignal, ms = 30_000): Promise<T | null> {
     if (!token) return null;
@@ -213,6 +379,106 @@ export function createTelegramBot(deps: BotDeps) {
     const timer = setInterval(() => void api('sendChatAction', { chat_id: chatId, action: 'typing' }), 4500);
     return () => clearInterval(timer);
   };
+
+  /** A menu: new message, or (when the tap came from a menu message) the same message edited. */
+  async function showMenu(chatId: number | string, id: MenuId, messageId?: number): Promise<void> {
+    const menu = MENUS[id];
+    if (messageId !== undefined) {
+      const edited = await api('editMessageText', {
+        chat_id: chatId,
+        message_id: messageId,
+        text: menu.title,
+        reply_markup: { inline_keyboard: menu.rows },
+      });
+      if (edited !== null) return;
+    }
+    await send(chatId, menu.title, menu.rows);
+  }
+
+  const FAMILY_ROWS: Button[][] = [
+    [
+      { text: '✍ Ответить', callback_data: 'f:answer' },
+      { text: '🔀 Другой вопрос', callback_data: 'f:another' },
+    ],
+    [{ text: '⏸ Не сейчас', callback_data: 'f:later' }],
+  ];
+
+  async function sendQuestion(chatId: number | string, question: FamilyQuestion, reminder: boolean) {
+    await send(
+      chatId,
+      `${reminder ? '🕊 Напоминаю о вопросе' : '🕊 Вопрос от Оливии'}\n\n${question.text}\n\nМожно ответить текстом, голосовым сообщением или фото, когда будет время: нажмите «Ответить».`,
+      FAMILY_ROWS,
+    );
+  }
+
+  /** Bytes of a file of the chat (a photo, a voice message) into the archive entry. */
+  async function attachFromTelegram(
+    user: StoredUser,
+    chatId: number,
+    message: TgMessage,
+    entryId: string,
+  ): Promise<boolean> {
+    const photo = message.photo?.at(-1);
+    const doc = message.voice ?? message.audio ?? message.video ?? message.document;
+    const file = photo ?? doc;
+    if (!file) return false;
+    if ((file.file_size ?? 0) > 20 * 1024 * 1024) {
+      await send(
+        chatId,
+        'Эта запись больше 20 МБ: Telegram не даёт боту её скачать. Запишите покороче или загрузите через портал («Семейный архив»).',
+      );
+      return false;
+    }
+    const info = await api<{ file_path: string }>('getFile', { file_id: file.file_id });
+    if (!info?.file_path) return false;
+    const stamp = deps.clock().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const ext = info.file_path.includes('.')
+      ? info.file_path.slice(info.file_path.lastIndexOf('.'))
+      : photo
+        ? '.jpg'
+        : '.oga';
+    const name = `${doc?.file_name ?? `telegram-${stamp}`}${doc?.file_name ? '' : ext}`;
+    try {
+      const response = await fetchImpl(`https://api.telegram.org/file/bot${token}/${info.file_path}`, {
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!response.ok || !response.body) throw new Error('download failed');
+      const size = file.file_size ?? Number(response.headers.get('content-length') ?? 0);
+      await deps.family.attach(user.username, entryId, name, size, Readable.fromWeb(response.body as never));
+      return true;
+    } catch (error) {
+      await send(chatId, `Не получилось сохранить: ${error instanceof Error ? error.message : 'ошибка'}`);
+      return false;
+    }
+  }
+
+  /** A text, a voice message or a photo while the person is answering: the first creates the entry, the others join it. */
+  async function takeAnswer(user: StoredUser, chatId: number, message: TgMessage): Promise<void> {
+    const state = answering.get(chatId);
+    if (!state) return;
+    state.until = deps.clock().getTime() + 60 * 60_000;
+    const text = (message.text ?? message.caption ?? '').trim();
+    try {
+      if (state.entryId === null) {
+        const entry = await deps.family.answer(user.username, { text, source: 'telegram' });
+        state.entryId = entry.id;
+      } else if (text !== '') {
+        await deps.family.addText(user.username, state.entryId, text);
+      }
+      let stored = text !== '';
+      if (message.photo || message.voice || message.audio || message.video || message.document)
+        stored = (await attachFromTelegram(user, chatId, message, state.entryId)) || stored;
+      if (stored)
+        await send(
+          chatId,
+          'Записала ✅ Можно добавить ещё голосовое, фото или слова. Когда закончите — «Готово».',
+          [[{ text: '✅ Готово', callback_data: 'f:done' }]],
+        );
+    } catch (error) {
+      answering.delete(chatId);
+      await send(chatId, error instanceof Error ? error.message : 'Не получилось сохранить ответ.');
+    }
+  }
 
   /** Not more than 20 messages a minute from one chat. */
   function tooFast(chatId: number): boolean {
@@ -350,8 +616,35 @@ export function createTelegramBot(deps: BotDeps) {
 
   async function onText(user: StoredUser, chatId: number, text: string) {
     if (/^\/(start|menu|меню)\b/i.test(text) || /^меню$/i.test(text)) {
-      await send(chatId, `Здравствуйте, ${user.displayName}! Что сделать?`, MENU);
+      modes.delete(chatId);
+      await send(chatId, `Здравствуйте, ${user.displayName}! ${MENUS.main.title}`, MENU);
       return;
+    }
+    if (/^\/family\b/i.test(text)) {
+      await onFamily(user, chatId, 'ask');
+      return;
+    }
+    if (answering.has(chatId)) {
+      await takeAnswer(user, chatId, { message_id: 0, chat: { id: chatId, type: 'private' }, text });
+      return;
+    }
+    const mode = modes.get(chatId);
+    if (mode) {
+      modes.delete(chatId);
+      if (mode.until > deps.clock().getTime()) {
+        if (mode.kind === 'kb') return void (await send(chatId, await deps.knowledge.search(user, text)));
+        if (mode.kind === 'note') return void (await send(chatId, await deps.knowledge.note(user, text)));
+        if (mode.kind === 'save') {
+          const stop = typing(chatId);
+          try {
+            return void (await send(chatId, await deps.knowledge.save(user, text)));
+          } finally {
+            stop();
+          }
+        }
+        const prefix = HINTS[mode.kind]?.prefix(text);
+        if (prefix) return void (await ask(user, chatId, prefix));
+      }
     }
     if (/^\/help\b/i.test(text)) {
       await send(chatId, HELP, MENU);
@@ -375,7 +668,133 @@ export function createTelegramBot(deps: BotDeps) {
     await ask(user, chatId, text);
   }
 
-  async function onCallback(user: StoredUser, chatId: number, data: string) {
+  async function onAction(user: StoredUser, chatId: number, action: string): Promise<void> {
+    const say = (text: string) => ask(user, chatId, text);
+    const link = (path: string) => `${deps.publicUrl}${path}`;
+    switch (action) {
+      case 'digest':
+        return onCallback(user, chatId, 'menu:digest');
+      case 'tasks':
+        return onCallback(user, chatId, 'menu:tasks');
+      case 'status':
+        return onCallback(user, chatId, 'menu:status');
+      case 'downloads':
+        return onCallback(user, chatId, 'menu:downloads');
+      case 'calendar':
+        return say('что у нас в календаре на этой неделе');
+      case 'news':
+        return say('что в новостях сегодня');
+      case 'deadlines':
+        return void (await send(chatId, await deps.deadlinesText(user)));
+      case 'disk':
+        return say('сколько места на диске');
+      case 'backup':
+        return say('что с резервными копиями');
+      case 'newmedia':
+        return say('покажи новое в кинотеатре');
+      case 'cinema':
+        return void (await send(chatId, `🎬 Кинотеатр: ${link('/cinema')}`));
+      case 'tv':
+        return void (await send(
+          chatId,
+          `📺 На телевизоре откройте приложение Plex (или Jellyfin, если оно у вас работает) и войдите на сервер. Подробные шаги — в портале: ${link('/help')}`,
+        ));
+      case 'howdl':
+        return void (await send(
+          chatId,
+          'Пришлите мне ссылку на файл, магнитную ссылку или файл .torrent — я проверю и предложу кнопку «Скачать». По названию раздачи я сама не ищу.',
+        ));
+      case 'saved':
+        return void (await send(chatId, await deps.knowledge.saved(user)));
+      case 'reset':
+        await deps.resetChat(user);
+        return void (await send(chatId, 'Начали разговор заново, прежнее я забыла.'));
+      case 'digesttoggle': {
+        const on = await deps.digestToggle(user);
+        return void (await send(chatId, on ? 'Утренний дайджест включён.' : 'Утренний дайджест выключен.'));
+      }
+      default:
+        return;
+    }
+  }
+
+  async function onFamily(user: StoredUser, chatId: number, action: string): Promise<void> {
+    const now = deps.clock().getTime();
+    if (action === 'ask' || action === 'another') {
+      const state = await deps.family.state(user.username);
+      if (action === 'ask' && state.current)
+        return void (await sendQuestion(chatId, state.current.question, false));
+      const question = await deps.family.askNow(user.username, action === 'another');
+      if (!question)
+        return void (await send(chatId, 'Все мои вопросы к вам уже заданы — спасибо, что отвечали!'));
+      return void (await sendQuestion(chatId, question, false));
+    }
+    if (action === 'answer') {
+      const state = await deps.family.state(user.username);
+      if (!state.current)
+        return void (await send(chatId, 'Сейчас вопроса нет. Нажмите «Задать мне вопрос».'));
+      answering.set(chatId, { entryId: null, until: now + 60 * 60_000 });
+      return void (await send(
+        chatId,
+        'Слушаю. Пришлите ответ: текстом, голосовым сообщением, фото или всем сразу. Когда закончите — нажмите «Готово».',
+        [[{ text: '✅ Готово', callback_data: 'f:done' }]],
+      ));
+    }
+    if (action === 'done') {
+      answering.delete(chatId);
+      return void (await send(
+        chatId,
+        'Спасибо, это сохранено в семейном архиве. Следующий вопрос будет через несколько дней.',
+        [[BACK]],
+      ));
+    }
+    if (action === 'later') {
+      await deps.family.skip(user.username);
+      return void (await send(chatId, 'Хорошо, этот вопрос пропустим. Задам другой через несколько дней.'));
+    }
+    if (action === 'mine') {
+      const state = await deps.family.state(user.username);
+      const lines = state.entries
+        .slice(0, 10)
+        .map(
+          (e) =>
+            `• ${e.at.slice(0, 10)} — ${e.question.slice(0, 70)}${e.media.length > 0 ? ` (вложений: ${e.media.length})` : ''}`,
+        );
+      return void (await send(
+        chatId,
+        lines.length > 0
+          ? `Ваши ответы (всего ${state.entries.length}, осталось вопросов: ${state.remaining}):\n${lines.join('\n')}`
+          : 'Ответов пока нет.',
+      ));
+    }
+    if (action === 'toggle') {
+      const state = await deps.family.state(user.username);
+      await deps.family.setEnabled(user.username, !state.enabled);
+      return void (await send(
+        chatId,
+        state.enabled
+          ? 'Вопросы выключены.'
+          : 'Вопросы включены: следующий пришлю в течение нескольких дней.',
+      ));
+    }
+  }
+
+  async function onCallback(user: StoredUser, chatId: number, data: string, messageId?: number) {
+    if (data.startsWith('m:')) {
+      const id = data.slice(2) as MenuId;
+      if (MENUS[id]) await showMenu(chatId, id, messageId);
+      return;
+    }
+    if (data.startsWith('a:')) return onAction(user, chatId, data.slice(2));
+    if (data.startsWith('f:')) return onFamily(user, chatId, data.slice(2));
+    if (data.startsWith('h:')) {
+      const kind = data.slice(2);
+      const hint = HINTS[kind];
+      if (!hint) return;
+      modes.set(chatId, { kind, until: deps.clock().getTime() + 10 * 60_000 });
+      await send(chatId, hint.ask);
+      return;
+    }
     if (data === 'menu:digest') {
       const stop = typing(chatId);
       try {
@@ -457,7 +876,16 @@ export function createTelegramBot(deps: BotDeps) {
       );
       return;
     }
-    if (message.photo || message.document || message.video || message.audio || message.voice) {
+    const hasFile = message.photo || message.document || message.video || message.audio || message.voice;
+    if (hasFile) {
+      // A voice message that comes while a question waits is the answer to it; so is anything sent in the answering mode.
+      if (!answering.has(chatId) && message.voice && (await deps.family.state(user.username)).current) {
+        answering.set(chatId, { entryId: null, until: deps.clock().getTime() + 60 * 60_000 });
+      }
+      if (answering.has(chatId)) {
+        await takeAnswer(user, chatId, message);
+        return;
+      }
       await saveFile(user, chatId, message);
       return;
     }
@@ -474,7 +902,7 @@ export function createTelegramBot(deps: BotDeps) {
         if (chatId === undefined || query.message?.chat.type !== 'private' || tooFast(chatId)) return;
         const user = await userOfChat(chatId);
         if (!user || query.data === undefined || query.data === 'noop') return;
-        await onCallback(user, chatId, query.data);
+        await onCallback(user, chatId, query.data, query.message?.message_id);
       }
     } catch (error) {
       deps.onError?.(`Бот Telegram: ${String(error)}`);
@@ -524,7 +952,8 @@ export function createTelegramBot(deps: BotDeps) {
       if (botName === null) return;
       void api('setMyCommands', {
         commands: [
-          { command: 'menu', description: 'Меню' },
+          { command: 'menu', description: 'Главное меню' },
+          { command: 'family', description: 'Вопрос из семейного архива' },
           { command: 'help', description: 'Что я умею' },
         ],
       });
@@ -550,6 +979,10 @@ export function createTelegramBot(deps: BotDeps) {
       return send(chatId, html ? digestHtml(text) : text, undefined, html);
     },
     menuFor: () => MENU,
+    /** The question of the family archive to a linked chat. */
+    async askFamily(chatId: string, question: FamilyQuestion, reminder: boolean): Promise<void> {
+      await sendQuestion(chatId, question, reminder);
+    },
   };
 }
 

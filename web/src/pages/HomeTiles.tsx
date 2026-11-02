@@ -2,11 +2,11 @@ import {
   Bell,
   Clapperboard,
   Download,
+  Heart,
   ListChecks,
   MessagesSquare,
   Printer,
   Server,
-  Sparkles,
   UserRound,
 } from 'lucide-preact';
 import { useChat } from '../chat/ChatProvider.tsx';
@@ -16,8 +16,11 @@ import { NAV_GROUPS } from '../lib/nav-groups.ts';
 import { useIsAdmin } from '../state.tsx';
 
 const TILES: Record<string, { icon: IconComponent; lead: string }> = {
-  olivia: { icon: Sparkles, lead: 'Спросите что угодно: совет, рецепт, поиск, помощь с уроками' },
-  chat: { icon: MessagesSquare, lead: 'Переписка и звонки с семьёй' },
+  chat: {
+    icon: MessagesSquare,
+    lead: 'Переписка с семьёй и разговор с Оливией: совет, рецепт, уроки, поиск',
+  },
+  memory: { icon: Heart, lead: 'Семейный архив воспоминаний, сохранённые страницы и поиск' },
   media: { icon: Clapperboard, lead: 'Фильмы, фото и файлы' },
   planner: { icon: ListChecks, lead: 'Дела, покупки, календарь, заметки, сроки' },
   downloads: { icon: Download, lead: 'Скачать файл или фильм по ссылке' },

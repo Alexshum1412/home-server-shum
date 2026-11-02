@@ -12,12 +12,14 @@ import { documentTitle, ROUTES, type RouteId } from './lib/routes.ts';
 import { setPageTitle } from './lib/title.ts';
 import { AccountPage } from './pages/Account.tsx';
 import { AdminPage } from './pages/Admin.tsx';
+import { ArchivePage } from './pages/Archive.tsx';
 import { CalendarPage } from './pages/Calendar.tsx';
 import { ChatPage } from './pages/Chat.tsx';
 import { CinemaPage } from './pages/Cinema.tsx';
 import { DeadlinesPage } from './pages/Deadlines.tsx';
 import { DigestPage } from './pages/Digest.tsx';
 import { DownloadsPage } from './pages/Downloads.tsx';
+import { FamilyPage } from './pages/Family.tsx';
 import { FeatureOffPage } from './pages/FeatureOff.tsx';
 import { FilesPage } from './pages/Files.tsx';
 import { ForcedPasswordPage } from './pages/ForcedPassword.tsx';
@@ -59,6 +61,10 @@ function Page(props: { route: RouteId; onSessionChanged: (session: SessionRespon
       return <NotificationsPage />;
     case 'olivia':
       return <OliviaPage />;
+    case 'family':
+      return <FamilyPage />;
+    case 'archive':
+      return <ArchivePage />;
     case 'photos':
       return <PhotosPage />;
     case 'files':
