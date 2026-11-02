@@ -11,6 +11,9 @@ describe('cleanFreeAnswer', () => {
   it('drops the reasoning before a lone closing tag', () => {
     expect(cleanFreeAnswer('Минск?</think>\n\nМинск.')).toBe('Минск.');
   });
+  it('drops a name tag the model puts before its answer', () => {
+    expect(cleanFreeAnswer('\n\nОливия:\n\nПривет!')).toBe('Привет!');
+  });
   it('rejects an answer that is only reasoning', () => {
     expect(cleanFreeAnswer('Thinking:\n\n1. Identify the question')).toBe('');
   });

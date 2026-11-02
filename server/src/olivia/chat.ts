@@ -87,10 +87,10 @@ export function cleanFreeAnswer(raw: string): string {
   }
   text = text.replace(/<\/?think(?:ing)?>/gi, '').trim();
   if (/^(thinking|reasoning|рассуждени[ея]|размышлени[ея])\b[\s:.]/i.test(text)) return '';
-  return text;
+  return text.replace(/^(?:Оливия|Olivia)\s*:\s*/i, '');
 }
 
-async function* streamChat(
+export async function* streamChat(
   url: string,
   headers: Record<string, string>,
   modelName: string,
