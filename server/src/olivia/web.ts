@@ -215,7 +215,11 @@ export type WebIntent =
 /** What in the message needs the internet: news, a link to read, or «найди в интернете …». */
 export function webIntent(message: string): WebIntent {
   const url = URL_RE.exec(message)?.[0];
-  if (url && !/^magnet:/i.test(url) && !/\.torrent(\?|$)/i.test(url)) return { kind: 'page', url };
+  // «скачай <ссылка>» is a download for the server helper, not a page to read.
+  const download = /скача|загруз|закач|торрент/i.test(message);
+  if (url && !download && !/^magnet:/i.test(url) && !/\.torrent(\?|$)/i.test(url)) {
+    return { kind: 'page', url };
+  }
   if (NEWS_RE.test(message)) return { kind: 'news' };
   if (
     /в\s+(?:интернете|сети|гугле)|погугли|загугли|свежие данные|последни[ей] (?:новости|данные)/i.test(

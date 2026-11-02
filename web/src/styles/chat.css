@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Family chat, calls, notifications. Colours come from tokens.css only; the call screen is dark in
  * every theme (as in any call app), its few colours are defined here.
  */
@@ -1158,7 +1158,7 @@ fieldset.chips--set {
   --tg-out: #e3f5cf;
   --tg-out-text: #0e2a12;
   --tg-meta: #66747f;
-  --tg-meta-out: #5f9d4f;
+  --tg-meta-out: #3d7a2e;
   --tg-bar: #ffffff;
   --tg-head: #ffffff;
   --tg-link: #2468a6;

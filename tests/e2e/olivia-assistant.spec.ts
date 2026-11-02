@@ -23,13 +23,13 @@ test.describe('Olivia', () => {
   }) => {
     await signIn(page, 'family', '/olivia');
     await expect(page.getByRole('heading', { level: 2, name: 'Оливия' })).toBeVisible();
-    await expect(page.getByText('Языковая модель не подключена')).toBeVisible();
+    await expect(page.getByText('помощница семьи')).toBeVisible();
     await expect(log(page).getByText('Здравствуйте! Я Оливия')).toBeVisible();
     await page.getByRole('button', { name: 'Сколько места на диске?' }).click();
     await expect(page.locator('.olivia-turn').filter({ hasText: /Диск / }).last()).toBeVisible();
-    await page.getByRole('button', { name: 'Что ты умеешь?' }).click();
+    await page.getByRole('button', { name: 'Что умеешь?' }).click();
     await expect(
-      page.locator('.olivia-turn').filter({ hasText: 'Сама я ничего не удаляю' }).last(),
+      page.locator('.olivia-turn').filter({ hasText: 'Сама ничего не удаляю' }).last(),
     ).toBeVisible();
   });
 
