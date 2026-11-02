@@ -1,0 +1,28 @@
+# Optional containers of the family server. Needs Docker (see scripts/install-docker.ps1 and docs/runbooks/docker.md).
+# Everything listens on this PC only (127.0.0.1); the portal is the one door for the family.
+# Start:  docker compose -f deploy/docker/compose.yml up -d archivebox
+services:
+  archivebox:
+    image: archivebox/archivebox:latest
+    command: server --quick-init 0.0.0.0:8000
+    ports:
+      - "127.0.0.1:8100:8000"
+    environment:
+      - ALLOWED_HOSTS=*
+      - PUBLIC_INDEX=False
+      - PUBLIC_SNAPSHOTS=False
+      - PUBLIC_ADD_VIEW=False
+      - SAVE_ARCHIVE_DOT_ORG=False
+    volumes:
+      - D:/FamilyData/ArchiveBox:/data
+    restart: unless-stopped
+    profiles: ["archivebox"]
+
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    ports:
+      - "127.0.0.1:8123:8123"
+    volumes:
+      - D:/FamilyData/HomeAssistant:/config
+    restart: unless-stopped
+    profiles: ["homeassistant"]
