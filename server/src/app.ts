@@ -81,7 +81,7 @@ import { createUnifiedSearch } from './search/unified.ts';
 import { createServiceRegistry, type FetchLike, type ServiceRegistry } from './services/checker.ts';
 import { registerServiceRoutes } from './services/routes.ts';
 import { DEFAULT_WEB_ROOT, registerStatic, sendSpaFallback } from './static.ts';
-import { llamaPaths, readJellyfinApiKey } from './supervisor/apps.ts';
+import { llamaPaths, readJellyfinApiKey, searxngUrl } from './supervisor/apps.ts';
 import { pipeNameFor } from './supervisor/main.ts';
 import { createAlertWatcher } from './system/alert-watcher.ts';
 import { createSystemCollector, type ProbeTimeouts, type SystemCollector } from './system/collector.ts';
@@ -929,6 +929,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     quickUrl: config.oliviaLlm?.url ?? null,
     keyFile: config.oliviaLlm?.keyFile,
     big: bigModel,
+    searxUrl: searxngUrl(process.env),
   });
   registerOliviaChatRoutes(app, { chat: oliviaChat, users, guards, config });
   registerProfileRoutes(app, { profiles, guards, bot: () => telegramBot });

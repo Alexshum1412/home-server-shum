@@ -139,8 +139,44 @@ async function wikipedia(query: string, fetchImpl: Fetch): Promise<SearchHit[]> 
   }
 }
 
-/** The web in a few lines: a search engine first, the encyclopedia when it gives nothing. */
-export async function searchWeb(query: string, fetchImpl: Fetch = fetch): Promise<SearchHit[]> {
+/** The own meta-search engine (SearXNG on this PC, loopback only): the words of the search go out, nothing else. */
+async function searxng(query: string, baseUrl: string, fetchImpl: Fetch): Promise<SearchHit[]> {
+  try {
+    const url = `${baseUrl.replace(/\/+$/, '')}/search?format=json&language=ru&q=${encodeURIComponent(query)}`;
+    const response = await fetchImpl(url, {
+      signal: AbortSignal.timeout(20_000),
+      headers: { 'user-agent': UA },
+    });
+    if (!response.ok) return [];
+    const body = (await response.json()) as {
+      results?: Array<{ title?: string; url?: string; content?: string }>;
+    };
+    const hits: SearchHit[] = [];
+    for (const item of body.results ?? []) {
+      if (typeof item.url !== 'string' || !/^https?:\/\//.test(item.url)) continue;
+      hits.push({
+        title: plain(item.title ?? '').slice(0, 200),
+        url: item.url,
+        snippet: plain(item.content ?? '').slice(0, 300),
+      });
+      if (hits.length >= 6) break;
+    }
+    return hits;
+  } catch {
+    return [];
+  }
+}
+
+/** The web in a few lines: the own search engine first, then a public one, the encyclopedia when nothing is found. */
+export async function searchWeb(
+  query: string,
+  fetchImpl: Fetch = fetch,
+  searxUrl: string | null = null,
+): Promise<SearchHit[]> {
+  if (searxUrl) {
+    const own = await searxng(query, searxUrl, fetchImpl);
+    if (own.length > 0) return own;
+  }
   const found = await duckDuckGo(query, fetchImpl);
   return found.length > 0 ? found : wikipedia(query, fetchImpl);
 }

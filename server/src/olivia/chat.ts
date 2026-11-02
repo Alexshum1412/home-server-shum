@@ -90,6 +90,8 @@ export function createOliviaChat(options: {
   quickUrl: string | null;
   keyFile: string | undefined;
   big: BigModel;
+  /** Address of the own search engine (SearXNG on this PC); null — the public fallbacks only. */
+  searxUrl?: string | null;
   fetch?: typeof fetch;
 }) {
   const fetchImpl = options.fetch ?? fetch;
@@ -213,7 +215,7 @@ export function createOliviaChat(options: {
           }
         } else if (intent?.kind === 'search') {
           opts.onStatus?.('Ищу в интернете…');
-          const hits = await searchWeb(intent.query, fetchImpl);
+          const hits = await searchWeb(intent.query, fetchImpl, options.searxUrl ?? null);
           if (hits.length > 0) {
             context = hits.map((hit, i) => `${i + 1}. ${hit.title} — ${hit.snippet} (${hit.url})`).join('\n');
             for (const hit of hits.slice(0, 3)) sources.push(hit.url);

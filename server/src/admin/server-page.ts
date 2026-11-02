@@ -43,6 +43,7 @@ const PROGRAM_TITLE: Record<ProgramId, string> = {
   jellyfin: 'Кинотеатр (Jellyfin)',
   aria2: 'Торрент-клиент (aria2)',
   llama: 'Языковая модель Оливии',
+  searxng: 'Поиск в интернете (SearXNG)',
 };
 
 const STATE_TEXT: Record<ProgramState, string> = {

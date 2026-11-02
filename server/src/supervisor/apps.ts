@@ -144,6 +144,20 @@ export function llamaArgs(paths: LlamaPaths, config: Pick<Config, 'oliviaLlm'>, 
   ];
 }
 
+/** The own search engine: only a loopback address from .env counts (the words of a search go to it, nothing else). */
+export function searxngUrl(env: Env): string | null {
+  const raw = env.SEARXNG_URL?.trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'http:' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost')
+      ? raw.replace(/\/+$/, '')
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Reads the API key saved during setup; null when there is none (the stop is then a hard kill). */
 export function readJellyfinApiKey(file: string): string | null {
   try {
@@ -292,6 +306,34 @@ export function buildAppSpecs(options: AppListOptions): AppSpec[] {
       lowPriority: true,
       stdoutLog: path.join(logDir, 'llama.out.log'),
       stderrLog: path.join(logDir, 'llama.err.log'),
+    });
+  }
+  // The own search engine for Olivia (SearXNG in a private Python): only when installed AND switched on in .env.
+  const searx = searxngUrl(env);
+  const root = `${systemDrive(env)}\\FamilyServer`;
+  const python = env.SEARXNG_PYTHON?.trim() || `${root}\\apps\\python\\python.exe`;
+  const source = env.SEARXNG_SRC?.trim() || `${root}\\apps\\searxng-src\\searxng-master`;
+  const settings = env.SEARXNG_SETTINGS?.trim() || `${root}\\data\\searxng\\settings.yml`;
+  if (
+    searx !== null &&
+    env.SUPERVISE_SEARXNG?.trim() !== '0' &&
+    existsSync(python) &&
+    existsSync(path.join(source, 'searx')) &&
+    existsSync(settings)
+  ) {
+    specs.push({
+      name: 'searxng',
+      title: 'Поиск в интернете (SearXNG)',
+      command: python,
+      args: ['-m', 'searx.webapp'],
+      cwd: source,
+      env: { ...process.env, SEARXNG_SETTINGS_PATH: settings },
+      healthUrl: `${searx}/healthz`,
+      startupGraceMs: 2 * 60_000,
+      stopTimeoutMs: 5000,
+      lowPriority: true,
+      stdoutLog: path.join(logDir, 'searxng.out.log'),
+      stderrLog: path.join(logDir, 'searxng.err.log'),
     });
   }
   return specs;

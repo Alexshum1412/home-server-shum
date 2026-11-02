@@ -154,7 +154,7 @@ describe('the «Сервер» page: what it shows', () => {
     const page = (await get(admin)).json() as ServerPageResponse;
     expect(page.supervisor.running).toBe(true);
     const byId = Object.fromEntries(page.programs.map((program) => [program.id, program]));
-    expect(Object.keys(byId)).toEqual(['dashboard', 'jellyfin', 'aria2', 'llama']);
+    expect(Object.keys(byId)).toEqual(['dashboard', 'jellyfin', 'aria2', 'llama', 'searxng']);
     expect(byId.jellyfin).toMatchObject({
       state: 'running',
       stateText: 'Работает',

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { englishLine, germanLine, parseHeadlines, recipeLine, wordOfDay } from '../src/digest/interests.ts';
-import { webIntent } from '../src/olivia/web.ts';
+import { searchWeb, webIntent } from '../src/olivia/web.ts';
 import { cleanPatch, createProfileStore } from '../src/profile/profiles.ts';
+import { searxngUrl } from '../src/supervisor/apps.ts';
 import { placeFromCaption, splitMessage } from '../src/telegram/bot.ts';
 import { makeTempDir, removeDir } from './helpers.ts';
 
@@ -98,5 +99,33 @@ describe('the Telegram bot helpers', () => {
     expect(placeFromCaption('это общее фото')).toEqual({ shared: true, album: null });
     expect(placeFromCaption('')).toEqual({ shared: false, album: null });
     expect(placeFromCaption('в альбом ../../Секрет').album).toBe('....Секрет');
+  });
+});
+
+describe('the own search engine', () => {
+  it('asks only the loopback engine first and falls back when it is silent', async () => {
+    const urls: string[] = [];
+    const fake = (async (input: unknown) => {
+      urls.push(String(input));
+      return new Response(
+        JSON.stringify({
+          results: [
+            { title: 'Фильмы', url: 'https://example.org/a', content: 'Список' },
+            { title: 'x', url: 'javascript:1' },
+          ],
+        }),
+      );
+    }) as typeof fetch;
+    const hits = await searchWeb('новые фильмы', fake, 'http://127.0.0.1:8888/');
+    expect(hits).toEqual([{ title: 'Фильмы', url: 'https://example.org/a', snippet: 'Список' }]);
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain('http://127.0.0.1:8888/search?format=json');
+  });
+
+  it('accepts only a loopback address from .env', () => {
+    expect(searxngUrl({ SEARXNG_URL: 'http://127.0.0.1:8888/' })).toBe('http://127.0.0.1:8888');
+    expect(searxngUrl({ SEARXNG_URL: 'http://192.168.1.5:8888' })).toBeNull();
+    expect(searxngUrl({ SEARXNG_URL: 'https://example.org' })).toBeNull();
+    expect(searxngUrl({})).toBeNull();
   });
 });
