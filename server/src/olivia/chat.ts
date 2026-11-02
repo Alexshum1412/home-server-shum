@@ -82,7 +82,10 @@ export function cleanFreeAnswer(raw: string): string {
   let text = raw.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '');
   const closing = text.search(/<\/think(?:ing)?>/i);
   if (closing >= 0) {
-    const tail = text.slice(closing).replace(/<\/think(?:ing)?>/gi, '').trim();
+    const tail = text
+      .slice(closing)
+      .replace(/<\/think(?:ing)?>/gi, '')
+      .trim();
     text = tail;
   }
   text = text.replace(/<\/?think(?:ing)?>/gi, '').trim();
