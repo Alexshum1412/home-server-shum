@@ -1254,6 +1254,14 @@ export function createTelegramBot(deps: BotDeps) {
       return send(chatId, html ? digestHtml(text) : text, undefined, html);
     },
     menuFor: () => MENU,
+    /** A made report to the chat of a person: the picture and the document. */
+    async sendReportToChat(
+      user: StoredUser,
+      chatId: string,
+      card: Extract<OliviaCard, { kind: 'report' }>,
+    ): Promise<void> {
+      await sendReport(user, Number(chatId), card);
+    },
     /** The question of the family archive to a linked chat. */
     async askFamily(chatId: string, question: FamilyQuestion, reminder: boolean): Promise<void> {
       await sendQuestion(chatId, question, reminder);

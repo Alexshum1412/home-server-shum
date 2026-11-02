@@ -2,7 +2,7 @@
  * The fixed list of programs the supervisor runs. Paths come from the code and from .env set by the
  * owner on this PC — never from the portal or any request.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Config, Env } from '../config.ts';
 import { ensureAria2SecretSync } from '../downloads/aria2.ts';
@@ -354,6 +354,39 @@ export function buildAppSpecs(options: AppListOptions): AppSpec[] {
       stdoutLog: path.join(logDir, 'kavita.out.log'),
       stderrLog: path.join(logDir, 'kavita.err.log'),
     });
+  }
+  // The offline library: Kiwix shows the reference books (Wikipedia and others) that were downloaded to this PC.
+  const kiwixHome = env.KIWIX_HOME?.trim() || `${root}\\apps\\kiwix`;
+  const kiwixExe = path.join(kiwixHome, 'kiwix-serve.exe');
+  const libDir = env.LIBRARY_DIR?.trim() || 'D:\\FamilyData\\Офлайн-библиотека';
+  if (env.SUPERVISE_KIWIX?.trim() !== '0' && existsSync(kiwixExe) && existsSync(libDir)) {
+    // Only finished books (an unfinished download has an .aria2 file next to it).
+    const names = readdirSync(libDir);
+    const zims = names.filter((n) => n.toLowerCase().endsWith('.zim') && !names.includes(`${n}.aria2`));
+    if (zims.length > 0) {
+      specs.push({
+        name: 'kiwix',
+        title: 'Офлайн-библиотека (Kiwix)',
+        command: kiwixExe,
+        args: [
+          '--address',
+          '127.0.0.1',
+          '--port',
+          '8089',
+          '--urlRootLocation',
+          '/offline',
+          ...zims.map((n) => path.join(libDir, n)),
+        ],
+        cwd: kiwixHome,
+        env: { ...process.env },
+        healthUrl: 'http://127.0.0.1:8089/offline/catalog/v2/root.xml',
+        startupGraceMs: 3 * 60_000,
+        stopTimeoutMs: 5000,
+        lowPriority: true,
+        stdoutLog: path.join(logDir, 'kiwix.out.log'),
+        stderrLog: path.join(logDir, 'kiwix.err.log'),
+      });
+    }
   }
   return specs;
 }

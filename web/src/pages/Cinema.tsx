@@ -494,7 +494,11 @@ function Catalog(props: { home: CatalogHomeResponse }) {
       ) : null}
       <ToastRegion toast={toast} />
       <p class="meta cinema-footer">
-        Не открывается или нужен запасной способ?{' '}
+        Смотрите на телевизоре? Рядом с Jellyfin работает{' '}
+        <a class="text-link" href="/plex">
+          Plex — его приложение есть почти на любом телевизоре
+        </a>
+        . Не открывается или нужен запасной способ?{' '}
         <a class="text-link" href={withQuery('/cinema', { fallback: '1' })}>
           Запасной просмотр без Jellyfin и состояние кинотеатра
         </a>

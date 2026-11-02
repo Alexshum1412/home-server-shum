@@ -1317,3 +1317,25 @@ fieldset.segmented {
   border-left: 3px solid var(--c-border);
   font-style: italic;
 }
+
+/* Emergency card: clean on paper */
+.emergency__line {
+  margin: 0.2rem 0;
+  white-space: pre-wrap;
+}
+@media print {
+  .sidenav,
+  .tabbar,
+  .shell__header,
+  .section-tabs,
+  .emergency__actions,
+  .banner {
+    display: none !important;
+  }
+  .emergency {
+    color: #000;
+  }
+  .emergency__section {
+    break-inside: avoid;
+  }
+}

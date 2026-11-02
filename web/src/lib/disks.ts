@@ -53,9 +53,9 @@ export function summarizeVolumes(volumes: readonly VolumeInfo[]): DiskSummary {
   }
 
   if (volumes.length === 1) return { status: SPACE_OK, detail: freeText(tightest) };
-  const [free, total] = formatBytesPair(tightest.freeBytes, tightest.totalBytes);
+  // Every disk is named with its own numbers (the system SSD and the big HDD are two different stories).
   return {
     status: SPACE_OK,
-    detail: `На всех дисках достаточно места. Меньше всего свободно на ${tightest.path}: ${free} из ${total}`,
+    detail: `На всех дисках достаточно места. ${volumes.map((volume) => freeText(volume)).join(' · ')}`,
   };
 }

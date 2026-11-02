@@ -9,6 +9,7 @@ import { QUESTIONS } from '../src/family/questions.ts';
 import { createFeatureStore } from '../src/features/features.ts';
 import { createGuests, GUEST_DAILY_MESSAGES } from '../src/guests/guests.ts';
 import { createDiskHistory } from '../src/health/disk-history.ts';
+import { listBooks } from '../src/library/routes.ts';
 import { serverReport } from '../src/reports/build.ts';
 import { reportIntent } from '../src/reports/service.ts';
 import { digestHtml } from '../src/telegram/bot.ts';
@@ -258,5 +259,21 @@ describe('people from outside the family', () => {
     expect(await guests.open('1001', 'Игорь')).toBeNull();
     expect(await guests.subscribers()).toEqual([]);
     expect(await guests.remove('1001')).toBe(true);
+  });
+});
+
+describe('the offline library', () => {
+  it('lists the books by their short names and marks the ones that are still being downloaded', async () => {
+    const dir = await temp();
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(path.join(dir, 'wikipedia_ru_all_maxi_2026-10.zim'), 'x');
+    await writeFile(path.join(dir, 'wikipedia_be_all_nopic_2026-09.zim'), 'xx');
+    await writeFile(path.join(dir, 'wikipedia_be_all_nopic_2026-09.zim.aria2'), '');
+    await writeFile(path.join(dir, 'notes.txt'), 'not a book');
+    const books = await listBooks(dir);
+    expect(books.map((b) => b.name).sort()).toEqual(['wikipedia_be_all_nopic', 'wikipedia_ru_all_maxi']);
+    expect(books.find((b) => b.name === 'wikipedia_be_all_nopic')?.downloading).toBe(true);
+    expect(books.find((b) => b.name === 'wikipedia_ru_all_maxi')?.title).toContain('Википедия на русском');
+    expect(await listBooks(path.join(dir, 'missing'))).toEqual([]);
   });
 });

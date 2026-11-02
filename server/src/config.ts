@@ -1,3 +1,4 @@
+import { existsSync, statfsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
@@ -6,6 +7,21 @@ import { isPrivateLanAddress } from './lan.ts';
 import { REPO_ROOT } from './lib/version.ts';
 import { isLoopbackHttpUrl } from './olivia/llm.ts';
 import { llamaKeyFile } from './olivia/llm-key.ts';
+
+/** Every drive that exists and has a size (an empty card reader is skipped): both the SSD and the HDD are watched. */
+function detectWindowsVolumes(): string {
+  const found: string[] = [];
+  for (const letter of 'CDEFGHIJKLMNOPQRSTUVWXYZ') {
+    const root = `${letter}:\\`;
+    try {
+      if (!existsSync(root)) continue;
+      if (Number(statfsSync(root).blocks) > 0) found.push(root);
+    } catch {
+      // not ready: skipped
+    }
+  }
+  return (found.length > 0 ? found : ['C:\\']).join(';');
+}
 
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 export type CookieSecureMode = 'auto' | 'always' | 'never';
@@ -298,7 +314,7 @@ export function loadConfig(env: Env, platform: NodeJS.Platform = process.platfor
     LOG_LEVEL: pick('LOG_LEVEL', 'info').toLowerCase(),
     SERVICE_CHECK_INTERVAL_SEC: pick('SERVICE_CHECK_INTERVAL_SEC', '60'),
     SERVICE_CHECK_TIMEOUT_MS: pick('SERVICE_CHECK_TIMEOUT_MS', '3000'),
-    VOLUMES: pick('VOLUMES', platform === 'win32' ? 'C:\\' : '/'),
+    VOLUMES: pick('VOLUMES', platform === 'win32' ? detectWindowsVolumes() : '/'),
     LOW_SPACE_PERCENT: pick('LOW_SPACE_PERCENT', '10'),
     PRINTER_NAME: env.PRINTER_NAME?.trim() ?? '',
     TAILSCALE_EXE: pick('TAILSCALE_EXE', DEFAULT_TAILSCALE_EXE),

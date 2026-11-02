@@ -226,6 +226,8 @@ function Card(props: { card: OliviaCard }) {
 interface ChatInfo {
   turns: Array<{ role: 'user' | 'assistant'; text: string; at?: string }>;
   models: { quick: boolean; smart: { available: boolean; running: boolean } };
+  /** The question that is being answered right now (the page was left and opened again). */
+  pending?: { text: string; at: string } | null;
 }
 
 type StreamEvent =
@@ -254,24 +256,50 @@ export function OliviaThread(props: { onBack: () => void }) {
   const abort = useRef<AbortController | null>(null);
   const touchOnly = useRef(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
 
+  // The talk is kept on the server: a person who left in the middle of an answer finds it here when they come back.
+  // While the server is still writing, the question is shown with «печатает…» and the page asks again every 2 seconds.
   useEffect(() => {
-    apiGet<ChatInfo>('/api/olivia/chat').then(
-      (loaded) => {
-        setInfo(loaded);
-        if (loaded.turns.length > 0) {
-          setTurns([
-            { id: 0, from: 'olivia', text: WELCOME, at: '' },
-            ...loaded.turns.map((turn) => ({
-              id: next.current++,
-              from: turn.role === 'user' ? ('me' as const) : ('olivia' as const),
-              text: turn.text,
-              at: turn.at ? clock(new Date(turn.at)) : '',
-            })),
-          ]);
-        }
-      },
-      () => undefined,
-    );
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const show = (loaded: ChatInfo) => {
+      setInfo(loaded);
+      const list: Turn[] = [{ id: 0, from: 'olivia', text: WELCOME, at: '' }];
+      for (const turn of loaded.turns) {
+        list.push({
+          id: next.current++,
+          from: turn.role === 'user' ? 'me' : 'olivia',
+          text: turn.text,
+          at: turn.at ? clock(new Date(turn.at)) : '',
+        });
+      }
+      if (loaded.pending) {
+        list.push({
+          id: next.current++,
+          from: 'me',
+          text: loaded.pending.text,
+          at: clock(new Date(loaded.pending.at)),
+        });
+        list.push({ id: next.current++, from: 'olivia', text: '', streaming: true, at: '' });
+      }
+      setTurns(list);
+      setBusy(loaded.pending != null);
+      setWorking(loaded.pending ? 'печатает…' : '');
+    };
+    const load = () =>
+      apiGet<ChatInfo>('/api/olivia/chat').then(
+        (loaded) => {
+          if (!alive) return;
+          // While this page itself is receiving an answer, it is not redrawn from the server.
+          if (!abort.current) show(loaded);
+          if (loaded.pending) timer = setTimeout(load, 2000);
+        },
+        () => undefined,
+      );
+    void load();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
   }, []);
   // Scrolls the conversation itself (not the page) to its last line while the text arrives.
   useEffect(() => {
@@ -394,7 +422,10 @@ export function OliviaThread(props: { onBack: () => void }) {
         </div>
         <div class="thread__actions">
           {info?.models.smart.available ? (
-            <label class="thread__smart" title="Умный режим: большая модель отвечает лучше и подробнее, но медленнее">
+            <label
+              class="thread__smart"
+              title="Умный режим: большая модель отвечает лучше и подробнее, но медленнее"
+            >
               <input
                 type="checkbox"
                 checked={smart}
@@ -516,7 +547,10 @@ export function OliviaThread(props: { onBack: () => void }) {
           <button
             type="button"
             class="button button--primary composer__send"
-            onClick={() => abort.current?.abort()}
+            onClick={() => {
+              void apiPost('/api/olivia/chat/stop', {}).catch(() => undefined);
+              abort.current?.abort();
+            }}
           >
             <Square size={20} aria-hidden="true" />
             <span class="visually-hidden">Стоп</span>

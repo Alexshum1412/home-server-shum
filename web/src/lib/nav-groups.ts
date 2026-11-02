@@ -52,6 +52,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     to: '/cinema',
     tabs: [
       { path: '/cinema', label: 'Кинотеатр' },
+      { path: '/plex', label: 'Plex (ТВ)' },
       { path: '/photos', label: 'Фото' },
       { path: '/files', label: 'Файлы' },
       { path: '/comics', label: 'Комиксы' },
@@ -63,7 +64,9 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     to: '/family',
     tabs: [
       { path: '/family', label: 'Семейный архив' },
-      { path: '/archive', label: 'Знания и страницы' },
+      { path: '/archive', label: 'Сохранённые страницы' },
+      { path: '/library', label: 'Офлайн-библиотека' },
+      { path: '/emergency', label: 'Экстренная карточка' },
     ],
   },
   { id: 'downloads', label: 'Загрузки', to: '/downloads', tabs: [{ path: '/downloads', label: 'Загрузки' }] },

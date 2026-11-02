@@ -30,14 +30,13 @@ import { registerChatRoutes } from './chat/routes.ts';
 import { type ChatService, createChatService } from './chat/service.ts';
 import { createChatStore } from './chat/store.ts';
 import type { Config } from './config.ts';
+import { geocode } from './digest/external.ts';
 import { createAria2, ensureAria2Secret } from './downloads/aria2.ts';
 import { createDownloadManager, type DownloadManager, statfsFree } from './downloads/manager.ts';
 import { registerDownloadRoutes } from './downloads/routes.ts';
 import { createTorrentManager, type TorrentManager } from './downloads/torrents.ts';
+import { registerEmergencyRoutes } from './emergency/routes.ts';
 import { createExtras } from './extras.ts';
-import { geocode } from './digest/external.ts';
-import { createGuests } from './guests/guests.ts';
-import { registerGuestRoutes } from './guests/routes.ts';
 import { createDossier } from './family/dossier.ts';
 import { registerFamilyRoutes } from './family/routes.ts';
 import { createTranscriber, transcribePaths } from './family/transcribe.ts';
@@ -48,6 +47,8 @@ import { createQuota } from './files/quota.ts';
 import { registerFileRoutes } from './files/routes.ts';
 import { createUploadSessions } from './files/sessions.ts';
 import { createStorage } from './files/storage.ts';
+import { createGuests } from './guests/guests.ts';
+import { registerGuestRoutes } from './guests/routes.ts';
 import { createJellyfinClient } from './jellyfin/client.ts';
 import { registerCatalogListRoutes } from './jellyfin/list-routes.ts';
 import { createMediaLists } from './jellyfin/lists.ts';
@@ -56,9 +57,10 @@ import { registerCatalogRoutes } from './jellyfin/routes.ts';
 import { createShelves } from './jellyfin/shelves.ts';
 import { PUBLIC_RESTRICTED_MESSAGE, publicRouteAllowed, requestChannel } from './lib/channel.ts';
 import { isApiPath, sendError, urlPath } from './lib/http.ts';
-import { removeStaleTempFiles } from './lib/json-store.ts';
+import { readJsonFile, removeStaleTempFiles, writeJsonAtomic } from './lib/json-store.ts';
 import { type Clock, isoNow, systemClock } from './lib/time.ts';
 import { readAppVersion } from './lib/version.ts';
+import { libraryDir, registerLibraryRoutes } from './library/routes.ts';
 import { createMediaLibrary } from './media/library.ts';
 import { registerMediaRoutes } from './media/routes.ts';
 import { createNotificationCenter, type NotificationCenter } from './notify/center.ts';
@@ -79,6 +81,7 @@ import { registerPlannerRoutes } from './planner/routes.ts';
 import { createReminderWatcher, REMINDER_TICK_MS, type ReminderWatcher } from './planner/task-reminders.ts';
 import { registerTaskRoutes } from './planner/task-routes.ts';
 import { createTasksStore, type TaskStore } from './planner/tasks.ts';
+import { createPlex, registerPlexRoutes } from './plex/routes.ts';
 import type { IppTransport } from './print/ipp.ts';
 import { createPrintQueue } from './print/queue.ts';
 import { registerPrintRoutes } from './print/routes.ts';
@@ -1020,6 +1023,15 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   });
   registerFamilyRoutes(app, { dossier, guards });
   registerGuestRoutes(app, { guests, guards });
+  registerEmergencyRoutes(app, { guards, dataDir: config.dataDir, clock });
+  registerPlexRoutes(app, { guards, plex: createPlex() });
+  registerLibraryRoutes(app, {
+    guards,
+    dir: libraryDir(process.env),
+    serving: () =>
+      collector.snapshot('admin').programs.value?.some((p) => p.name === 'kiwix' && p.state === 'running') ===
+      true,
+  });
   telegramBot = createTelegramBot({
     guests,
     guestsEnabled: () => features.isOn('guests'),
@@ -1029,7 +1041,14 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
       void (async () => {
         const admins = (await users.list()).filter((entry) => entry.role === 'admin');
         if (admins.length === 0) return;
-        await notify.notify({ users: admins.map((a) => a.id), kind: 'system', title, body, url: '/digest', key: `guest:${Date.now()}` });
+        await notify.notify({
+          users: admins.map((a) => a.id),
+          kind: 'system',
+          title,
+          body,
+          url: '/digest',
+          key: `guest:${Date.now()}`,
+        });
       })().catch(() => undefined);
     },
     reportFile: (user, id, ext) => reports.file(user, id, ext),
@@ -1169,6 +1188,35 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
       void dossier.tick().catch(() => undefined);
       dossierTimer = setInterval(() => void dossier.tick().catch(() => undefined), 3_600_000);
       dossierTimer.unref();
+      // Every Sunday evening the administrators get the report of the server (picture and document) in Telegram: a slow
+      // problem (a filling disk, a memory that grows, a program that restarts) is seen before it becomes a breakdown.
+      const weekly = async () => {
+        if (!features.isOn('reports') || !reports.available()) return;
+        const now = clock();
+        const day = now.toISOString().slice(0, 10);
+        const stateFile = path.join(config.dataDir, 'weekly-report.json');
+        const last = ((await readJsonFile(stateFile).catch(() => undefined)) as { day?: string } | undefined)
+          ?.day;
+        if (now.getDay() !== 0 || now.getHours() < 19 || last === day) return;
+        await writeJsonAtomic(stateFile, { version: 1, day });
+        for (const admin of (await users.list()).filter((u) => u.role === 'admin' && !isDisabled(u))) {
+          const profile = await profiles.get(admin.username);
+          if (profile.telegramChatId === '' || !profile.telegramNotify) continue;
+          const made = await reports.make(admin, 'server');
+          if (made)
+            await telegramBot?.sendReportToChat(admin, profile.telegramChatId, {
+              kind: 'report',
+              id: made.id,
+              title: made.title,
+              summary: `Недельный отчёт. ${made.summary}`,
+              png: made.png,
+              pdf: made.pdf,
+            });
+        }
+      };
+      const weeklyTimer = setInterval(() => void weekly().catch(() => undefined), 3_600_000);
+      weeklyTimer.unref();
+      void weekly().catch(() => undefined);
       await downloads.load();
       torrents.start();
       // Pieces of uploads that nobody finished are removed after a day (once now, then every hour).

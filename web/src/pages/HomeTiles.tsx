@@ -20,8 +20,11 @@ const TILES: Record<string, { icon: IconComponent; lead: string }> = {
     icon: MessagesSquare,
     lead: 'Переписка с семьёй и разговор с Оливией: совет, рецепт, уроки, поиск',
   },
-  memory: { icon: Heart, lead: 'Семейный архив воспоминаний, сохранённые страницы и поиск' },
-  media: { icon: Clapperboard, lead: 'Фильмы, фото и файлы' },
+  memory: {
+    icon: Heart,
+    lead: 'Воспоминания семьи, Википедия без интернета, сохранённые страницы, экстренная карточка',
+  },
+  media: { icon: Clapperboard, lead: 'Фильмы (Jellyfin и Plex), фото, файлы, комиксы' },
   planner: { icon: ListChecks, lead: 'Дела, покупки, календарь, заметки, сроки' },
   downloads: { icon: Download, lead: 'Скачать файл или фильм по ссылке' },
   notifications: { icon: Bell, lead: 'Что нового для вас' },

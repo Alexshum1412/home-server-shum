@@ -1505,12 +1505,34 @@ fieldset.chips--set {
   border-radius: 0.6rem;
 }
 
-.chips--bar { flex-wrap: nowrap; min-inline-size: 0; }
-.chips--bar .chip { white-space: nowrap; }
-.thread__title { min-width: 0; }
+.chips--bar {
+  flex-wrap: nowrap;
+  min-inline-size: 0;
+}
+.chips--bar .chip {
+  white-space: nowrap;
+}
+.thread__title {
+  min-width: 0;
+}
 @media (max-width: 40rem) {
-  .thread__smart span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .thread__head .avatar { width: 2.3rem; height: 2.3rem; }
+  .thread__smart span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .thread__head .avatar {
+    width: 2.3rem;
+    height: 2.3rem;
+  }
 }
 
-fieldset.chips.chips--set.chips--bar { display: flex; flex-flow: row nowrap; overflow-x: auto; }
+fieldset.chips.chips--set.chips--bar {
+  display: flex;
+  flex-flow: row nowrap;
+  overflow-x: auto;
+}

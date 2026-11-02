@@ -20,18 +20,21 @@ import { ComicsPage } from './pages/Comics.tsx';
 import { DeadlinesPage } from './pages/Deadlines.tsx';
 import { DigestPage } from './pages/Digest.tsx';
 import { DownloadsPage } from './pages/Downloads.tsx';
+import { EmergencyPage } from './pages/Emergency.tsx';
 import { FamilyPage } from './pages/Family.tsx';
 import { FeatureOffPage } from './pages/FeatureOff.tsx';
 import { FilesPage } from './pages/Files.tsx';
 import { ForcedPasswordPage } from './pages/ForcedPassword.tsx';
 import { HelpPage } from './pages/Help.tsx';
 import { HomePage } from './pages/Home.tsx';
+import { LibraryPage } from './pages/Library.tsx';
 import { LoginPage } from './pages/Login.tsx';
 import { NotesPage } from './pages/Notes.tsx';
 import { NotFoundPage } from './pages/NotFound.tsx';
 import { NotificationsPage } from './pages/Notifications.tsx';
 import { OliviaPage } from './pages/Olivia.tsx';
 import { PhotosPage } from './pages/Photos.tsx';
+import { PlexPage } from './pages/Plex.tsx';
 import { PrintPage } from './pages/Print.tsx';
 import { SafetyPage } from './pages/Safety.tsx';
 import { ServerPage } from './pages/ServerPage.tsx';
@@ -66,6 +69,12 @@ function Page(props: { route: RouteId; onSessionChanged: (session: SessionRespon
       return <FamilyPage />;
     case 'comics':
       return <ComicsPage />;
+    case 'plex':
+      return <PlexPage />;
+    case 'library':
+      return <LibraryPage />;
+    case 'emergency':
+      return <EmergencyPage />;
     case 'archive':
       return <ArchivePage />;
     case 'photos':

@@ -19,6 +19,9 @@ export type RouteId =
   | 'family'
   | 'archive'
   | 'comics'
+  | 'plex'
+  | 'library'
+  | 'emergency'
   | 'print'
   | 'system'
   | 'server'
@@ -58,6 +61,9 @@ export const ROUTES: readonly RouteDef[] = [
   { id: 'family', path: '/family', title: 'Семейный архив' },
   { id: 'archive', path: '/archive', title: 'Знания и страницы' },
   { id: 'comics', path: '/comics', title: 'Комиксы и манга' },
+  { id: 'plex', path: '/plex', title: 'Plex' },
+  { id: 'library', path: '/library', title: 'Офлайн-библиотека' },
+  { id: 'emergency', path: '/emergency', title: 'Экстренная карточка' },
   { id: 'print', path: '/print', title: 'Печать' },
   { id: 'system', path: '/system', title: 'Состояние системы' },
   { id: 'server', path: '/server', title: 'Сервер', adminOnly: true },

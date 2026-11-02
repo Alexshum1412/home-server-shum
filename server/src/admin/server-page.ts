@@ -45,6 +45,7 @@ const PROGRAM_TITLE: Record<ProgramId, string> = {
   llama: 'Языковая модель Оливии',
   searxng: 'Поиск в интернете (SearXNG)',
   kavita: 'Читалка комиксов и манги (Kavita)',
+  kiwix: 'Офлайн-библиотека (Kiwix)',
 };
 
 const STATE_TEXT: Record<ProgramState, string> = {

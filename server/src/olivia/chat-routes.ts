@@ -13,12 +13,20 @@ export function registerOliviaChatRoutes(
   deps: { chat: OliviaChat; users: Pick<UserStore, 'findByUsername'>; guards: Guards; config: Config },
 ): void {
   const { chat, users, guards, config } = deps;
+  const running = new Map<string, AbortController>();
+
+  app.post('/api/olivia/chat/stop', { preHandler: guards.requireUser }, async (request, reply) => {
+    running.get(currentUser(request).username)?.abort();
+    return reply.code(204).send();
+  });
 
   app.get('/api/olivia/chat', { preHandler: guards.requireUser }, async (request, reply) => {
     const me = currentUser(request);
-    return reply
-      .header('cache-control', 'no-store')
-      .send({ turns: await chat.history(me.username), models: chat.modelsState() });
+    return reply.header('cache-control', 'no-store').send({
+      turns: await chat.history(me.username),
+      models: chat.modelsState(),
+      pending: chat.pending(me.username),
+    });
   });
 
   app.post('/api/olivia/chat/clear', { preHandler: guards.requireUser }, async (request, reply) => {
@@ -45,7 +53,9 @@ export function registerOliviaChatRoutes(
     }
     const stream = new PassThrough();
     const controller = new AbortController();
-    request.raw.on('close', () => controller.abort());
+    // The answer is made to the end even when the person leaves the page (it is saved in the talk); only «Стоп» stops it.
+    running.get(me.username)?.abort();
+    running.set(me.username, controller);
     const send = (event: object) => {
       if (!stream.destroyed) stream.write(`${JSON.stringify(event)}\n`);
     };
@@ -64,6 +74,7 @@ export function registerOliviaChatRoutes(
       } catch (error) {
         send({ t: 'error', message: error instanceof Error ? error.message : 'Не получилось ответить.' });
       } finally {
+        if (running.get(me.username) === controller) running.delete(me.username);
         stream.end();
       }
     })();

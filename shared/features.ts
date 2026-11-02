@@ -125,6 +125,27 @@ export const FEATURES: readonly FeatureDef[] = [
     prefixes: ['/api/guests'],
   },
   {
+    id: 'library',
+    title: 'Офлайн-библиотека (Википедия без интернета)',
+    lead: 'Википедия и справочники, скачанные на сервер: поиск без интернета.',
+    page: '/library',
+    prefixes: ['/api/library', '/offline'],
+  },
+  {
+    id: 'emergency',
+    title: 'Экстренная карточка',
+    lead: 'Телефоны, документы и договорённости семьи на случай беды; открывается и без интернета.',
+    page: '/emergency',
+    prefixes: ['/api/emergency'],
+  },
+  {
+    id: 'plex',
+    title: 'Plex (кино на телевизоре)',
+    lead: 'Страница и подсказки по Plex рядом с Jellyfin.',
+    page: '/plex',
+    prefixes: ['/api/plex'],
+  },
+  {
     id: 'print',
     title: 'Печать',
     lead: 'Печать документов на принтере.',

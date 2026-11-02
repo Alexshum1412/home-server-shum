@@ -129,7 +129,8 @@ export function createOliviaChat(options: {
   const fetchImpl = options.fetch ?? fetch;
   const file = path.join(options.dataDir, 'olivia-chats.json');
   const queue = createSerialQueue();
-  const busy = new Set<string>();
+  /** Who is being answered right now, and the question: a person who left the page finds the answer waiting. */
+  const busy = new Map<string, { text: string; at: string }>();
 
   async function load(): Promise<Record<string, ChatTurn[]>> {
     try {
@@ -160,6 +161,7 @@ export function createOliviaChat(options: {
       smart: { available: options.big.available(), running: options.big.isRunning() },
     }),
     isBusy: (username: string) => busy.has(username),
+    pending: (username: string) => busy.get(username) ?? null,
 
     /**
      * Answers one message. `onStatus` tells what she is doing (searching the web, waking the bigger model), `onToken` gets
@@ -297,7 +299,7 @@ export function createOliviaChat(options: {
           return { kind: 'tool', answer };
         }
       }
-      busy.add(user.username);
+      busy.set(user.username, { text, at: options.clock().toISOString() });
       try {
         const sources: string[] = [...ownSources];
         let context = own;
