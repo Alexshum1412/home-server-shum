@@ -1,6 +1,12 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { INTERESTS, type ProfilePatch, type ProfileView } from '../../../shared/profile.ts';
+import {
+  INTERESTS,
+  LEVELS_BY_SCALE,
+  type LevelMap,
+  type ProfilePatch,
+  type ProfileView,
+} from '../../../shared/profile.ts';
 import { createSerialQueue, readJsonFile, writeJsonAtomic } from '../lib/json-store.ts';
 
 const storedSchema = z.object({
@@ -11,6 +17,7 @@ const storedSchema = z.object({
   telegramChatId: z.string().default(''),
   telegramNotify: z.boolean().default(true),
   interests: z.array(z.string()).default([]),
+  levels: z.record(z.string(), z.string()).default({}),
   about: z.string().default(''),
   onboarded: z.boolean().default(false),
 });
@@ -19,6 +26,16 @@ const fileSchema = z.object({ version: z.literal(1), profiles: z.record(z.string
 
 const EMPTY = (): StoredProfile => storedSchema.parse({});
 const known = new Set(INTERESTS.map((item) => item.id));
+const scaleOf = new Map(INTERESTS.map((item) => [item.id, item.level]));
+
+function cleanLevels(levels: LevelMap): LevelMap {
+  const out: LevelMap = {};
+  for (const [id, level] of Object.entries(levels)) {
+    const scale = scaleOf.get(id);
+    if (scale && LEVELS_BY_SCALE[scale].includes(level)) out[id] = level;
+  }
+  return out;
+}
 
 export function cleanPatch(patch: ProfilePatch): ProfilePatch {
   const out: ProfilePatch = {};
@@ -30,6 +47,7 @@ export function cleanPatch(patch: ProfilePatch): ProfilePatch {
   if (patch.telegramNotify !== undefined) out.telegramNotify = patch.telegramNotify;
   if (patch.interests !== undefined)
     out.interests = [...new Set(patch.interests.filter((id) => known.has(id)))];
+  if (patch.levels !== undefined) out.levels = cleanLevels(patch.levels);
   if (patch.about !== undefined) out.about = patch.about.trim().slice(0, 300);
   if (patch.onboarded !== undefined) out.onboarded = patch.onboarded;
   return out;
@@ -57,6 +75,7 @@ export function createProfileStore(dataDir: string) {
     telegramLinked: item.telegramChatId !== '',
     telegramNotify: item.telegramNotify,
     interests: item.interests,
+    levels: item.levels,
     about: item.about,
     onboarded: item.onboarded,
   });

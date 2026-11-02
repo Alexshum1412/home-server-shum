@@ -766,7 +766,8 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     downloads,
     bigModel,
     profiles,
-    sendTelegram: async (chatId, text) => (telegramBot ? telegramBot.sendToChat(chatId, text) : false),
+    sendTelegram: async (chatId, text, html) =>
+      telegramBot ? telegramBot.sendToChat(chatId, text, html === true) : false,
     freeBytes,
     log,
     previousRun: run.previous,

@@ -36,7 +36,18 @@ export function createDiskHistory(
 
   /** Least squares through (time, free) of the points of the window. */
   function forecastOf(volume: string, points: Array<[number, number]>, now: number): DiskForecast {
-    const recent = points.filter(([at]) => at >= now - WINDOW_MS);
+    // A sudden step (a disk was replaced, a big folder moved) is not a speed: the line starts after the last step.
+    let from = 0;
+    for (let i = 1; i < points.length; i++) {
+      const before = points[i - 1]![1];
+      const after = points[i]![1];
+      if (
+        Math.abs(after - before) > 0.3 * Math.max(before, after) &&
+        Math.abs(after - before) > 20 * 1024 ** 3
+      )
+        from = i;
+    }
+    const recent = points.slice(from).filter(([at]) => at >= now - WINDOW_MS);
     const last = points[points.length - 1];
     const freeBytes = last ? last[1] : 0;
     const base = {

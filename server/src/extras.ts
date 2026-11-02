@@ -14,6 +14,7 @@ import type { Config } from './config.ts';
 import { createDigest } from './digest/digest.ts';
 import { createDigestLlm } from './digest/llm.ts';
 import { registerDigestRoutes } from './digest/routes.ts';
+import { createTopics } from './digest/topics.ts';
 import type { DownloadManager } from './downloads/manager.ts';
 import { createDiskHistory } from './health/disk-history.ts';
 import { createIncidentLog } from './health/incidents.ts';
@@ -49,7 +50,7 @@ export interface ExtrasDeps {
   /** The things each person told about themselves. */
   profiles: ProfileStore;
   /** Sends a text to a Telegram chat (the family's bot); false when it cannot. */
-  sendTelegram?: (chatId: string, text: string) => Promise<boolean>;
+  sendTelegram?: (chatId: string, text: string, html?: boolean) => Promise<boolean>;
   freeBytes: (dir: string) => Promise<number | null>;
   log: { warn: (message: string) => void };
   /** How the previous run of the portal ended. */
@@ -127,10 +128,12 @@ export function createExtras(deps: ExtrasDeps) {
           `${t.due === today ? 'Сегодня' : 'Просрочено'}: «${t.title}»${t.dueTime ? ` в ${t.dueTime}` : ''}`,
       );
   }
+  const topics = createTopics({ dataDir: config.dataDir, generate: llm.generate });
   const digest = createDigest({
     dataDir: config.dataDir,
     clock,
     users: () => users.list(),
+    topics,
     llm,
     notify: (input) => notify.notify(input),
     profile: async (username) => {
@@ -140,6 +143,7 @@ export function createExtras(deps: ExtrasDeps) {
         latitude: p.latitude,
         longitude: p.longitude,
         interests: p.interests,
+        levels: p.levels,
         about: p.about,
         telegramChatId: p.telegramChatId,
       };
@@ -272,7 +276,10 @@ export function createExtras(deps: ExtrasDeps) {
       const hourly = safely('Часовые задачи', async () => {
         await deadlineWatcher.tick();
         await diskHistory.record();
-        const soon = (await diskHistory.forecast()).find((f) => f.daysLeft !== null && f.daysLeft < 21);
+        // Only when the space is really getting short: a steep line through 400 GB of free space is not a worry.
+        const soon = (await diskHistory.forecast()).find(
+          (f) => f.daysLeft !== null && f.daysLeft < 21 && f.freeBytes < 100 * 1024 ** 3,
+        );
         if (soon) {
           await tellAdmins(
             'Диск скоро заполнится',

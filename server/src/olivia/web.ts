@@ -216,5 +216,18 @@ export function webIntent(message: string): WebIntent {
     const query = SEARCH_RE.exec(message)?.[1]?.trim() ?? message.trim();
     return { kind: 'search', query: query.replace(/\s+/g, ' ').slice(0, 200) };
   }
+  if (LOOKUP_RE.test(message)) return { kind: 'search', query: searchQuery(message) };
   return null;
+}
+
+/** Questions about the world that a small model would only guess at: she looks them up first. */
+const LOOKUP_RE =
+  /^(?:кто\s+так(?:ой|ая|ие)|что\s+так(?:ое|ой)|что\s+значит|когда\s+(?:выйдет|выходит|вышел|вышла|был|будет|родил)|где\s+(?:находится|купить|посмотреть)|сколько\s+(?:стоит|лет|будет\s+стоить)|в\s+каком\s+году|какая\s+(?:сейчас\s+)?погода|как\s+зовут|кто\s+(?:выиграл|победил|снял|написал|играет)|какие\s+(?:новые|лучшие)\s+(?:фильмы|сериалы|игры|книги))|текст\s+песни|слова\s+песни|расскажи\s+(?:мне\s+)?(?:о|про|об)\s+|актуальн|свежи[ейх]|последн(?:ий|яя|ее|ие|юю)\s+(?:выпуск|версия|релиз|серия|сезон)|информаци[юяи]\s+(?:о|про|об)\s+/i;
+
+function searchQuery(message: string): string {
+  return message
+    .replace(/^(?:напиши|расскажи|скажи|подскажи|дай)\s+(?:мне\s+)?/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
 }

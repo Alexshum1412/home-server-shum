@@ -1,6 +1,6 @@
 /**
  * Two public pieces of information for the morning digest: the weather (Open-Meteo, free, no key; only the coordinates of
- * the city go out) and the exchange rates of the Bank of Russia (a public daily file). No family data leaves the house.
+ * the city go out) and the exchange rates of the National Bank of Belarus (a public daily list). No family data leaves the house.
  * Both return null on any failure: a digest without them is still a digest.
  */
 type Fetch = typeof fetch;
@@ -79,24 +79,27 @@ export async function weatherToday(
   }
 }
 
+/** The official rates of the National Bank of the Republic of Belarus (public, no key): dollar and euro in Belarusian rubles. */
 export async function currencyToday(fetchImpl: Fetch = fetch): Promise<string | null> {
   try {
-    const body = (await getJson(fetchImpl, 'https://www.cbr-xml-daily.ru/daily_json.js', 4000)) as {
-      Valute?: Record<string, { Value: number; Previous: number; Nominal: number }>;
-    };
+    const body = (await getJson(
+      fetchImpl,
+      'https://api.nbrb.by/exrates/rates?periodicity=0',
+      5000,
+    )) as Array<{
+      Cur_Abbreviation?: string;
+      Cur_Scale?: number;
+      Cur_OfficialRate?: number;
+    }>;
     const parts: string[] = [];
     for (const [code, label] of [
-      ['USD', 'доллар'],
-      ['EUR', 'евро'],
-      ['CNY', 'юань'],
+      ['USD', '1 доллар'],
+      ['EUR', '1 евро'],
     ] as const) {
-      const v = body.Valute?.[code];
-      if (!v || !Number.isFinite(v.Value)) continue;
-      const each = v.Value / (v.Nominal || 1);
-      const diff = each - v.Previous / (v.Nominal || 1);
-      parts.push(
-        `${label} ${each.toFixed(2).replace('.', ',')} ₽${Math.abs(diff) >= 0.01 ? ` (${diff > 0 ? '+' : '−'}${Math.abs(diff).toFixed(2).replace('.', ',')})` : ''}`,
-      );
+      const v = body.find((item) => item.Cur_Abbreviation === code);
+      if (!v || !Number.isFinite(v.Cur_OfficialRate)) continue;
+      const each = (v.Cur_OfficialRate as number) / (v.Cur_Scale || 1);
+      parts.push(`${label} = ${each.toFixed(4).replace('.', ',')} BYN`);
     }
     return parts.length > 0 ? parts.join(', ') : null;
   } catch {

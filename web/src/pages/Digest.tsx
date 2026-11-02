@@ -9,6 +9,33 @@ import { ToastRegion, useToast } from '../components/Toast.tsx';
 import { useResource } from '../hooks/useResource.ts';
 import { formatDateTime } from '../lib/format.ts';
 
+/** The digest as cards: the first block is the greeting, every other block has a heading line and bullet lines. */
+function DigestView(props: { text: string }) {
+  const blocks = props.text.split(/\n{2,}/).filter((block) => block.trim() !== '');
+  return (
+    <div class="digest">
+      {blocks.map((block, index) => {
+        const lines = block.split('\n');
+        const isSection = lines.length > 1 && (lines[1] ?? '').startsWith('•');
+        return isSection ? (
+          <section key={index} class="digest__card">
+            <h3 class="digest__title">{lines[0]}</h3>
+            <ul class="digest__list">
+              {lines.slice(1).map((line, i) => (
+                <li key={i}>{line.replace(/^•\s*/, '')}</li>
+              ))}
+            </ul>
+          </section>
+        ) : (
+          <p key={index} class="digest__plain">
+            {block}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 /** «Утренний дайджест»: a short personal message every morning (portal, and Telegram if it is set up). */
 export function DigestPage() {
   const ids = useId();
@@ -55,7 +82,7 @@ export function DigestPage() {
                   {formatDateTime(d.mine.last.at)} ·{' '}
                   {d.mine.last.how === 'model' ? 'написан моделью' : 'собран по шаблону (модель не ответила)'}
                 </p>
-                <p class="digest-text">{d.mine.last.text}</p>
+                <DigestView text={d.mine.last.text} />
               </>
             ) : (
               <p class="section-lead">
@@ -140,7 +167,7 @@ export function DigestPage() {
               <input
                 id={`${ids}-city`}
                 class="field__input"
-                placeholder="Например: Москва"
+                placeholder="Например: Минск"
                 value={city ?? ''}
                 onInput={(e) => setCity(e.currentTarget.value)}
               />
@@ -171,7 +198,7 @@ export function DigestPage() {
                     )
                   }
                 />
-                Курсы валют Центробанка
+                Курсы валют (Нацбанк Беларуси)
               </label>
               <p class="meta">
                 Ночью для рассылки запускается большая модель на несколько минут (около 4 ГБ памяти); днём

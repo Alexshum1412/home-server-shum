@@ -11,9 +11,9 @@ export interface DigestLlmOptions {
 }
 
 const SYSTEM =
-  'Ты домашний помощник семьи. Напиши короткое утреннее сообщение человеку по-русски: тёплый простой тон, 4–8 коротких строк, ' +
-  'без ссылок и без выдуманных подробностей. Используй ТОЛЬКО факты из списка и ничего не добавляй от себя. ' +
-  'Сначала самое важное для этого человека. Если фактов мало — поздоровайся и пожелай хорошего дня.';
+  'Ты домашний помощник семьи. Напиши человеку по-русски ТОЛЬКО тёплое приветствие на утро: 1–2 коротких предложения, ' +
+  'начни с «Доброе утро, <имя>!». Можно одним словом отметить самое важное из фактов (дождь — зонт, много дел — бодрого дня). ' +
+  'Не перечисляй факты, не используй списки, ссылки и выдуманные подробности.';
 
 export function buildPrompt(name: string, lines: string[]): string {
   return `Имя: ${name}\nФакты на сегодня:\n${lines.map((line) => `- ${line}`).join('\n')}`;
@@ -25,6 +25,8 @@ async function chat(
   prompt: string,
   ms: number,
   fetchImpl: typeof fetch,
+  system: string = SYSTEM,
+  maxTokens = 120,
 ): Promise<string | null> {
   try {
     const response = await fetchImpl(`${url.replace(/\/+$/, '')}/chat/completions`, {
@@ -34,9 +36,9 @@ async function chat(
         model: 'local',
         stream: false,
         temperature: 0.4,
-        max_tokens: 320,
+        max_tokens: maxTokens,
         messages: [
-          { role: 'system', content: SYSTEM },
+          { role: 'system', content: system },
           { role: 'user', content: prompt },
         ],
       }),
@@ -58,6 +60,15 @@ async function chat(
  */
 export function createDigestLlm(options: DigestLlmOptions) {
   const fetchImpl = options.fetch ?? fetch;
+  // During a session of the bigger model the topics are made by it too; otherwise by the small one.
+  let sessionAddress: string | null = null;
+  const generate = async (system: string, prompt: string, maxTokens: number): Promise<string | null> => {
+    const address = sessionAddress ?? options.quickUrl;
+    if (!address) return null;
+    const answer = await chat(address, options.keyFile, prompt, 240_000, fetchImpl, system, maxTokens);
+    if (answer || address === options.quickUrl || !options.quickUrl) return answer;
+    return chat(options.quickUrl, options.keyFile, prompt, 90_000, fetchImpl, system, maxTokens);
+  };
   const quick = async (name: string, lines: string[]): Promise<string | null> =>
     options.quickUrl
       ? chat(options.quickUrl, options.keyFile, buildPrompt(name, lines), 90_000, fetchImpl)
@@ -66,23 +77,25 @@ export function createDigestLlm(options: DigestLlmOptions) {
   return {
     bigAvailable: () => options.big.available(),
     quick,
+    generate,
     /** One session of the bigger model for a list of people; falls back to the small model when it cannot start. */
     session<T>(
       work: (
         write: (name: string, lines: string[]) => Promise<{ text: string | null; model: 'big' | 'quick' }>,
       ) => Promise<T>,
     ): Promise<T> {
-      return options.big.use(
-        (address) =>
-          work(async (name, lines) => {
-            if (address) {
-              const text = await chat(address, options.keyFile, buildPrompt(name, lines), 300_000, fetchImpl);
-              if (text) return { text, model: 'big' as const };
-            }
-            return { text: await quick(name, lines), model: 'quick' as const };
-          }),
-        30_000,
-      );
+      return options.big.use((address) => {
+        sessionAddress = address;
+        return work(async (name, lines) => {
+          if (address) {
+            const text = await chat(address, options.keyFile, buildPrompt(name, lines), 300_000, fetchImpl);
+            if (text) return { text, model: 'big' as const };
+          }
+          return { text: await quick(name, lines), model: 'quick' as const };
+        }).finally(() => {
+          sessionAddress = null;
+        });
+      }, 30_000);
     },
   };
 }

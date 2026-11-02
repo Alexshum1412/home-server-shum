@@ -1193,3 +1193,53 @@ fieldset.segmented {
 .spark__dot {
   fill: var(--c-accent);
 }
+
+/* The digest as cards */
+.digest {
+  display: grid;
+  gap: var(--space-3, 0.75rem);
+  margin-block: var(--space-3, 0.75rem);
+}
+.digest__card {
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface, transparent);
+}
+.digest__title {
+  font-size: 1rem;
+  margin: 0 0 0.35rem;
+}
+.digest__list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.25rem;
+}
+.digest__plain {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.profile-editor__group {
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  margin-block: 0.5rem;
+}
+.profile-editor__group > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding-block: 0.4rem;
+}
+.profile-editor__topic {
+  display: grid;
+  gap: 0.3rem;
+  padding-block: 0.25rem;
+}
+.profile-editor__level {
+  display: grid;
+  gap: 0.2rem;
+  margin-left: 1.9rem;
+  max-width: 20rem;
+}

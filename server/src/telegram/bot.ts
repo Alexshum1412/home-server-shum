@@ -110,6 +110,21 @@ const HELP =
 
 const URL_RE = /(magnet:\?[^\s<>"']+|https?:\/\/[^\s<>"']+)/i;
 
+/** The digest as Telegram HTML: the heading line of every block in bold; everything else is escaped text. */
+export function digestHtml(text: string): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return text
+    .split(/\n{2,}/)
+    .map((block) => {
+      const lines = block.split('\n');
+      const heading = lines[0] ?? '';
+      return lines.length > 1 && (lines[1] ?? '').startsWith('•')
+        ? [`<b>${esc(heading)}</b>`, ...lines.slice(1).map(esc)].join('\n')
+        : esc(block);
+    })
+    .join('\n\n');
+}
+
 export function splitMessage(text: string, size = 3800): string[] {
   const parts: string[] = [];
   let rest = text;
@@ -162,7 +177,12 @@ export function createTelegramBot(deps: BotDeps) {
     }
   }
 
-  async function send(chatId: number | string, text: string, rows?: Button[][]): Promise<boolean> {
+  async function send(
+    chatId: number | string,
+    text: string,
+    rows?: Button[][],
+    html = false,
+  ): Promise<boolean> {
     const parts = splitMessage(text === '' ? '…' : text);
     let ok = true;
     for (const [index, part] of parts.entries()) {
@@ -171,9 +191,19 @@ export function createTelegramBot(deps: BotDeps) {
         chat_id: chatId,
         text: part,
         disable_web_page_preview: true,
+        ...(html ? { parse_mode: 'HTML' } : {}),
         ...(last && rows ? { reply_markup: { inline_keyboard: rows } } : {}),
       });
       ok = ok && result !== null;
+      // Markup that Telegram refuses is not lost: the same text goes once more as plain words.
+      if (html && result === null) {
+        const plain = await api('sendMessage', {
+          chat_id: chatId,
+          text: part.replace(/<\/?b>/g, ''),
+          disable_web_page_preview: true,
+        });
+        ok = ok || plain !== null;
+      }
     }
     return ok;
   }
@@ -516,8 +546,8 @@ export function createTelegramBot(deps: BotDeps) {
       return { code, bot: botName, expiresInMinutes: 15 };
     },
     /** A text to a person (if they linked a chat). */
-    async sendToChat(chatId: string, text: string): Promise<boolean> {
-      return send(chatId, text);
+    async sendToChat(chatId: string, text: string, html = false): Promise<boolean> {
+      return send(chatId, html ? digestHtml(text) : text, undefined, html);
     },
     menuFor: () => MENU,
   };

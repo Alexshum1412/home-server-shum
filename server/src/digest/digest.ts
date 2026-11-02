@@ -7,8 +7,8 @@ import type { Clock } from '../lib/time.ts';
 import type { NotificationCenter } from '../notify/center.ts';
 import { localMoment } from '../planner/task-dates.ts';
 import { currencyToday, weatherToday } from './external.ts';
-import { englishLine, germanLine, newsLine, recipeLine } from './interests.ts';
 import type { DigestLlm } from './llm.ts';
+import { type Section, type Topics, topicsOf } from './topics.ts';
 
 interface StoredUserState {
   enabled: boolean;
@@ -80,11 +80,14 @@ export function createDigest(options: {
     latitude: number | null;
     longitude: number | null;
     interests: string[];
+    levels: Record<string, string>;
     about: string;
     telegramChatId: string;
   }>;
+  /** The blocks for the interests of people (language words, tips, feeds). */
+  topics?: Topics;
   /** Also tells the bot to send a text to a chat (the bot of the family); used instead of the plain sender when given. */
-  sendTelegram?: (chatId: string, text: string) => Promise<boolean>;
+  sendTelegram?: (chatId: string, text: string, html?: boolean) => Promise<boolean>;
   fetch?: typeof fetch;
   onError?: (message: string) => void;
 }) {
@@ -130,7 +133,7 @@ export function createDigest(options: {
   }
 
   async function sendTelegram(chatId: string, text: string): Promise<boolean> {
-    if (options.sendTelegram) return options.sendTelegram(chatId, text);
+    if (options.sendTelegram) return options.sendTelegram(chatId, text, true);
     const token = await telegramToken();
     if (!token || chatId === '') return false;
     try {
@@ -146,8 +149,11 @@ export function createDigest(options: {
     }
   }
 
-  /** The facts for one person, as short plain lines. */
-  async function facts(user: StoredUser, data: StoredFile): Promise<string[]> {
+  /** The facts for one person: sections for the message, and plain lines for the model that writes the greeting. */
+  async function facts(
+    user: StoredUser,
+    data: StoredFile,
+  ): Promise<{ sections: Section[]; context: string[]; dateLine: string }> {
     const now = options.clock();
     const { day: today } = localMoment(now);
     const next = new Date(`${today}T00:00:00Z`);
@@ -155,15 +161,18 @@ export function createDigest(options: {
     const tomorrow = next.toISOString().slice(0, 10);
     const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
     const date = new Date(`${today}T00:00:00Z`);
-    const lines: string[] = [
-      `Сегодня ${WEEKDAYS[date.getUTCDay()]}, ${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}.`,
-    ];
+    const dateLine = `Сегодня ${WEEKDAYS[date.getUTCDay()]}, ${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}.`;
+    const sections: Section[] = [];
+    const add = (icon: string, title: string, lines: string[]) => {
+      if (lines.length > 0) sections.push({ icon, title, lines });
+    };
     const settings = data.settings;
     const mine = (await options.profile?.(user.username)) ?? {
       city: '',
       latitude: null,
       longitude: null,
       interests: [],
+      levels: {},
       about: '',
       telegramChatId: '',
     };
@@ -177,33 +186,39 @@ export function createDigest(options: {
         : Promise.resolve(null),
       settings.currency ? cached('currency', () => currencyToday(fetchImpl)) : Promise.resolve(null),
     ]);
-    if (weather) lines.push(`Погода${city ? ` (${city})` : ''}: ${weather}.`);
-    for (const group of await Promise.all([
+    if (weather) add('🌤', `Погода${city ? `, ${city}` : ''}`, [weather]);
+    const [tasksNow, events, deadlinesSoon, downloaded, server] = await Promise.all([
       options.sources.tasks(user, today),
       options.sources.events(user, today, tomorrow),
       options.sources.deadlines(user),
       options.sources.downloads(user, since),
       user.role === 'admin' ? options.sources.server(since) : Promise.resolve([] as string[]),
-    ])) {
-      lines.push(...group);
+    ]);
+    add('✅', 'Дела', tasksNow);
+    add('📅', 'Календарь', events);
+    add('⏳', 'Сроки', deadlinesSoon);
+    add('⬇️', 'Загрузки', downloaded);
+    add('🖥', 'Сервер', server);
+    // The context for the greeting is only the practical part; the topics of interest stand on their own.
+    const context = [dateLine, ...sections.flatMap((s) => s.lines)];
+    if (options.topics) {
+      for (const id of topicsOf(mine.interests)) {
+        const block = await options.topics.block(id, mine.levels[id], today);
+        if (block) sections.push(block);
+      }
     }
-    if (mine.interests.includes('german')) lines.push(germanLine(today));
-    if (mine.interests.includes('english')) lines.push(englishLine(today));
-    if (mine.interests.includes('recipes')) lines.push(recipeLine(today));
-    if (mine.interests.includes('news')) {
-      const news = await cached('news', () => newsLine(fetchImpl));
-      if (news) lines.push(news);
-    }
-    if (mine.about !== '') lines.push(`Чем человек интересуется (его слова): ${mine.about}`);
-    if (currency) lines.push(`Курсы ЦБ: ${currency}.`);
-    return lines;
+    if (mine.about !== '') context.push(`Чем человек интересуется (его слова): ${mine.about}`);
+    if (currency) sections.push({ icon: '💱', title: 'Курсы (Нацбанк РБ)', lines: [currency] });
+    return { sections, context, dateLine };
   }
 
-  /** Plain text without a model: the same facts as short lines under a greeting. */
-  function template(user: StoredUser, lines: string[]): string {
-    return [`Доброе утро, ${user.displayName}!`, ...lines.map((line) => `• ${line}`), 'Хорошего дня!'].join(
-      '\n',
+  /** The message: a greeting, then every section under its own heading. */
+  function render(user: StoredUser, greeting: string | null, dateLine: string, sections: Section[]): string {
+    const head = greeting ?? `Доброе утро, ${user.displayName}!`;
+    const body = sections.map(
+      (s) => `${s.icon} ${s.title}\n${s.lines.map((line) => `• ${line}`).join('\n')}`,
     );
+    return [head, ...(body.length > 0 ? body : [dateLine]), '🌿 Хорошего дня!'].join('\n\n');
   }
 
   async function deliver(
@@ -270,9 +285,9 @@ export function createDigest(options: {
       if (options.clock().getTime() - before < 5 * 60_000) return 'too_soon';
       lastManual.set(user.username, options.clock().getTime());
       const data = await queue.run(load);
-      const lines = await facts(user, data);
-      const quick = await options.llm.quick(user.displayName, lines);
-      const text = quick ?? template(user, lines);
+      const made = await facts(user, data);
+      const quick = await options.llm.quick(user.displayName, made.context);
+      const text = render(user, quick, made.dateLine, made.sections);
       const how = quick ? 'model' : 'template';
       await queue.run(async () => {
         const fresh = await load();
@@ -294,9 +309,9 @@ export function createDigest(options: {
         await options.llm.session(async (write) => {
           for (const user of people) {
             try {
-              const lines = await facts(user, data);
-              const result = await write(user.displayName, lines);
-              const text = result.text ?? template(user, lines);
+              const made = await facts(user, data);
+              const result = await write(user.displayName, made.context);
+              const text = render(user, result.text, made.dateLine, made.sections);
               await queue.run(async () => {
                 const fresh = await load();
                 await deliver(user, text, result.text ? 'model' : 'template', fresh);

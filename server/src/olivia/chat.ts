@@ -22,12 +22,22 @@ export type ConverseResult =
 
 const KEEP = 40;
 
+const MANNERS =
+  ' Если просьба неясна или её можно понять двумя способами — задай ОДИН короткий уточняющий вопрос и остановись. ' +
+  'Если запрос понятен — ответь и в конце предложи один-два следующих шага («хотите, найду …», «могу составить …»). ' +
+  'Тексты песен, отрывки книг и статей не воспроизводи: расскажи, о чём песня или книга, кто автор, и подскажи, где прочитать законно.';
+
 const SYSTEM = (name: string, now: string) =>
   `Ты Оливия — добрая и внимательная помощница семьи, живёшь на домашнем компьютере. Сейчас ${now}. Ты говоришь с человеком по имени ${name}. ` +
   'Отвечай по-русски, понятно и по делу, без лишних вступлений. Можешь советовать рецепты и идеи, объяснять школьные темы, ' +
   'решать задачи по шагам, помогать с текстами и письмами, просто поддержать разговор. Если в разговоре есть блок «Данные из интернета», опирайся на него ' +
   'и не придумывай то, чего там нет. Если не знаешь или не уверена — так и скажи: не выдумывай факты, даты и цифры. ' +
-  'За свежими сведениями человек может написать «найди в интернете …». Медицинские и юридические вопросы — только общая информация и совет обратиться к специалисту.';
+  'За свежими сведениями человек может написать «найди в интернете …». Медицинские и юридические вопросы — только общая информация и совет обратиться к специалисту.' +
+  MANNERS;
+
+/** Verbs of an open request: the talk with the model, whatever the topic words look like. */
+const GENERAL_RE =
+  /(?:^|\s)(?:напиши|сочини|составь|придумай|расскажи|объясни|реши|переведи|посоветуй|подскажи|помоги|распиши)(?![\p{L}\p{N}])|рецепт|стих|сочинени|домашн/iu;
 
 /** Keeps the end of a list of texts within a budget of characters (a small model has a small memory). */
 function within(turns: ChatTurn[], budget: number): ChatTurn[] {
@@ -183,7 +193,11 @@ export function createOliviaChat(options: {
       const intent = opts.web === false ? null : webIntent(text);
       if (!intent) {
         const plan = routeByRules(text);
-        if (plan.tool !== 'unknown') {
+        // «Напиши…», «объясни…», «реши…» is a talk, not a search of the film library or of the files.
+        const talk =
+          GENERAL_RE.test(text) &&
+          (plan.tool === 'media' || plan.tool === 'files' || plan.tool === 'downloads');
+        if (plan.tool !== 'unknown' && !talk) {
           const answer = await options.assistant.ask(user, text, opts.channel ?? 'private');
           await append(
             user.username,

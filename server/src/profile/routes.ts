@@ -28,7 +28,8 @@ export function registerProfileRoutes(
         city: z.string().max(80).optional(),
         telegramUsername: z.string().max(60).optional(),
         telegramNotify: z.boolean().optional(),
-        interests: z.array(z.string().max(30)).max(20).optional(),
+        interests: z.array(z.string().max(30)).max(80).optional(),
+        levels: z.record(z.string().max(30), z.string().max(30)).optional(),
         about: z.string().max(300).optional(),
         onboarded: z.boolean().optional(),
       })
