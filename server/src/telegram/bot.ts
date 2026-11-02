@@ -9,9 +9,11 @@ import { randomInt } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import type { DownloadCheckResponse, DownloadDestination, OliviaCard } from '../../../shared/api.ts';
+import { CEFR_LEVELS, INTERESTS } from '../../../shared/profile.ts';
 import { hasPermission, type StoredUser, type UserStore } from '../auth/users.ts';
 import type { Dossier } from '../family/dossier.ts';
 import type { FamilyQuestion } from '../family/questions.ts';
+import { GUEST_DAILY_MESSAGES, GUEST_TOPICS, type Guest, type Guests } from '../guests/guests.ts';
 import type { Clock } from '../lib/time.ts';
 import type { OliviaChat } from '../olivia/chat.ts';
 import type { ProfileStore } from '../profile/profiles.ts';
@@ -20,6 +22,7 @@ type Fetch = typeof fetch;
 
 interface TgUser {
   id: number;
+  first_name?: string;
 }
 interface TgChat {
   id: number;
@@ -81,6 +84,15 @@ export interface BotDeps {
   };
   /** The family archive: questions and answers by voice, text and photos. */
   family: Dossier;
+  /** People from outside the family: a limited talk and a shared digest. */
+  guests: Guests;
+  guestsEnabled: () => boolean;
+  /** A city of a guest into coordinates (the weather in their digest). */
+  geocode: (city: string) => Promise<{ name: string; latitude: number; longitude: number } | null>;
+  /** The digest that this guest would get now (made from the shared blocks). */
+  guestDigest: (guest: Guest) => Promise<string>;
+  /** Tells the administrators (a new subscriber, a blocked talk). */
+  tellAdmins: (title: string, body: string) => void;
   /** Search and saving of the person's own knowledge: notes, saved pages, files. */
   knowledge: {
     search: (user: StoredUser, query: string) => Promise<string>;
@@ -936,10 +948,8 @@ export function createTelegramBot(deps: BotDeps) {
         );
         return;
       }
-      await send(
-        chatId,
-        'Здравствуйте! Я бот семейного сервера и пока не знаю вас. Откройте портал → «Мой профиль» → «Привязать Telegram», получите шестизначный код и пришлите его мне.',
-      );
+      // Not a member of the family: a limited talk and the shared digest (switched on by the administrator).
+      await onGuestText(chatId, message, text);
       return;
     }
     const hasFile = message.photo || message.document || message.video || message.audio || message.voice;
@@ -965,6 +975,194 @@ export function createTelegramBot(deps: BotDeps) {
     if (text !== '') await onText(user, chatId, text);
   }
 
+  // --- people from outside the family -----------------------------------------------------------------------------
+
+  const guestModes = new Map<number, { kind: 'city'; until: number }>();
+  const guestRows = (g: Guest): Button[][] => [
+    [
+      g.subscribed
+        ? { text: '🔕 Отписаться от дайджеста', callback_data: 'g:unsub' }
+        : { text: '📰 Подписаться на дайджест', callback_data: 'g:sub' },
+    ],
+    [
+      { text: '🧩 Выбрать темы', callback_data: 'g:topics' },
+      { text: '🏙 Мой город', callback_data: 'g:city' },
+    ],
+    [
+      { text: '👀 Пример дайджеста', callback_data: 'g:preview' },
+      { text: '❓ Что я умею', callback_data: 'g:help' },
+    ],
+  ];
+
+  const GUEST_HELP =
+    'Я Оливия, помощница семейного сервера. Здесь, в чате, я могу поговорить: подсказать рецепт, объяснить тему, помочь с уроками, рассказать новости и поискать в интернете. ' +
+    `В день — до ${GUEST_DAILY_MESSAGES} сообщений. А ещё можно подписаться на утренний дайджест: новости, слово дня на языке по вашему уровню, факты и идеи — темы вы выбираете сами. ` +
+    'Я не знаю ничего о семье, которая меня держит, и не храню вашу переписку, кроме выбора тем.';
+
+  const topicTitle = (id: string) => INTERESTS.find((item) => item.id === id)?.title ?? id;
+
+  function topicRows(g: Guest): Button[][] {
+    const rows: Button[][] = [];
+    let row: Button[] = [];
+    for (const id of GUEST_TOPICS) {
+      const on = g.topics.includes(id);
+      row.push({ text: `${on ? '✅' : '▫️'} ${topicTitle(id)}`, callback_data: `g:t:${id}` });
+      if (row.length === 2) {
+        rows.push(row);
+        row = [];
+      }
+    }
+    if (row.length > 0) rows.push(row);
+    rows.push([{ text: '✔ Готово', callback_data: 'g:menu' }]);
+    return rows;
+  }
+
+  const guestUser = (g: Guest) =>
+    ({
+      id: `guest-${g.chatId}`,
+      username: `guest-${g.chatId}`,
+      displayName: g.name || 'друг',
+      role: 'user',
+      disabled: false,
+    }) as unknown as StoredUser;
+
+  async function onGuestText(chatId: number, message: TgMessage, text: string): Promise<void> {
+    if (!deps.guestsEnabled()) {
+      await send(chatId, 'Этот бот пока работает только для семьи.');
+      return;
+    }
+    const known = await deps.guests.get(String(chatId));
+    const guest = await deps.guests.open(String(chatId), message.from?.first_name ?? '');
+    if (!guest) {
+      await send(chatId, 'Сейчас я не могу принять новых собеседников. Попробуйте позже.');
+      return;
+    }
+    if (!known) {
+      deps.tellAdmins(
+        'Новый собеседник в боте',
+        `${guest.name || 'Человек без имени'} написал(а) Оливии в Telegram (не член семьи).`,
+      );
+      await send(
+        chatId,
+        `Здравствуйте${guest.name ? `, ${guest.name}` : ''}! ${GUEST_HELP}`,
+        guestRows(guest),
+      );
+      return;
+    }
+    if (/^\/(start|menu|меню)\b/i.test(text) || /^меню$/i.test(text)) {
+      await send(chatId, 'Что сделать? Можно просто написать мне.', guestRows(guest));
+      return;
+    }
+    if (/^\/(stop|unsubscribe)\b/i.test(text)) {
+      await deps.guests.update(guest.chatId, { subscribed: false });
+      await send(chatId, 'Хорошо, дайджест больше не приходит. Вернуться можно в любой момент: /menu.');
+      return;
+    }
+    const mode = guestModes.get(chatId);
+    if (mode?.kind === 'city' && mode.until > deps.clock().getTime()) {
+      guestModes.delete(chatId);
+      const place = await deps.geocode(text.slice(0, 80));
+      if (!place) {
+        await send(chatId, 'Такой город не нашла. Попробуйте написать иначе или пропустите: /menu.');
+        return;
+      }
+      await deps.guests.update(guest.chatId, {
+        city: place.name,
+        latitude: place.latitude,
+        longitude: place.longitude,
+      });
+      await send(chatId, `Запомнила: ${place.name}. Погода будет в вашем дайджесте.`, guestRows(guest));
+      return;
+    }
+    if (!(await deps.guests.count(guest.chatId))) {
+      await send(
+        chatId,
+        `На сегодня мой лимит разговоров с вами исчерпан (${GUEST_DAILY_MESSAGES} сообщений). Утренний дайджест это не затрагивает. До завтра!`,
+      );
+      return;
+    }
+    const stop = typing(chatId);
+    try {
+      const result = await deps.chat.converse(guestUser(guest), text, { smart: false, guest: true });
+      await send(chatId, result.kind === 'tool' ? result.answer.reply : result.text);
+    } catch (error) {
+      deps.onError?.(`Бот Telegram: ответ гостю не получился: ${String(error)}`);
+      await send(chatId, 'Не получилось ответить. Попробуйте ещё раз чуть позже.');
+    } finally {
+      stop();
+    }
+  }
+
+  async function onGuestCallback(chatId: number, data: string, messageId?: number): Promise<void> {
+    const guest = await deps.guests.get(String(chatId));
+    if (!guest || guest.blocked || !deps.guestsEnabled()) return;
+    const action = data.slice(2);
+    const edit = async (text: string, rows: Button[][]) => {
+      if (messageId !== undefined) {
+        const done = await api('editMessageText', {
+          chat_id: chatId,
+          message_id: messageId,
+          text,
+          reply_markup: { inline_keyboard: rows },
+        });
+        if (done !== null) return;
+      }
+      await send(chatId, text, rows);
+    };
+    if (action === 'menu') return edit('Что сделать?', guestRows(guest));
+    if (action === 'help') return void (await send(chatId, GUEST_HELP, guestRows(guest)));
+    if (action === 'sub' || action === 'unsub') {
+      const updated = await deps.guests.update(guest.chatId, { subscribed: action === 'sub' });
+      if (updated && action === 'sub')
+        deps.tellAdmins(
+          'Новый подписчик на дайджест',
+          `${guest.name || 'Человек'} подписался(лась) на утренний дайджест в Telegram.`,
+        );
+      return edit(
+        action === 'sub'
+          ? 'Готово: дайджест будет приходить утром. Выберите темы (по умолчанию — новости) и, если хотите погоду, свой город.'
+          : 'Дайджест выключен.',
+        guestRows(updated ?? guest),
+      );
+    }
+    if (action === 'topics') return edit('Отметьте темы дайджеста (не больше восьми):', topicRows(guest));
+    if (action.startsWith('t:')) {
+      const id = action.slice(2);
+      if (!GUEST_TOPICS.includes(id)) return;
+      const on = guest.topics.includes(id);
+      const next = on ? guest.topics.filter((item) => item !== id) : [...guest.topics, id];
+      const updated = await deps.guests.update(guest.chatId, { topics: next });
+      if (updated) await edit('Отметьте темы дайджеста (не больше восьми):', topicRows(updated));
+      const def = INTERESTS.find((item) => item.id === id);
+      if (!on && def?.level === 'cefr') {
+        await send(chatId, `${def.title}: какой у вас уровень?`, [
+          CEFR_LEVELS.slice(0, 3).map((level) => ({ text: level, callback_data: `g:l:${id}:${level}` })),
+          CEFR_LEVELS.slice(3).map((level) => ({ text: level, callback_data: `g:l:${id}:${level}` })),
+        ]);
+      }
+      return;
+    }
+    if (action.startsWith('l:')) {
+      const [, id, level] = action.split(':');
+      if (id && level && GUEST_TOPICS.includes(id) && (CEFR_LEVELS as readonly string[]).includes(level)) {
+        await deps.guests.update(guest.chatId, { levels: { [id]: level } });
+        await send(chatId, `Уровень ${level} запомнила: слова будут подбираться под него.`);
+      }
+      return;
+    }
+    if (action === 'city') {
+      guestModes.set(chatId, { kind: 'city', until: deps.clock().getTime() + 10 * 60_000 });
+      return void (await send(chatId, 'Напишите свой город (например, «Минск»).'));
+    }
+    if (action === 'preview') {
+      const stop = typing(chatId);
+      try {
+        await send(chatId, await deps.guestDigest(guest), undefined, true);
+      } finally {
+        stop();
+      }
+    }
+  }
   async function onUpdate(update: TgUpdate) {
     try {
       if (update.message) await onMessage(update.message);
@@ -974,6 +1172,10 @@ export function createTelegramBot(deps: BotDeps) {
         const chatId = query.message?.chat.id;
         if (chatId === undefined || query.message?.chat.type !== 'private' || tooFast(chatId)) return;
         const user = await userOfChat(chatId);
+        if (!user && query.data?.startsWith('g:')) {
+          await onGuestCallback(chatId, query.data, query.message?.message_id);
+          return;
+        }
         if (!user || query.data === undefined || query.data === 'noop') return;
         await onCallback(user, chatId, query.data, query.message?.message_id);
       }

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { DigestMine, DigestSettings } from '../../../shared/extras.ts';
 import { isDisabled, type StoredUser } from '../auth/users.ts';
+import type { Guest } from '../guests/guests.ts';
 import { createSerialQueue, readJsonFile, writeJsonAtomic } from '../lib/json-store.ts';
 import type { Clock } from '../lib/time.ts';
 import type { NotificationCenter } from '../notify/center.ts';
@@ -86,6 +87,8 @@ export function createDigest(options: {
   }>;
   /** The blocks for the interests of people (language words, tips, feeds). */
   topics?: Topics;
+  /** The people from outside the family who subscribed in the bot: the same blocks, nothing personal. */
+  guests?: { subscribers: () => Promise<Guest[]> };
   /** Also tells the bot to send a text to a chat (the bot of the family); used instead of the plain sender when given. */
   sendTelegram?: (chatId: string, text: string, html?: boolean) => Promise<boolean>;
   fetch?: typeof fetch;
@@ -221,6 +224,38 @@ export function createDigest(options: {
     return [head, ...(body.length > 0 ? body : [dateLine]), '🌿 Хорошего дня!'].join('\n\n');
   }
 
+  /** The digest of a person from outside the family: only what is shared (weather of their city, the blocks of their topics, the rates). */
+  async function guestText(guest: Guest): Promise<string> {
+    const day = localMoment(options.clock()).day;
+    const date = new Date(`${day}T00:00:00Z`);
+    const dateLine = `Сегодня ${WEEKDAYS[date.getUTCDay()]}, ${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}.`;
+    const sections: Section[] = [];
+    if (guest.latitude !== null && guest.longitude !== null) {
+      const { latitude, longitude } = guest;
+      const weather = await cached(`weather:${latitude},${longitude}`, () =>
+        weatherToday(latitude, longitude, fetchImpl),
+      );
+      if (weather) sections.push({ icon: '🌤', title: `Погода, ${guest.city}`, lines: [weather] });
+    }
+    if (options.topics) {
+      for (const id of topicsOf(guest.topics)) {
+        const block = await options.topics.block(id, guest.levels[id], day);
+        if (block) sections.push(block);
+      }
+    }
+    const currency = await cached('currency', () => currencyToday(fetchImpl));
+    if (currency) sections.push({ icon: '💱', title: 'Курсы (Нацбанк РБ)', lines: [currency] });
+    const head = `Доброе утро${guest.name ? `, ${guest.name}` : ''}!\n${dateLine}`;
+    const body = sections.map(
+      (s) => `${s.icon} ${s.title}\n${s.lines.map((line) => `• ${line}`).join('\n')}`,
+    );
+    return [
+      head,
+      ...body,
+      '🌿 Хорошего дня! Темы и город можно поменять в боте: /menu. Отписаться: /stop',
+    ].join('\n\n');
+  }
+
   async function deliver(
     user: StoredUser,
     text: string,
@@ -296,6 +331,8 @@ export function createDigest(options: {
       });
       return { text, how };
     },
+    /** The digest of a guest as it would arrive now (the blocks are shared with the family's). */
+    guestText,
     /** Everybody who wants it, in one session of the bigger model. */
     async runAll(): Promise<number> {
       if (running) return 0;
@@ -320,6 +357,14 @@ export function createDigest(options: {
               done += 1;
             } catch (error) {
               options.onError?.(`Дайджест для одного из людей не получился: ${String(error)}`);
+            }
+          }
+          // People from outside the family: the same blocks, one text for each (no model for each of them).
+          for (const guest of (await options.guests?.subscribers()) ?? []) {
+            try {
+              if (await sendTelegram(guest.chatId, await guestText(guest))) done += 1;
+            } catch (error) {
+              options.onError?.(`Дайджест для гостя не получился: ${String(error)}`);
             }
           }
         });

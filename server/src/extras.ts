@@ -51,6 +51,8 @@ export interface ExtrasDeps {
   profiles: ProfileStore;
   /** Sends a text to a Telegram chat (the family's bot); false when it cannot. */
   sendTelegram?: (chatId: string, text: string, html?: boolean) => Promise<boolean>;
+  /** People from outside the family who subscribed to the digest in the bot. */
+  guests?: { subscribers: () => Promise<import('./guests/guests.ts').Guest[]> };
   freeBytes: (dir: string) => Promise<number | null>;
   log: { warn: (message: string) => void };
   /** How the previous run of the portal ended. */
@@ -134,6 +136,7 @@ export function createExtras(deps: ExtrasDeps) {
     clock,
     users: () => users.list(),
     topics,
+    ...(deps.guests ? { guests: deps.guests } : {}),
     llm,
     notify: (input) => notify.notify(input),
     profile: async (username) => {

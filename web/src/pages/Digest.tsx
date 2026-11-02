@@ -36,6 +36,82 @@ function DigestView(props: { text: string }) {
   );
 }
 
+interface GuestRow {
+  chatId: string;
+  name: string;
+  joinedAt: string;
+  subscribed: boolean;
+  topics: string[];
+  city: string;
+  blocked: boolean;
+  total: number;
+}
+
+/** For the administrator: the people from outside the family who talk to the bot and get the shared digest. */
+function GuestsSection(props: {
+  run: <T>(job: () => Promise<T>, ok: string) => Promise<void>;
+  busy: boolean;
+}) {
+  const ids = useId();
+  const data = useResource<{ guests: GuestRow[] }>('/api/admin/guests');
+  const list = data.data?.guests ?? [];
+  const act = async (path: string, body: object, ok: string) => {
+    await props.run(() => apiPost(path, body), ok);
+    data.reload();
+  };
+  return (
+    <section class="page-section" aria-labelledby={`${ids}-g`}>
+      <h2 id={`${ids}-g`} class="section-title">
+        Люди не из семьи в Telegram-боте
+      </h2>
+      <p class="meta">
+        Любой, кто напишет боту, может поговорить с Оливией (до 15 сообщений в день, без доступа к чему-либо
+        семейному) и подписаться на общий утренний дайджест. Выключить совсем — «Администрирование» →
+        «Функции» → «Бот для людей не из семьи». Подписчиков: {list.filter((g) => g.subscribed).length},
+        всего: {list.length}.
+      </p>
+      {list.length === 0 ? <p class="section-lead">Пока никто не писал.</p> : null}
+      <ul class="family__people">
+        {list.map((g) => (
+          <li key={g.chatId}>
+            <strong>{g.name || 'без имени'}</strong>{' '}
+            <span class="meta">
+              {g.subscribed ? 'подписан' : 'не подписан'}
+              {g.city ? `, ${g.city}` : ''}, сообщений: {g.total}
+              {g.blocked ? ', остановлен' : ''}
+            </span>{' '}
+            <button
+              type="button"
+              class="button button--quiet"
+              disabled={props.busy}
+              onClick={() =>
+                void act(
+                  '/api/admin/guests/block',
+                  { chatId: g.chatId, blocked: !g.blocked },
+                  g.blocked ? 'Снова можно писать.' : 'Остановлен.',
+                )
+              }
+            >
+              {g.blocked ? 'Вернуть' : 'Остановить'}
+            </button>{' '}
+            <button
+              type="button"
+              class="button button--quiet"
+              disabled={props.busy}
+              onClick={() => {
+                if (confirm('Убрать этого человека совсем? Он сможет написать заново.'))
+                  void act('/api/admin/guests/remove', { chatId: g.chatId }, 'Убран.');
+              }}
+            >
+              Убрать
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** «Утренний дайджест»: a short personal message every morning (portal, and Telegram if it is set up). */
 export function DigestPage() {
   const ids = useId();
@@ -126,6 +202,7 @@ export function DigestPage() {
             </p>
           </section>
 
+          {d.isAdmin ? <GuestsSection run={run} busy={busy} /> : null}
           {d.isAdmin ? (
             <section class="page-section" aria-labelledby={`${ids}-adm`}>
               <h2 id={`${ids}-adm`} class="section-title">

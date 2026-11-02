@@ -35,6 +35,9 @@ import { createDownloadManager, type DownloadManager, statfsFree } from './downl
 import { registerDownloadRoutes } from './downloads/routes.ts';
 import { createTorrentManager, type TorrentManager } from './downloads/torrents.ts';
 import { createExtras } from './extras.ts';
+import { geocode } from './digest/external.ts';
+import { createGuests } from './guests/guests.ts';
+import { registerGuestRoutes } from './guests/routes.ts';
 import { createDossier } from './family/dossier.ts';
 import { registerFamilyRoutes } from './family/routes.ts';
 import { createTranscriber, transcribePaths } from './family/transcribe.ts';
@@ -768,6 +771,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     idleMs: 600_000,
   });
   let telegramBot: TelegramBot | undefined;
+  const guests = createGuests({ dataDir: config.dataDir, clock });
   const notesStore = createNotes(storage);
   // Pages saved for later and the search over everything the family keeps (pages, notes).
   const archive = createArchive({ dataDir: config.dataDir, clock, notes: notesStore });
@@ -786,6 +790,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     downloads,
     bigModel,
     profiles,
+    guests,
     sendTelegram: async (chatId, text, html) =>
       telegramBot ? telegramBot.sendToChat(chatId, text, html === true) : false,
     freeBytes,
@@ -1014,7 +1019,19 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     },
   });
   registerFamilyRoutes(app, { dossier, guards });
+  registerGuestRoutes(app, { guests, guards });
   telegramBot = createTelegramBot({
+    guests,
+    guestsEnabled: () => features.isOn('guests'),
+    geocode: (city) => geocode(city),
+    guestDigest: (guest) => extras.digest.guestText(guest),
+    tellAdmins: (title, body) => {
+      void (async () => {
+        const admins = (await users.list()).filter((entry) => entry.role === 'admin');
+        if (admins.length === 0) return;
+        await notify.notify({ users: admins.map((a) => a.id), kind: 'system', title, body, url: '/digest', key: `guest:${Date.now()}` });
+      })().catch(() => undefined);
+    },
     reportFile: (user, id, ext) => reports.file(user, id, ext),
     family: dossier,
     tokenFile: process.env.DIGEST_TELEGRAM_TOKEN_FILE?.trim() || `\\FamilyServer\\secrets\\telegram.token`,

@@ -172,12 +172,15 @@ export function createOliviaChat(options: {
         smart?: boolean;
         web?: boolean;
         channel?: 'private' | 'public';
+        /** A person from outside the family (the bot): a plain talk and the internet, nothing of the family's. */
+        guest?: boolean;
         signal?: AbortSignal;
         onStatus?: (text: string) => void;
         onToken?: (piece: string) => void;
       } = {},
     ): Promise<ConverseResult> {
       const text = message.trim().slice(0, 2000);
+      const guest = opts.guest === true;
       // «Скачай мне …» without a link: she does not look for torrents by name (that would mean pirated copies), but she looks in the library.
       if (
         !/https?:\/\/|magnet:/i.test(text) &&
@@ -191,7 +194,7 @@ export function createOliviaChat(options: {
           .replace(/\s+/g, ' ')
           .trim();
         const found =
-          topic.length > 2
+          topic.length > 2 && !guest
             ? await options.assistant.ask(user, `найди фильм ${topic}`, opts.channel ?? 'private')
             : null;
         const cards = found?.tool === 'media' ? found.cards : [];
@@ -213,7 +216,7 @@ export function createOliviaChat(options: {
         return { kind: 'tool', answer };
       }
       // «Сделай отчёт о сервере»: a picture and a document with the metrics, charts and warnings.
-      const wanted = options.reports ? reportIntent(text) : null;
+      const wanted = options.reports && !guest ? reportIntent(text) : null;
       if (wanted && options.reports) {
         opts.onStatus?.('Составляю отчёт с графиками…');
         let reply: string;
@@ -248,7 +251,7 @@ export function createOliviaChat(options: {
         return { kind: 'tool', answer };
       }
       // «Сохрани страницу …», «что я сохранял про …»: the family's own archive, before the internet.
-      const saveUrl = options.knowledge ? SAVE_RE.exec(text)?.[1] : undefined;
+      const saveUrl = options.knowledge && !guest ? SAVE_RE.exec(text)?.[1] : undefined;
       let own = '';
       let ownSources: string[] = [];
       if (options.knowledge && saveUrl) {
@@ -265,7 +268,7 @@ export function createOliviaChat(options: {
         opts.onToken?.(reply);
         return { kind: 'chat', text: reply, model: 'quick', sources: [] };
       }
-      if (options.knowledge && KB_RE.test(text)) {
+      if (options.knowledge && !guest && KB_RE.test(text)) {
         opts.onStatus?.('Ищу в ваших заметках и сохранённых страницах…');
         const query = text.replace(KB_RE, ' ').replace(/\s+/g, ' ').trim() || text;
         const hits = await options.knowledge.search(user, query);
@@ -275,8 +278,10 @@ export function createOliviaChat(options: {
             : 'В заметках и сохранённых страницах семьи по этому запросу ничего не нашлось (так и скажи, не придумывай).';
         ownSources = hits.slice(0, 3).map((h) => h.href);
       }
-      const intent = opts.web === false || own !== '' ? null : webIntent(text);
-      if (!intent) {
+      const found = opts.web === false || own !== '' ? null : webIntent(text);
+      // A guest may ask for the news and a search, but not make the server open any page.
+      const intent = guest && found?.kind === 'page' ? null : found;
+      if (!intent && !guest) {
         const plan = routeByRules(text);
         // «Напиши…», «объясни…», «реши…» is a talk, not a search of the film library or of the files.
         const talk =

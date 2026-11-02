@@ -7,6 +7,7 @@ import { createTopics } from '../src/digest/topics.ts';
 import { createDossier } from '../src/family/dossier.ts';
 import { QUESTIONS } from '../src/family/questions.ts';
 import { createFeatureStore } from '../src/features/features.ts';
+import { createGuests, GUEST_DAILY_MESSAGES } from '../src/guests/guests.ts';
 import { createDiskHistory } from '../src/health/disk-history.ts';
 import { serverReport } from '../src/reports/build.ts';
 import { reportIntent } from '../src/reports/service.ts';
@@ -236,5 +237,26 @@ describe('functions that wait for the administrator', () => {
     await again.load();
     expect(again.isOn('transcribe')).toBe(true);
     expect(again.isOn('family')).toBe(false);
+  });
+});
+
+describe('people from outside the family', () => {
+  it('opens a person once, counts their messages per day, keeps only allowed topics and lets the administrator stop them', async () => {
+    const dir = await temp();
+    let now = new Date('2026-11-02T08:00:00Z');
+    const guests = createGuests({ dataDir: dir, clock: () => now });
+    const first = await guests.open('1001', 'Игорь');
+    expect(first?.subscribed).toBe(false);
+    await guests.update('1001', { subscribed: true, topics: ['news', 'german', 'family-secrets', 'tasks'] });
+    expect((await guests.get('1001'))?.topics).toEqual(['news', 'german']);
+    expect((await guests.subscribers()).map((g) => g.chatId)).toEqual(['1001']);
+    for (let i = 0; i < GUEST_DAILY_MESSAGES; i += 1) expect(await guests.count('1001')).toBe(true);
+    expect(await guests.count('1001')).toBe(false);
+    now = new Date('2026-11-03T08:00:00Z');
+    expect(await guests.count('1001')).toBe(true);
+    await guests.block('1001', true);
+    expect(await guests.open('1001', 'Игорь')).toBeNull();
+    expect(await guests.subscribers()).toEqual([]);
+    expect(await guests.remove('1001')).toBe(true);
   });
 });

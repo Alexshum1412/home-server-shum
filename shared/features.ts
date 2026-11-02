@@ -118,6 +118,13 @@ export const FEATURES: readonly FeatureDef[] = [
     defaultOff: true,
   },
   {
+    id: 'guests',
+    title: 'Бот для людей не из семьи',
+    lead: 'Любой может написать Оливии в Telegram и подписаться на общий утренний дайджест; ничего семейного ему недоступно.',
+    page: '',
+    prefixes: ['/api/guests'],
+  },
+  {
     id: 'print',
     title: 'Печать',
     lead: 'Печать документов на принтере.',
