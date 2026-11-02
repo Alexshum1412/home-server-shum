@@ -58,7 +58,7 @@ async function run(updates: object[], options: { chat?: boolean; enabled?: boole
     guestsEnabled: () => options.enabled !== false,
     geocode: async () => null,
     guestDigest: async () => 'Дайджест',
-    tellAdmins: (title) => notices.push(title),
+    tellAdmins: (title: string) => notices.push(title),
     knowledge: {} as never,
     deadlinesText: async () => '',
     reportFile: async () => null,

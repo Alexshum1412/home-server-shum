@@ -8,8 +8,14 @@
  * sends a command line, a path or any other name. Everything that leaves this module as text goes
  * through the sanitiser first (see sanitize.ts).
  */
-import { promises as fsp } from 'node:fs';
+import { existsSync, promises as fsp } from 'node:fs';
 import path from 'node:path';
+
+const DOCKER_PATHS = [
+  'C:/Program Files/Docker/Docker/resources/bin/docker.exe',
+  'C:/Windows/System32/docker.exe',
+];
+
 import type { DownloadTaskView, ProgramState, ServiceStatus, SystemResponse } from '../../../shared/api.ts';
 import {
   type DownloadCounts,
@@ -272,6 +278,22 @@ export function createServerPage(deps: ServerPageDeps) {
     };
   }
 
+  /** Docker is not part of the base install: it is only looked for in the usual places. */
+  function dockerState(): { installed: boolean; message: string } {
+    const installed = DOCKER_PATHS.some((file) => existsSync(file));
+    return installed
+      ? {
+          installed,
+          message:
+            'Docker установлен. Контейнеры (ArchiveBox, Home Assistant) запускаются вручную: см. docs/runbooks/docker.md.',
+        }
+      : {
+          installed,
+          message:
+            'Docker не установлен (нужен только для ArchiveBox и Home Assistant; всё остальное работает без него). Как поставить: docs/runbooks/docker.md.',
+        };
+  }
+
   async function view(raw = false): Promise<ServerPageResponse> {
     const snapshot = deps.snapshot();
     const { list, supervisorRunning, note } = programs(snapshot);
@@ -301,6 +323,7 @@ export function createServerPage(deps: ServerPageDeps) {
       backupRunning: await deps.backupRunning(),
       model: await deps.model(),
       downloads,
+      docker: dockerState(),
     };
   }
 

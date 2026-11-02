@@ -464,7 +464,7 @@ export function OliviaThread(props: { onBack: () => void }) {
                     <p class="msg__text">
                       {turn.text}
                       {turn.streaming && turn.text === '' ? (
-                        <span class="typing" aria-label="Оливия печатает">
+                        <span class="typing" role="img" aria-label="Оливия печатает">
                           <i />
                           <i />
                           <i />
