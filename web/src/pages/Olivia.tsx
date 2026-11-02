@@ -361,7 +361,16 @@ export function OliviaPage() {
         </p>
       ) : null}
       <section class="olivia" aria-label="Разговор с Оливией">
-        <div ref={log} class="olivia__log" role="log" aria-live="polite" aria-relevant="additions">
+        <div
+          ref={log}
+          class="olivia__log"
+          role="log"
+          aria-label="Разговор"
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be reachable from the keyboard
+          tabIndex={0}
+          aria-live="polite"
+          aria-relevant="additions"
+        >
           {turns.map((turn) => (
             <div key={turn.id} class={turn.from === 'me' ? 'olivia-turn olivia-turn--me' : 'olivia-turn'}>
               <p class="olivia-turn__who">{turn.from === 'me' ? 'Вы' : 'Оливия'}</p>
