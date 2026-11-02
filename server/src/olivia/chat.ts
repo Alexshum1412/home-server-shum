@@ -74,6 +74,22 @@ export async function externalHeaders(external: ExternalLlm | undefined): Promis
   return { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) };
 }
 
+/**
+ * Some free models put their reasoning into the answer («<think>…</think>», «Thinking: …»). What is left is the answer
+ * itself; if it is nothing but reasoning, an empty string is returned and the next model is asked.
+ */
+export function cleanFreeAnswer(raw: string): string {
+  let text = raw.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '');
+  const closing = text.search(/<\/think(?:ing)?>/i);
+  if (closing >= 0) {
+    const tail = text.slice(closing).replace(/<\/think(?:ing)?>/gi, '').trim();
+    text = tail;
+  }
+  text = text.replace(/<\/?think(?:ing)?>/gi, '').trim();
+  if (/^(thinking|reasoning|рассуждени[ея]|размышлени[ея])\b[\s:.]/i.test(text)) return '';
+  return text;
+}
+
 async function* streamChat(
   url: string,
   headers: Record<string, string>,
@@ -397,10 +413,15 @@ export function createOliviaChat(options: {
               fetchImpl,
             )) {
               out += piece;
-              opts.onToken?.(piece);
+              // A free model may think aloud: its text is shown only after it is cleaned.
+              if (model !== 'free') opts.onToken?.(piece);
             }
           } finally {
             clearTimeout(timer);
+          }
+          if (model === 'free') {
+            out = cleanFreeAnswer(out);
+            if (out !== '') opts.onToken?.(out);
           }
           return { out: out.trim(), model };
         };
@@ -409,11 +430,14 @@ export function createOliviaChat(options: {
         // when the tokens run out, the internet is gone or the switch is off.
         if (options.external && options.external.enabled() && !opts.signal?.aborted) {
           opts.onStatus?.('Думаю…');
-          try {
-            const answer = await run(options.external.url, 'free');
-            if (answer.out !== '') result = answer;
-          } catch {
-            result = null;
+          // Twice at most: the router may pick a model that only «thinks aloud»; the second pick is usually another one.
+          for (let attempt = 0; attempt < 2 && !result && !opts.signal?.aborted; attempt += 1) {
+            try {
+              const answer = await run(options.external.url, 'free');
+              if (answer.out !== '') result = answer;
+            } catch {
+              break;
+            }
           }
         }
         if (!result && opts.smart && options.big.available()) {
