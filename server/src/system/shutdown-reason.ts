@@ -47,6 +47,27 @@ export function parseEvents(xml: string): LogEvent[] {
   return events;
 }
 
+/** The stop codes that say the most about a failing computer. */
+const STOP_CODES: Record<number, string> = {
+  26: 'ошибка управления памятью — часто это неисправная оперативная память: запустите «Средство проверки памяти Windows» (mdsched)',
+  80: 'обращение к неверной области памяти — подозрение на оперативную память или драйвер',
+  292: 'аппаратная ошибка процессора, памяти или шины',
+  307: 'зависание драйвера или устройства',
+  159: 'сбой управления питанием драйвером',
+  59: 'сбой системной службы или драйвера',
+  126: 'необработанная ошибка драйвера',
+  209: 'драйвер обратился к неверной памяти',
+  10: 'драйвер обратился к неверной памяти',
+};
+
+function stopCode(raw: string | undefined): { hex: string; hint: string } | null {
+  if (!raw) return null;
+  const text = raw.trim();
+  const value = /^0x/i.test(text) ? Number.parseInt(text, 16) : Number.parseInt(text, 10);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return { hex: `0x${value.toString(16).toUpperCase()}`, hint: STOP_CODES[value] ?? '' };
+}
+
 const hhmm = (date: Date) => date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 
 /** What the events say, in plain Russian. `bootedAt` — when Windows itself last started. */
@@ -75,8 +96,8 @@ export function explainShutdown(
     return `Компьютер ${kind} штатно, командой Windows (по запросу «${who}», в журнале: ${why}) в ${hhmm(planned.at)}. Это не поломка.`;
   }
   if (bugcheck || (power && Number(power.data.BugcheckCode) > 0)) {
-    const code = bugcheck?.data.param1 || power?.data.BugcheckCode;
-    return `Windows упала с синим экраном${code ? ` (код ${code})` : ''} и перезагрузилась сама. Это сбой системы, драйвера или оборудования.`;
+    const code = stopCode(power?.data.BugcheckCode) ?? stopCode(bugcheck?.data.param1?.split(' ')[0]);
+    return `Windows упала с синим экраном${code ? ` (код ${code.hex}${code.hint ? `: ${code.hint}` : ''})` : ''} и перезагрузилась сама. Это сбой системы, драйвера или оборудования.`;
   }
   if (hardware) {
     return `Windows записала аппаратную ошибку (${hhmm(hardware.at)}: процессор, память или диск) — после неё компьютер выключился. Нужна проверка оборудования.`;

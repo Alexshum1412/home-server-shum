@@ -44,7 +44,18 @@ describe('why the server came back by itself', () => {
       { previousAt, bootedAt },
     );
     expect(text).toContain('синим экраном');
-    expect(text).toContain('292');
+    expect(text).toContain('0x124');
+  });
+
+  it('a memory stop code points at the memory test', () => {
+    const text = explainShutdown(
+      parseEvents(
+        event(41, 'Microsoft-Windows-Kernel-Power', '2026-11-03T03:20:05Z', { BugcheckCode: '26' }),
+      ),
+      { previousAt, bootedAt },
+    );
+    expect(text).toContain('0x1A');
+    expect(text).toContain('mdsched');
   });
 
   it('a planned restart is said to be no breakdown', () => {
