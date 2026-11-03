@@ -127,3 +127,24 @@ describe('a stranger in the bot', () => {
     expect(sends(sent)[0]).toContain('только для семьи');
   });
 });
+
+describe('a message that waited while the server was off', () => {
+  it('is answered with a note about the delay, once, and not when it is fresh', async () => {
+    const clockNow = new Date('2026-11-03T08:00:00Z').getTime() / 1000;
+    const late = (id: number, date: number) => ({
+      update_id: id,
+      message: {
+        message_id: id,
+        date,
+        chat: { id: 5001, type: 'private' },
+        from: { first_name: 'Аня' },
+        text: 'привет',
+      },
+    });
+    const { sent } = await run([late(1, clockNow - 3 * 3600), late(2, clockNow - 3 * 3600 + 60)]);
+    const texts = sends(sent);
+    expect(texts.filter((text) => text.startsWith('⏱ Я отвечаю с опозданием'))).toHaveLength(1);
+    const fresh = await run([late(3, clockNow - 5)]);
+    expect(sends(fresh.sent).some((text) => text.startsWith('⏱'))).toBe(false);
+  });
+});

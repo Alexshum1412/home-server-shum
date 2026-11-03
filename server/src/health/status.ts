@@ -85,6 +85,8 @@ export function buildFamilyStatus(input: {
   });
 
   const low = system.volumes.find((v) => v.lowSpace);
+  // Nothing measured yet (the server has only just started): never say «достаточно» without a measurement.
+  const measured = system.volumes.some((v) => v.freeBytes !== null);
   const soon = forecast.find((f) => f.daysLeft !== null && f.daysLeft < 30);
   items.push(
     low
@@ -96,7 +98,9 @@ export function buildFamilyStatus(input: {
             level: 'warn',
             text: `при нынешней скорости закончится примерно через ${soon.daysLeft} дн.`,
           }
-        : { id: 'disk', title: 'Место на диске', level: 'ok', text: 'достаточно' },
+        : measured
+          ? { id: 'disk', title: 'Место на диске', level: 'ok', text: 'достаточно' }
+          : { id: 'disk', title: 'Место на диске', level: 'unknown', text: 'ещё не проверено' },
   );
 
   const level = worst(items.map((item) => item.level));

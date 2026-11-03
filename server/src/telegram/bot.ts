@@ -39,6 +39,8 @@ interface TgMessage {
   message_id: number;
   from?: TgUser;
   chat: TgChat;
+  /** When the person sent it (unix seconds, Telegram's clock). */
+  date?: number;
   text?: string;
   caption?: string;
   photo?: TgFile[];
@@ -1182,10 +1184,34 @@ export function createTelegramBot(deps: BotDeps) {
       }
     }
   }
+  /** A message that waited while the server was off is answered late: the person is told so, once, with the real time. */
+  const lateNoted = new Map<number, number>();
+  async function noteIfLate(message: TgMessage): Promise<void> {
+    if (message.chat.type !== 'private' || message.date === undefined) return;
+    const now = deps.clock().getTime();
+    const waitedMs = now - message.date * 1000;
+    if (waitedMs < 3 * 60_000) return;
+    const noted = lateNoted.get(message.chat.id) ?? 0;
+    if (now - noted < 10 * 60_000) return;
+    lateNoted.set(message.chat.id, now);
+    const sentAt = new Date(message.date * 1000).toLocaleString('ru-RU', {
+      day: 'numeric',
+      month: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    await send(
+      message.chat.id,
+      `⏱ Я отвечаю с опозданием: ваше сообщение от ${sentAt} дождалось, пока сервер был выключен или без связи. Всё, что я скажу о состоянии, относится к этой минуте, а не к тому времени.`,
+    );
+  }
+
   async function onUpdate(update: TgUpdate) {
     try {
-      if (update.message) await onMessage(update.message);
-      else if (update.callback_query?.message) {
+      if (update.message) {
+        await noteIfLate(update.message);
+        await onMessage(update.message);
+      } else if (update.callback_query?.message) {
         const query = update.callback_query;
         void api('answerCallbackQuery', { callback_query_id: query.id });
         const chatId = query.message?.chat.id;

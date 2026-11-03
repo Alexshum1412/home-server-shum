@@ -1,4 +1,5 @@
 import { existsSync, promises as fsp } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import fastifyCookie from '@fastify/cookie';
 import Fastify, {
@@ -105,6 +106,7 @@ import { createSystemCollector, type ProbeTimeouts, type SystemCollector } from 
 import { createDefaultProbes, type SystemProbes } from './system/probes.ts';
 import { registerSystemRoutes } from './system/routes.ts';
 import { clockTime, createRunState } from './system/run-state.ts';
+import { findShutdownReason } from './system/shutdown-reason.ts';
 import { createTelegramBot, type TelegramBot } from './telegram/bot.ts';
 
 export const BODY_LIMIT = 64 * 1024;
@@ -404,6 +406,15 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
   // Did the last run end on purpose? A portal that was killed or lost power is told to the administrators below.
   const runState = createRunState({ dataDir: config.dataDir, clock });
   const run = await runState.begin();
+  // Why it was cut off: asked of the Windows event log once, in the background (the answer is used by the journal and the notice).
+  const shutdownReason: Promise<string | null> =
+    run.previous.how === 'crashed'
+      ? findShutdownReason({
+          previousAt: run.previous.at ? new Date(run.previous.at) : null,
+          now: clock(),
+          bootedAt: new Date(clock().getTime() - os.uptime() * 1000),
+        })
+      : Promise.resolve(null);
   const freeBytes = options.freeBytes ?? statfsFree;
   const chatStore = createChatStore({ dir: config.chatDir, clock, onError: (message) => log.warn(message) });
   const chat = createChatService({
@@ -812,6 +823,7 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
     freeBytes,
     log,
     previousRun: run.previous,
+    shutdownReason,
   });
   const retireAccount = async (username: string, userId: string): Promise<string> => {
     progress.forget(userId);
@@ -1269,11 +1281,12 @@ export async function buildApp(options: BuildAppOptions): Promise<DashboardApp> 
         const admins = (await users.list()).filter((user) => user.role === 'admin' && !isDisabled(user));
         if (admins.length > 0) {
           const when = run.previous.at ? clockTime(run.previous.at) : 'неизвестное время';
+          const reason = (await shutdownReason) ?? 'Причина неизвестна.';
           await notify.notify({
             users: admins.map((admin) => admin.id),
             kind: 'system',
-            title: `Сервер перезапускался после сбоя в ${when}`,
-            body: 'Портал был остановлен не штатно: сбой, зависание или отключение питания. Сейчас всё работает. Подробности — на странице «Сервер».',
+            title: `Сервер включился после внезапного отключения (последний раз был жив в ${when})`,
+            body: `Причина: ${reason} Программы запускаются, полная проверка идёт; подробности — на странице «Сервер».`,
             url: '/server',
             key: `crash:${run.startedAt}`,
             urgency: 'normal',

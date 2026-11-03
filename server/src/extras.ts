@@ -60,6 +60,8 @@ export interface ExtrasDeps {
   log: { warn: (message: string) => void };
   /** How the previous run of the portal ended. */
   previousRun: { how: 'clean' | 'crashed' | 'unknown'; at: string | null };
+  /** Why the last run was cut off (from the Windows event log); null when it ended on purpose. */
+  shutdownReason?: Promise<string | null>;
 }
 
 const money = (iso: string) => iso.slice(0, 16).replace('T', ' ');
@@ -321,11 +323,14 @@ export function createExtras(deps: ExtrasDeps) {
     start(): void {
       // How the previous run ended is a fact for the journal.
       if (deps.previousRun.how === 'crashed') {
-        void incidents.add(
-          'shutdown',
-          'Сервер выключился не штатно',
-          `Последний раз был жив ${deps.previousRun.at ? money(deps.previousRun.at) : 'неизвестно когда'}: сбой, зависание или отключение питания`,
-        );
+        void (async () => {
+          const reason = (await deps.shutdownReason) ?? 'причина неизвестна';
+          await incidents.add(
+            'shutdown',
+            'Сервер выключился не штатно',
+            `Последний раз был жив ${deps.previousRun.at ? money(deps.previousRun.at) : 'неизвестно когда'}. ${reason}`,
+          );
+        })().catch(() => undefined);
       }
       // Hourly: reminders about deadlines and a point for the forecast of the disk.
       const hourly = safely('Часовые задачи', async () => {
@@ -434,7 +439,20 @@ export function createExtras(deps: ExtrasDeps) {
         forecast: await diskHistory.forecast(),
         now: clock(),
       });
-      return `.\n${status.items.map((item) => `• ${item.title}: ${item.text}`).join('\n')}`;
+      // Facts about this very moment, so that an answer given after a long silence is not taken for an old one.
+      const now = clock();
+      const since = new Date(now.getTime() - process.uptime() * 1000);
+      const when = since.toLocaleString('ru-RU', {
+        ...(since.toDateString() === now.toDateString() ? {} : { day: 'numeric', month: 'long' }),
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      const fresh =
+        process.uptime() < 600
+          ? ' — он только что запустился, проверка программ ещё идёт, сведения могут быть неполными'
+          : '';
+      const head = `Сейчас ${now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}. Портал включён в ${when}${fresh}.`;
+      return `${head}\n${status.headline}:\n${status.items.map((item) => `• ${item.title}: ${item.text}`).join('\n')}`;
     },
     today: () => localMoment(clock()).day,
   };

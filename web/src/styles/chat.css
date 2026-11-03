@@ -228,8 +228,14 @@ fieldset.segmented--set {
   display: none;
 }
 
+/* On a phone an open conversation takes the whole screen; the page heading stays for screen readers. */
 .shell__main:has(.chat--thread) .page-header {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .thread {
@@ -951,7 +957,12 @@ button.people__row:hover:not(:disabled) {
   }
 
   .shell__main:has(.chat--thread) .page-header {
-    display: block;
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
   }
 
   .thread {
